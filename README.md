@@ -2,7 +2,8 @@
 
 > **声明 / Disclaimer**
 > 游戏《[TheSeed]》（内部代号 EMBER / ACHROMA）的**著作权归原作者所有**，
-> 游戏发布于 [dzmm.ai](https://www.dzmm.ai) 平台。
+> 游戏发布于 [dzmm.ai](https://www.dzmm.ai) 平台，上游游戏页面：
+> <https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/>
 > **本仓库不是、也不声称是这款游戏的原创作品** —— 它只是一个**非官方的、
 > 离线的镜像**，供在无法访问上游平台时游玩与学习使用。
 > 本镜像**未修改任何一行游戏源码**；仓库中 `site/js/` 内的全部游戏脚本是
