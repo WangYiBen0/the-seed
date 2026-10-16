@@ -62,15 +62,20 @@ nix run .#sync     # 把新脚本按字节同步进 site/js/（只改变化的�
 
 ## 部署（GitHub Pages）
 
-仓库自带 workflow（`.github/workflows/deploy.yml`）：推送到 `main` 即构建并
-发布 `site/` 到 Pages。首次启用：仓库 Settings → Pages → Source 选
-**GitHub Actions**。
+`gh-pages` 分支即站点内容（把 `site/` 原样推到 `gh-pages` 分支根目录，含
+`.nojekyll`）。当前部署：<https://wangyiben0.github.io/the-seed/>
+
+重新发布：
 
 ```bash
-git init && git add -A && git commit -m "mirror: initial import"
-gh repo create theseed-mirror --public --source=. --push
-gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow   # 启用 Pages
+rm -rf .tmp/ghp && mkdir -p .tmp/ghp && cp -r site/. .tmp/ghp/
+cd .tmp/ghp && git init -q -b gh-pages . && git add -A && git commit -m "pages: publish"
+git push -f https://github.com/WangYiBen0/the-seed.git gh-pages
 ```
+
+启用方式：仓库 Settings → Pages → Source: **Deploy from a branch** →
+`gh-pages / (root)`（已配置）。若你更想用 GitHub Actions，见
+`site/docs/deploy-workflow.yml.example`（需要带 `workflow` scope 的 token）。
 
 ## 免责
 
