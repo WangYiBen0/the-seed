@@ -1,0 +1,6 @@
+.tmp/
+result
+result/
+[TheSeed]/
+node_modules/
+*.log

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>[TheSeed]</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23050506'/%3E%3Cellipse cx='8' cy='9' rx='4.2' ry='5' fill='%238a1820'/%3E%3Cellipse cx='8' cy='9' rx='2.4' ry='3.4' fill='%23e0483e'/%3E%3Cpath d='M8 3v4' stroke='%238ed872' stroke-width='1.4'/%3E%3Cpath d='M8 5c1.6-.2 2.6-1 3-2.2-1.6-.2-2.7.6-3 2.2zm0 1.6C6.5 6.4 5.4 5.6 5 4.3c1.7-.2 2.8.7 3 2.3z' fill='%238ed872'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="[TheSeed] 非官方离线镜像 — unofficial offline mirror with macro/benchmark tools. Game by its author on dzmm.ai; this page only mirrors it.">
+<!-- the host page's user-select lockdown, kept for parity with the original -->
+<style data-dzmm-game-interaction="">
+html, body, body * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+</style>
+<style>
+  html,body{margin:0;height:100vh;height:100dvh;background:#050506;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center;cursor:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+  canvas#c{image-rendering:pixelated}
+  #mirror-note{position:fixed;left:0;right:0;bottom:2px;text-align:center;font:10px/1.4 "Microsoft YaHei","PingFang SC",sans-serif;color:#57534c;pointer-events:none;user-select:none;-webkit-user-select:none;z-index:5;letter-spacing:.05em}
+  #mirror-note a{color:#6e675c;text-decoration:none}
+</style>
+</head>
+<body>
+<canvas id="c" width="1440" height="810"></canvas>
+<div id="mirror-note">非官方离线镜像 · UNOFFICIAL OFFLINE MIRROR — 游戏著作权归原作者所有，本页面仅为镜像并附工具 · game © its author (dzmm.ai) · not affiliated</div>
+
+<!-- 1) our dzmm platform shim (provides window.dzmm + localStorage persistence) -->
+<script src="dzmm-shim.js"></script>
+<!-- 2) tool core: speed warp (rAF), seeded RNG, perf mode — must run before the game boots -->
+<script src="tools/core.js"></script>
+<!-- 3) upstream platform layer, byte-for-byte; it loads every game script from js/ -->
+<script src="js/platform.js"></script>
+<!-- 4) the rest of the workshop (they attach once the game has booted) -->
+<script src="tools/macro.js"></script>
+<script src="tools/auto.js"></script>
+<script src="tools/hud.js"></script>
+<script src="tools/bench.js"></script>
+<script src="tools/explore.js"></script>
+<script src="tools/panel.js"></script>
+</body>
+</html>
