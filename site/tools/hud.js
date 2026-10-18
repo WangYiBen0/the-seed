@@ -56,7 +56,7 @@
   // ---------------- overlay ----------------
   const cv = document.createElement('canvas');
   cv.id = 'tsw-hud'; cv.width = 300; cv.height = 210;
-  cv.style.cssText = 'position:fixed;top:6px;right:6px;z-index:40;pointer-events:none;opacity:.92;image-rendering:auto;border-radius:6px;box-shadow:0 0 12px rgba(0,0,0,.6)';
+  cv.style.cssText = 'position:fixed;top:6px;right:6px;z-index:40;pointer-events:auto;cursor:default;opacity:.92;image-rendering:auto;border-radius:6px;box-shadow:0 0 12px rgba(0,0,0,.6)';
   document.body.appendChild(cv);
   const cx = cv.getContext('2d');
 

@@ -15,7 +15,7 @@
     'position:fixed', 'left:8px', 'top:8px', 'z-index:60', 'width:252px',
     'background:rgba(10,9,8,.94)', 'border:1px solid #36322d', 'border-radius:8px',
     'color:#e8e1d3', 'font:11px/1.5 ui-monospace,Menlo,Consolas,"Microsoft YaHei",monospace',
-    'box-shadow:0 4px 18px rgba(0,0,0,.55)', 'user-select:none', '-webkit-user-select:none',
+    'box-shadow:0 4px 18px rgba(0,0,0,.55)', 'user-select:none', '-webkit-user-select:none', 'cursor:default',
   ].join(';');
   document.body.appendChild(root);
   const stop = (e) => { e.stopPropagation(); };
@@ -94,7 +94,7 @@
   const sAuto = section('自动挂机 · AUTOPILOT');
   const modeSel = sel([['off', '关闭'], ['combat', '战斗模式（原地打怪）'], ['full', '全自动（探索/战斗/购物/无尽）']]);
   modeSel.value = TSW.auto.mode; modeSel.onchange = () => { TSW.auto.setMode(modeSel.value); }; row(sAuto).append(modeSel);
-  const polSel = sel([['bloom', '流派: 坏死爆裂连锁 (bloom)'], ['offense', '流派: 极限输出 (offense)'], ['balanced', '流派: 均衡 (balanced)'], ['survival', '流派: 生存 (survival)']]);
+  const polSel = sel([['bloom', '流派: 坏死爆裂连锁 (bloom)'], ['offense', '流派: 极限输出 (offense)'], ['balanced', '流派: 均衡 (balanced)'], ['survival', '流派: 生存 (survival)'], ['crit', '流派: 暴击狙击 (crit)'], ['dot', '流派: 元素侵蚀 (dot)'], ['melee', '流派: 近战斩击 (melee)'], ['ally', '流派: 伙伴军团 (ally)'], ['ammo', '流派: 弹药工程 (ammo)'], ['phase', '流派: 虚体闪避 (phase)']]);
   polSel.value = TSW.auto.policy; polSel.onchange = () => TSW.auto.setPolicy(polSel.value); row(sAuto).append(polSel);
   const ao = TSW.auto.opts;
   row(sAuto).append(
@@ -108,7 +108,7 @@
   // ---------------- 测评（无尽探索） ----------------
   const sExp = section('无尽流派测评 · EXPLORE');
   const expCfg = row(sExp);
-  const expPolicy = sel([['bloom', 'bloom'], ['offense', 'offense'], ['balanced', 'balanced'], ['survival', 'survival']]);
+  const expPolicy = sel([['bloom', 'bloom'], ['offense', 'offense'], ['balanced', 'balanced'], ['survival', 'survival'], ['crit', 'crit'], ['dot', 'dot'], ['melee', 'melee'], ['ally', 'ally'], ['ammo', 'ammo'], ['phase', 'phase']]);
   const expDepth = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
   expDepth.value = '2'; expDepth.title = '目标无尽深度';
   const expSeeds = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
@@ -194,7 +194,7 @@
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
     TSW.perf.enable();
-    const emit = (r) => { console.info('TSW_RESULT ' + JSON.stringify(r)); };
+    const emit = (r) => { (window.__TSW_RESULTS = window.__TSW_RESULTS || []).push(r); console.info('TSW_RESULT ' + JSON.stringify(r)); };
     TSW.whenGame().then(async () => {
       try {
         if (kind === 'throughput') emit(await TSW.bench.run('throughput', opts));

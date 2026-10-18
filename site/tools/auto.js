@@ -35,6 +35,18 @@
     offense: { keen: 2, heavy: 2, frenzy: 2, overk: 2.2, fork: 1.8, echo: 1.6, needle: 1.5, focus: 1.4, guill: 1.5, big: 1.5, moment: 1.2, rico: 1.3, seeker: 1.2, lastround: 1.3, primed: 1.3, glass: 1.4 },
     bloom: { bloom: 3, shrap: 2.6, fury: 1.8, leech: 1.8, fork: 1.7, echo: 1.4, frenzy: 1.5, heavy: 1.3, keen: 1.2, rime: 1.1, ember: 1.1, big: 1.3, stat: 1.2, drone: 1.2, plate: 1.2, vital: 1.1 },
     survival: { plate: 2.4, vital: 2.4, leech: 2, quick: 1.4, spite: 1.4, swift: 1.3, after: 1.2, frenzy: 1.2, heavy: 1.2, keen: 1.2 },
+    // 暴击狙击：mark+keen→omen（标记暴击×1.5）、allin+keen→jackpot、farshot+expose→sniper/hawkeye
+    crit: { keen: 2.6, mark: 2.4, heavy: 1.8, frenzy: 1.8, allin: 1.4, farshot: 1.6, expose: 1.5, focus: 1.3, guill: 1.3, lastround: 1.3, big: 1.2, moment: 1.1, needle: 1.2, glass: 1.3 },
+    // 元素侵蚀：四元素+prism，caustic/plasma/shatter 群体协同，高频低伤武器上元素最快
+    dot: { ember: 2.2, venom: 2.2, arc: 1.8, rime: 1.8, prism: 2.4, keen: 1.1, seeker: 1.2, stat: 1.2, plate: 1.2, vital: 1.2, leech: 1.2, quick: 1.2 },
+    // 近战斩击：needle/rico/lead→wreck（弹射长大）、guill 处决、moment 走A打A
+    melee: { needle: 2, rico: 1.8, lead: 1.6, guill: 2, moment: 1.6, echo: 1.4, overk: 1.4, swift: 1.4, heavy: 1.3, veil: 1.3, plate: 1.2, leech: 1.3, frac: 1.2 },
+    // 伙伴军团：drone+fork→swarm 双发、volley+fork→firing 副手齐射、stat/sat 自动火力
+    ally: { drone: 2.6, fork: 2.2, stat: 2, sat: 2, volley: 1.8, seeker: 1.3, frenzy: 1.2, heavy: 1.2, plate: 1.2, vital: 1.2, leech: 1.2 },
+    // 弹药工程：热循环（hotb/overheat）、装填（quick/tactical/refit）、空尖（lastround/primed/rnova）
+    ammo: { quick: 2.2, hotb: 2.2, lastround: 1.8, primed: 1.8, extmag: 1.6, tactical: 1.5, rnova: 1.5, refit: 1.4, veil: 1.2, bottomless: 1.6, frenzy: 1.3, plate: 1.1 },
+    // 虚体闪避：veil+quick→phase、after+echo→phantom 残影、trail+ember→blaze 燃烧步态
+    phase: { veil: 2.4, quick: 1.8, after: 2.2, echo: 1.8, trail: 1.8, swift: 1.6, spite: 1.4, hyper: 1.4, weave: 1.3, plate: 1.1, vital: 1.2 },
   };
   // weapon class preference per policy (higher = take it / buy it)
   const WEAPON_W = {
@@ -42,6 +54,12 @@
     offense: { rail: 6, longshot: 6, scatter: 5.5, lance: 5, hammer: 5, bow: 4.5, crescent: 4.5, volt: 4, iai: 4, trident: 4 },
     bloom: { hail: 6, storm: 6, flamer: 5.5, twin: 5, splinter: 4.5, nail: 4, shuriken: 4, saw: 4, halo: 3.5, whirl: 4, hive: 3.5, frostbite: 4 },
     survival: { hammer: 5, whirl: 4.5, edge: 4, fist: 4, graviton: 4, mines: 4, halo: 3.5, shuriken: 3.5 },
+    crit: { rail: 6, longshot: 6, trident: 5, scatter: 5, crescent: 4.5, lance: 4.5, bow: 4, rivet: 4, slug: 4, harpoon: 3.5, flechette: 3.5 },
+    dot: { flamer: 6, frostbite: 5.5, helix: 5, splinter: 5, hive: 4.5, gas: 4.5, volt: 4, nail: 3.5, prism: 4, twin: 4 },
+    melee: { edge: 5.5, lance: 5.5, whirl: 5, hammer: 5, iai: 5, scythe: 5, axe: 4.5, chainsaw: 4.5, baton: 4, flail: 4, fist: 4, crescent: 3.5 },
+    ally: { hail: 5, splinter: 5, twin: 4.5, hive: 4.5, summon: 4.5, deploy: 4, nail: 3.5, shuriken: 3.5, storm: 4 },
+    ammo: { storm: 6, flamer: 5.5, prism: 5, hail: 5, splinter: 4.5, rivet: 4, twin: 4, flak: 4, nail: 3.5 },
+    phase: { shuriken: 5.5, mirage: 5, halo: 4.5, saw: 4.5, carom: 4.5, crescent: 4, bolas: 4, whirl: 3.5, hive: 3.5 },
   };
   const wScore = (id) => (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
   const CURSE_RANK = { greed: 0, hubris: 1, wrath: 2, surr: 3, seal: 4, coward: 5, sloth: 6, disaster: 7, time: 8, over: 9, tremor: 10, drought: 11 };
@@ -134,6 +152,13 @@
   function drive(G) {
     const p = G.p;
     const tap = (c) => { Input.keys[c] = true; A._taps[c] = 1; };
+
+    // first-run blockers: the mechanics-hint dialog and the name editor freeze the sim
+    if (G.hintQ) { tap('ArrowRight'); tap('Enter'); A.status.note = '提示确认（否）'; return; }
+    if (window.NAMEED && NAMEED.open) {
+      try { if (!NAMEED.inp.value) NAMEED.inp.value = 'TSW'; nameEdConfirm(); A.status.note = '自动命名'; } catch (e) { }
+      return;
+    }
 
     switch (G.state) {
       case 'play': return drivePlay(G, p, tap);

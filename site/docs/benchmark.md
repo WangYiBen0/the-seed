@@ -59,6 +59,10 @@ nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed
 对比（选卡倾向、武器偏好），不代表任何"人类天花板"**。多次运行的矩阵
 （4 策略 × 2 种子）见第 4 节。
 
+> **Firefox 支持**：2026-10-18 已在 headless Firefox 158 验证完整链路——
+> boot → 起名 → 选难度 → 自动挂机一整局（`ua: Firefox/158.0`，kills>0）。
+> 游戏与全部工具在 Chrome / Edge / Firefox 下均可运行。
+
 ## 3. 方法论说明（为什么这些数字可信）
 
 1. **倍速不靠改游戏**：`tools/core.js` 在游戏启动前替换
