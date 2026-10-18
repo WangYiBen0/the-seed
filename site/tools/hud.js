@@ -75,9 +75,15 @@
   let visible = TSW.settings.get('hudVisible', true);
   TSW.hud = {
     get visible() { return visible; },
-    toggle(v) { visible = v === undefined ? !visible : !!v; cv.style.display = visible ? '' : 'none'; TSW.settings.set('hudVisible', visible); },
+    toggle(v) { visible = v === undefined ? !visible : !!v; cv.style.display = visible ? '' : 'none'; TSW.settings.set('hudVisible', visible); TSW.bus.emit('hud', visible); },
   };
   if (!visible) cv.style.display = 'none';
+
+  // ✕ hotspot in the top-right corner: click hides the HUD (event stays local)
+  const XBOX = 16;
+  const inX = (e) => { const r = cv.getBoundingClientRect(); return e.clientX > r.right - XBOX && e.clientY < r.top + XBOX; };
+  cv.addEventListener('mousemove', (e) => { cv.style.cursor = inX(e) ? 'pointer' : 'default'; });
+  cv.addEventListener('click', (e) => { if (inX(e)) { e.stopPropagation(); TSW.hud.toggle(false); } }, true);
 
   function draw() {
     cx.clearRect(0, 0, cv.width, cv.height);
@@ -118,6 +124,10 @@
     if (TSW.perf.active) st.push('PERF');
     if (TSW.rng.on) st.push('SEED');
     L(st.length ? st.join('  ') : '×1 手动', st.length ? PAL.violet : PAL.dim, true);
+    // ✕ (hide) in the corner
+    cx.strokeStyle = '#6e675c'; cx.lineWidth = 1;
+    cx.beginPath(); cx.moveTo(cv.width - 12, 7); cx.lineTo(cv.width - 6, 13);
+    cx.moveTo(cv.width - 6, 7); cx.lineTo(cv.width - 12, 13); cx.stroke();
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);

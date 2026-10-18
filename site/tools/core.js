@@ -97,6 +97,7 @@
     const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (e.code === 'Minus' || e.code === 'NumpadSubtract') TSW.speed.nudge(-1);
     else if (e.code === 'Equal' || e.code === 'NumpadAdd') TSW.speed.nudge(1);
+    else if (e.code === 'F9') { e.preventDefault(); if (TSW.hud) TSW.hud.toggle(); }
   });
 
   // ---------- seeded RNG for reproducible benchmarks ----------

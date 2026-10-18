@@ -50,7 +50,7 @@
   const b1 = btn('1×'), b2 = btn('2×'), b4 = btn('4×'), b8 = btn('8×'), b16 = btn('16×');
   row(sState).append(b1, b2, b4, b8, b16);
   const rPerf = row(sState);
-  const cbHud = check('测评 HUD', () => TSW.hud.visible, (v) => TSW.hud.toggle(v));
+  const cbHud = check('测评 HUD（F9 或 HUD 右上角 ✕ 隐藏）', () => TSW.hud.visible, (v) => TSW.hud.toggle(v));
   rPerf.append(cbHud);
   const rPerf2 = row(sState);
   const cbPerf = check('性能模式', () => TSW.perf.active, (v) => v ? TSW.perf.enable() : TSW.perf.disable());
