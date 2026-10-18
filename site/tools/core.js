@@ -98,6 +98,7 @@
     if (e.code === 'Minus' || e.code === 'NumpadSubtract') TSW.speed.nudge(-1);
     else if (e.code === 'Equal' || e.code === 'NumpadAdd') TSW.speed.nudge(1);
     else if (e.code === 'F9') { e.preventDefault(); if (TSW.hud) TSW.hud.toggle(); }
+    else if (e.code === 'F8') { e.preventDefault(); if (TSW.panel) TSW.panel.toggle(); }
   });
 
   // ---------- seeded RNG for reproducible benchmarks ----------
