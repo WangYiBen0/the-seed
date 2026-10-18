@@ -168,9 +168,9 @@
   // ---------------- 关于 ----------------
   const sAbout = section('关于 · ABOUT');
   const about = el('div', 'color:#8e877b;user-select:text;-webkit-user-select:text', sAbout);
-  about.innerHTML = '本页面是 <b style="color:#e8e1d3">非官方离线镜像</b>，游戏《[TheSeed]》著作权归原作者所有（首发于 dzmm.ai 平台）。' +
+  about.innerHTML = '本页面是 <b style="color:#e8e1d3">非官方离线镜像</b>，游戏《[TheSeed]》著作权归原作者所有（官网：dzmm.ai/character/3738712）。' +
     '镜像未修改任何游戏源码，仅外挂 dzmm 平台 shim 与工具（宏/倍速/测评）。' +
-    '文档见仓库 <span style="color:#5ed0c8">docs/</span> 目录。';
+    '文档：github.com/WangYiBen0/the-seed（站点内 <span style="color:#5ed0c8">/docs/</span> 路径下有流派指南与 benchmark 数据）。';
 
   // ---------------- helpers ----------------
   function note(t) { status.textContent = t; clearTimeout(note._t); note._t = setTimeout(() => status.textContent = '', 5000); }

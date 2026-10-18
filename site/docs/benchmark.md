@@ -110,7 +110,13 @@ node scripts/headless-bench.mjs --kind probe --depth 5 --seconds 90 --seed 7 \
 - survival 策略活得久但击杀少（输出血清拿太少，清怪慢 → 被拖入弹幕海）；
 - 挂机所方差较大（单局 7~116 击杀），上表是 3 种子平均；工具面板可自行加种子。
 
-## 6. 复现清单
+## 6. 原始数据
+
+- `docs/data/matrix.jsonl` — 策略矩阵 12 局的原始 JSONL
+- `docs/data/probe-ab.jsonl` — 构建 A/B 的原始 JSONL
+- `docs/data/smoke-bench.jsonl` — 吞吐/宏冒烟数据
+
+## 7. 复现清单
 
 ```bash
 nix develop                      # node + chromium + python3

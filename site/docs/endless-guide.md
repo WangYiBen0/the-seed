@@ -89,7 +89,7 @@ bloom 引爆是**命中管线里的真伤害**（走 `hitEnemy`，吃暴击/易�
 | 裸装 | NAIL | — | 40.5 | 825 |
 
 （数值取自两次运行的中位趋势；挂机所方差较大，精确数字见 `benchmark.md`
-第 4 节与 `.tmp/probe-ab*.jsonl`。）
+第 4 节与 `docs/data/probe-ab.jsonl`。）
 
 **解读**：
 
