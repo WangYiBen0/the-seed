@@ -113,17 +113,55 @@
     for (const e of __achroma.G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(x, y, e.x, e.y); if (d < bd && (!needLos || los(x, y, e.x, e.y))) { bd = d; best = e; } }
     return best;
   }
-  // pick a walk direction that avoids walls: sample 8 directions, score by alignment + free space
-  function steer(p, wantX, wantY) {
-    const wl = Math.hypot(wantX, wantY) || 1; wantX /= wl; wantY /= wl;
-    let best = null, bestScore = -1e9;
-    for (let i = 0; i < 8; i++) {
-      const a = i / 8 * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
-      const free = !collides(p.x + dx * 14, p.y + dy * 14, p.r, false) && !collides(p.x + dx * 26, p.y + dy * 26, p.r, false);
-      const score = (dx * wantX + dy * wantY) + (free ? 1.5 : -3);
-      if (score > bestScore) { bestScore = score; best = [dx, dy, free]; }
+  // ---------- threat field ----------
+  // The game exposes inMech(m, x, y) — its own hit test for EVERY telegraph type
+  // (circle/seg/rect/cone/donut/cells/…).  Combined with bullet trajectory
+  // prediction this one function powers the whole avoidance logic.
+  function mechDanger(m) {
+    const warn = m.warn || 0;
+    if (warn >= 90) return .55;                       // lingering hazard (wet ink …)
+    if (m.t >= warn) return 0;                        // already resolved
+    return 1 + 2.5 * Math.max(0, Math.min(1, 1 - (warn - m.t) / .6)); // about to fire = worst
+  }
+  function spotDanger(x, y, p) {
+    const G = __achroma.G; let d = 0;
+    if (typeof inMech === 'function' && G.mechs) for (const m of G.mechs) {
+      const w = mechDanger(m); if (!w) continue;
+      let inside = false;
+      try { inside = !!inMech(m, x, y); } catch (e) { }
+      if (inside) d += 2.2 * w;
     }
-    return best && best[2] ? best : [wantX, wantY, true];
+    for (const b of G.ebullets) {                     // closest-approach prediction
+      const sp2 = b.vx * b.vx + b.vy * b.vy; if (sp2 < 25) continue;
+      const t = ((x - b.x) * b.vx + (y - b.y) * b.vy) / sp2;
+      if (t < -.05 || t > .7) continue;
+      const bt = Math.max(0, t);
+      const miss = Math.hypot(x - (b.x + b.vx * bt), y - (b.y + b.vy * bt));
+      const rr = (b.r || 3) + p.r + 3;
+      if (miss < rr) d += 2.4 * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
+    }
+    for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
+    if (typeof TL !== 'undefined' && typeof spikeState === 'function' && tileAtPx(x, y) === TL.SPIKE && spikeState() === 2) d += 1.4;
+    return d;
+  }
+  // choose the walk direction: alignment with "want", walls block, threats repel
+  function pickDir(p, wx, wy) {
+    const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
+    let best = null, bestScore = -1e9;
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+      const nx = p.x + dx * 16, ny = p.y + dy * 16, fx = p.x + dx * 46, fy = p.y + dy * 46;
+      let s;
+      if (collides(nx, ny, p.r, false) || collides(fx, fy, p.r, false)) s = -8;
+      else {
+        s = wl > .1 ? 2.2 * (dx * wx + dy * wy) / wl : 0;
+        s -= 2.0 * spotDanger(nx, ny, p) + .9 * spotDanger(fx, fy, p);
+        s += .18 * (dx * ld[0] + dy * ld[1]);         // anti-jitter
+      }
+      if (s > bestScore) { bestScore = s; best = [dx, dy]; }
+    }
+    if (best) A._lastDir = best;
+    return best || [0, 0];
   }
   const moveKeys = (dx, dy) => {
     Input.keys.KeyW = dy < -.3; Input.keys.KeyS = dy > .3; Input.keys.KeyA = dx < -.3; Input.keys.KeyD = dx > .3;
@@ -244,23 +282,6 @@
       const ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
       // aim at the closest foe (screen coords = world - camera)
       if (ne) { Input.mx = clampM(ne.x - G.cam.x, window.W); Input.my = clampM(ne.y - G.cam.y, window.H); }
-      // threat dodge: step perpendicular to incoming bullets' flight lines
-      let ddx = 0, ddy = 0;
-      for (const b of G.ebullets) {
-        const dxp = p.x - b.x, dyp = p.y - b.y, d = Math.hypot(dxp, dyp);
-        if (d > 90 || d < .5) continue;
-        const sp = Math.hypot(b.vx, b.vy) || 1;
-        const ux = b.vx / sp, uy = b.vy / sp;
-        const closing = dxp * ux + dyp * uy;              // >0: heading toward us
-        if (closing <= 0) continue;
-        const tImpact = closing / sp;                     // s until closest approach
-        const miss = Math.abs(dxp * uy - dyp * ux);       // lateral miss distance
-        if (tImpact > .8 || miss > 26) continue;
-        const side = (dxp * uy - dyp * ux) > 0 ? 1 : -1;
-        const w = (1 - miss / 26) * (1 - tImpact / .8) * 3;
-        ddx += uy * side * w + (dxp / d) * w * .3;
-        ddy += -ux * side * w + (dyp / d) * w * .3;
-      }
       if (ne) {
         const d = dist(p.x, p.y, ne.x, ne.y);
         // armor rhythm: with armor down, disengage for ~3.6s so it regenerates
@@ -273,10 +294,11 @@
         else { const s = Math.sin(G.time * 1.7) > 0 ? 1 : -1; mx += -uy * .6 * s; my += ux * .6 * s; } // strafe
         wantFire = d < (melee ? 90 : 400);
       }
-      mx += ddx; my += ddy;
-      // dash out of trouble
-      if (A.opts.dash && G.p.dashCd <= 0 && Math.hypot(ddx, ddy) > 1.2) tap('Space');
-      if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && G.p.dashCd <= 0) tap('Space');
+      // threat field does the dodging: bullets, telegraph circles/lines, void zones, spikes
+      [mx, my] = pickDir(p, mx, my);
+      // dash out when the current spot is about to hurt and the dash is up
+      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.8) tap('Space');
+      if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0) tap('Space');
       // cast the skill chip whenever it is up (E with no prompt casts)
       if (p.skill && !p.skillOn && p.skillCd <= 0 && (active || G.trial || near) && !G.prompt) tap('KeyE');
     }
@@ -290,7 +312,7 @@
         if (path && path.length > 1) { const { doorOf } = graph(); const key = path[0] + ':' + path[1]; wp = doorOf[key] || tgt.pt; }
         if (wp) {
           const dx = wp[0] - p.x, dy = wp[1] - p.y, dl = Math.hypot(dx, dy);
-          if (dl > 12) { [mx, my] = steer(p, dx, dy); }
+          if (dl > 12) { [mx, my] = pickDir(p, dx, dy); }
           // stuck on this objective? bench it for a while so the run keeps moving
           if (navProg.tgt === tgt.room && G.time - navProg.t > 6 && Math.hypot(p.x - navProg.x, p.y - navProg.y) < 40) { benchFor(tgt.room || tgt.pt, 30); navProg.t = G.time; }
           else if (navProg.tgt !== tgt.room) { navProg.tgt = tgt.room; navProg.x = p.x; navProg.y = p.y; navProg.t = G.time; }
