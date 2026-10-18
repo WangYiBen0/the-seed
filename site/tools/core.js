@@ -26,6 +26,10 @@
   const SETTINGS_KEY = 'theseed.tools.settings';
   let settings = {};
   try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { }
+  // one-time migration (2026-10): the workshop panel and the telemetry HUD now
+  // start HIDDEN — apply once for existing visitors, new visitors get it via defaults
+  if (!settings._v2) { settings._v2 = 1; settings.panelOpen = false; settings.hudVisible = false;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } }
   TSW.settings = {
     get(k, dflt) { return settings[k] !== undefined ? settings[k] : dflt; },
     set(k, v) { settings[k] = v; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } TSW.bus.emit('settings', settings); },

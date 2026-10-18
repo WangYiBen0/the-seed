@@ -72,7 +72,7 @@
     if (fillTo) { cx.lineTo(x + w, y + h); cx.lineTo(x, y + h); cx.closePath(); cx.fillStyle = color; cx.globalAlpha = .13; cx.fill(); cx.globalAlpha = 1; }
   }
 
-  let visible = TSW.settings.get('hudVisible', true);
+  let visible = TSW.settings.get('hudVisible', false);
   TSW.hud = {
     get visible() { return visible; },
     toggle(v) {

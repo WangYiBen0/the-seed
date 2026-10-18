@@ -1,42 +1,63 @@
 #!/usr/bin/env node
-// Pull missing assets from the upstream game page.
+// Build the COMPLETE asset manifest for the mirror and pull what's missing.
 //
-//   nix run .#source                    # fetch everything recorded in .tmp/missing.log
-//   node scripts/fetch-source.mjs favicon.svg img/cg/x.png   # fetch specific paths
-//   node scripts/fetch-source.mjs --dry --list
+//   nix run .#source                # scan → fetch every missing asset from upstream
+//   nix run .#source -- --list      # just show the manifest
+//   nix run .#source -- --dry       # show what would be fetched
+//   nix run .#source -- --force     # re-download even if present
+//   nix run .#source -- img/x.png   # also add a specific path
 //
-// The upstream base URL is auto-detected from the saved page ([TheSeed]/*.html
-// contains `<!-- base href="…" -->`), or set it explicitly:
-//   --base https://www.dzmm.ai/api/gamefy/static/<id>/<ver>/
-// Results are recorded in site/asset-manifest.json (url + sha256 + time).
+// Asset families are parsed from the game's own source (no guesswork):
+//   assets/portraits/<id>.webp       one per survivor          (js/squad.js)
+//   assets/private/<id>.png          CG 私房照 per survivor     (js/girls.js)
+//   assets/stories/<id>-p<pose>.webp  story CGs, poses 1..6     (js/stories.js)
+// plus favicon.svg and anything the runtime 404 log recorded.
+// Results live in site/asset-manifest.json; login-gated files are reported, not faked.
 
-import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, appendFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, dirname, normalize } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const argv = process.argv.slice(2);
 const flag = (k) => argv.includes('--' + k);
-const opt = (k, d) => { const i = argv.indexOf('--' + k); return i > 0 ? argv[i + 1] : d; };
+const opt = (k, d) => { const i = argv.indexOf('--' + k); return i > 0 && argv[i + 1] ? argv[i + 1] : d; };
 const ROOT = process.cwd();
 const SITE = [join(ROOT, 'site'), join(ROOT, '..', 'site')].find((p) => existsSync(join(p, 'index.html'))) ?? join(ROOT, 'site');
+const JS = join(SITE, 'js');
 const MISSING = resolve(ROOT, '.tmp/missing.log');
-const MANIFEST = join(SITE, 'asset-manifest.json');
+const MANIFEST_PATH = join(SITE, 'asset-manifest.json');
+const POSES = 6; // js/stories.js: pose < 1 || pose > 6
 
-// ---- collect requested paths ----
-let paths = argv.filter((a) => !a.startsWith('--') && !(argv[argv.indexOf(a) - 1] ?? '').match(/^--(base|file)$/));
-if (!paths.length && existsSync(MISSING)) {
-  const seen = new Map();
-  for (const line of (await readFile(MISSING, 'utf8')).split('\n')) {
-    if (!line.trim()) continue;
-    try { const o = JSON.parse(line); seen.set(o.path, (seen.get(o.path) ?? 0) + 1); } catch (e) { }
-  }
-  paths = [...seen.keys()];
-  console.log(`[source] ${paths.length} unique missing paths from ${MISSING}`);
+// ---- family ids, parsed from the game's own data files ----
+async function survIds() {
+  const src = await readFile(join(JS, 'squad.js'), 'utf8');
+  return [...src.matchAll(/^  ([a-z0-9_]+): \{ nm: N4\(/gm)].map((m) => m[1]);
 }
-if (!paths.length) { console.log('[source] nothing to fetch (no .tmp/missing.log entries, no path args)'); process.exit(0); }
+async function storyIds() {
+  const src = await readFile(join(JS, 'stories-data.js'), 'utf8');
+  return [...src.matchAll(/^  ([a-z0-9_]+): \[/gm)].map((m) => m[1]);
+}
 
-// ---- resolve upstream base ----
+async function buildWanted() {
+  const wanted = new Map();
+  const add = (p, from) => { if (p && !wanted.has(p)) wanted.set(p, { from }); };
+  for (const id of await survIds()) {
+    add(`assets/portraits/${id}.webp`, 'scan');
+    add(`assets/private/${id}.png`, 'scan');
+  }
+  for (const sid of await storyIds()) for (let pose = 1; pose <= POSES; pose++) add(`assets/stories/${sid}-p${pose}.webp`, 'scan');
+  add('favicon.svg', 'scan');
+  if (existsSync(MISSING)) { // runtime 404s: assets the game asks for that static scanning can't know
+    for (const line of (await readFile(MISSING, 'utf8')).split('\n')) {
+      if (!line.trim()) continue;
+      try { const o = JSON.parse(line); if (o.path && o.path.startsWith('/')) add(o.path.slice(1).split('?')[0], '404'); } catch (e) { }
+    }
+  }
+  for (const a of argv) if (!a.startsWith('--') && a !== (opt('base', '') || '\0')) add(a.replace(/^\/+/, ''), 'arg');
+  return wanted;
+}
+
 async function detectBase() {
   const b = opt('base', process.env.UPSTREAM_BASE);
   if (b) return b.endsWith('/') ? b : b + '/';
@@ -48,43 +69,58 @@ async function detectBase() {
       if (m) { console.log('[source] base auto-detected from save:', m[1]); return m[1]; }
     }
   }
-  console.error('[source] cannot determine upstream base URL.');
-  console.error('  pass --base https://www.dzmm.ai/api/gamefy/static/<id>/<ver>/ or re-save the page into ./[TheSeed]/');
+  console.error('[source] cannot determine upstream base — pass --base <url> or re-save the page into ./[TheSeed]/');
   process.exit(1);
 }
+
 const BASE = await detectBase();
-const HOST = new URL(BASE).origin;
+const urlFor = (p) => (p.startsWith('api/')) ? new URL(BASE).origin + '/' + p : BASE + p;
 
-// ---- manifest ----
-const manifest = existsSync(MANIFEST) ? JSON.parse(await readFile(MANIFEST, 'utf8')) : { assets: {} };
+// ---- manifest: merge previous entries, mark present/missing ----
+const prev = existsSync(MANIFEST_PATH) ? JSON.parse(await readFile(MANIFEST_PATH, 'utf8')) : { assets: {} };
+const manifest = { base: BASE, updatedAt: Date.now(), assets: {} };
+const wanted = await buildWanted();
+for (const [p, meta] of [...wanted].sort()) {
+  const old = (prev.assets || {})[p];
+  const file = normalize(join(SITE, p));
+  const present = existsSync(file) && !flag('force');
+  manifest.assets[p] = {
+    url: old?.url || urlFor(p), from: meta.from, present,
+    ...(present ? { bytes: (await stat(file)).size } : {}),
+    ...(old?.sha256 ? { sha256: old.sha256 } : {}),
+  };
+}
+await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 1) + '\n');
 
-let ok = 0, skip = 0, fail = 0;
-for (const raw of [...new Set(paths)]) {
-  if (flag('list')) { console.log(' ', raw); continue; }
-  const path = raw.split('?')[0];
-  if (/\\\\|\.\./.test(path) || !path.startsWith('/')) { console.log(`skip (not a site-relative path): ${raw}`); skip++; continue; }
-  const rel = path.replace(/^\/+/, '');
-  const dst = normalize(join(SITE, rel));
-  if (!dst.startsWith(SITE)) { console.log(`skip (escapes site/): ${raw}`); skip++; continue; }
-  if (!flag('force') && existsSync(dst)) { skip++; continue; }
-  const url = path.startsWith('/api/') ? HOST + path : BASE + rel;
-  if (flag('dry')) { console.log(`[dry] ${url} → site/${rel}`); continue; }
+const missing = Object.entries(manifest.assets).filter(([, a]) => !a.present);
+console.log(`[source] manifest: ${Object.keys(manifest.assets).length} assets, ${missing.length} missing, base=${BASE}`);
+if (flag('list')) { for (const [p, a] of Object.entries(manifest.assets)) console.log(` ${a.present ? '✓' : '·'} ${p}`); process.exit(0); }
+if (flag('dry')) { for (const [p, a] of missing) console.log(`[dry] ${a.url} → site/${p}`); process.exit(0); }
+
+// ---- fetch missing ----
+let ok = 0, fail = 0, gate = 0;
+for (const [p, a] of missing) {
   try {
-    const rsp = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) theseed-mirror-fetch', 'referer': BASE } });
+    const rsp = await fetch(a.url, { headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) theseed-mirror-fetch', 'referer': BASE } });
     const type = rsp.headers.get('content-type') || '';
-    if (rsp.status !== 200 || /text\/html/i.test(type)) throw new Error(`${rsp.status} ${type || 'no type'}`);
+    if (rsp.status !== 200) throw new Error(`HTTP ${rsp.status}`);
+    if (/text\/html/i.test(type)) { gate++; console.log(`× ${p} — got HTML; likely login-gated upstream (fetch manually or ignore)`); continue; }
     const buf = Buffer.from(await rsp.arrayBuffer());
+    const dst = normalize(join(SITE, p));
+    if (!dst.startsWith(SITE)) { console.log(`skip (escapes site/): ${p}`); continue; }
     await mkdir(dirname(dst), { recursive: true });
     await writeFile(dst, buf);
-    manifest.assets[rel] = { url, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex').slice(0, 16), at: Date.now() };
+    manifest.assets[p].present = true;
+    manifest.assets[p].bytes = buf.length;
+    manifest.assets[p].sha256 = createHash('sha256').update(buf).digest('hex').slice(0, 16);
     ok++;
-    console.log(`+ site/${rel}  (${(buf.length / 1024).toFixed(1)} KiB, ${type})`);
+    console.log(`+ site/${p}  (${(buf.length / 1024).toFixed(1)} KiB, ${type.split(';')[0]})`);
   } catch (e) {
     fail++;
-    console.log(`! ${url} → ${e.message}`);
-    await appendFile(MISSING, JSON.stringify({ path: raw, at: Date.now(), fail: true }) + '\n').catch(() => { });
+    console.log(`! ${p} — ${e.message}`);
+    await appendFile(MISSING, JSON.stringify({ path: '/' + p, at: Date.now(), fail: true }) + '\n').catch(() => { });
   }
 }
-if (!flag('dry') && !flag('list')) { manifest.updatedAt = Date.now(); await writeFile(MANIFEST, JSON.stringify(manifest, null, 1) + '\n'); }
-console.log(`\n[source] ok=${ok} skip=${skip} fail=${fail}` + (flag('dry') ? ' (dry run)' : ''));
-if (fail > 0) console.log('[source] some assets failed — the upstream may gate them behind login; fetch them manually into site/<path>.');
+manifest.updatedAt = Date.now();
+await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 1) + '\n');
+console.log(`\n[source] fetched=${ok} failed=${fail} gated=${gate} | manifest: ${MANIFEST_PATH}`);
