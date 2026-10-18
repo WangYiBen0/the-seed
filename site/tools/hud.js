@@ -75,15 +75,29 @@
   let visible = TSW.settings.get('hudVisible', true);
   TSW.hud = {
     get visible() { return visible; },
-    toggle(v) { visible = v === undefined ? !visible : !!v; cv.style.display = visible ? '' : 'none'; TSW.settings.set('hudVisible', visible); TSW.bus.emit('hud', visible); },
+    toggle(v) {
+      visible = v === undefined ? !visible : !!v;
+      cv.style.display = visible ? '' : 'none';
+      const xb = document.getElementById('tsw-hud-close'); if (xb) xb.style.display = visible ? '' : 'none';
+      TSW.settings.set('hudVisible', visible); TSW.bus.emit('hud', visible);
+    },
   };
   if (!visible) cv.style.display = 'none';
 
-  // ✕ hotspot in the top-right corner: click hides the HUD (event stays local)
-  const XBOX = 16;
-  const inX = (e) => { const r = cv.getBoundingClientRect(); return e.clientX > r.right - XBOX && e.clientY < r.top + XBOX; };
-  cv.addEventListener('mousemove', (e) => { cv.style.cursor = inX(e) ? 'pointer' : 'default'; });
-  cv.addEventListener('click', (e) => { if (inX(e)) { e.stopPropagation(); TSW.hud.toggle(false); } }, true);
+  // a REAL button pinned on the HUD's top-right corner (canvas glyphs are too subtle)
+  const xbtn = document.createElement('button');
+  xbtn.type = 'button';
+  xbtn.id = 'tsw-hud-close';
+  xbtn.textContent = '✕';
+  xbtn.title = '隐藏测评 HUD（F9 也可切换）';
+  xbtn.style.cssText = 'position:fixed;top:6px;right:6px;z-index:41;width:22px;height:20px;'
+    + 'background:#1d1a17;color:#8e877b;border:none;border-left:1px solid #36322d;border-bottom:1px solid #36322d;'
+    + 'border-top-right-radius:6px;cursor:pointer;font:12px/1 monospace;padding:0;'
+    + 'user-select:none;-webkit-user-select:none;';
+  xbtn.onmouseenter = () => { xbtn.style.color = '#efb94a'; xbtn.style.background = '#2d2925'; };
+  xbtn.onmouseleave = () => { xbtn.style.color = '#8e877b'; xbtn.style.background = '#1d1a17'; };
+  xbtn.addEventListener('click', (e) => { e.stopPropagation(); TSW.hud.toggle(false); });
+  document.body.appendChild(xbtn);
 
   function draw() {
     cx.clearRect(0, 0, cv.width, cv.height);
@@ -124,10 +138,7 @@
     if (TSW.perf.active) st.push('PERF');
     if (TSW.rng.on) st.push('SEED');
     L(st.length ? st.join('  ') : '×1 手动', st.length ? PAL.violet : PAL.dim, true);
-    // ✕ (hide) in the corner
-    cx.strokeStyle = '#6e675c'; cx.lineWidth = 1;
-    cx.beginPath(); cx.moveTo(cv.width - 12, 7); cx.lineTo(cv.width - 6, 13);
-    cx.moveTo(cv.width - 6, 7); cx.lineTo(cv.width - 12, 13); cx.stroke();
+
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
