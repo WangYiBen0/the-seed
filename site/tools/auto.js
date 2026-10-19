@@ -106,7 +106,16 @@
   }
 
   // ---------------- helpers ----------------
-  const clampM = (v, hi) => Math.max(1, Math.min(hi - 1, v));
+  // the game's W/H are top-level `let` bindings (not on the window object) —
+  // clamping against the wrong handle produced NaN, which the camera lerp
+  // absorbed and blacked out the whole world pass (HUD kept drawing).
+  const GW = () => (typeof W !== 'undefined' && isFinite(W)) ? W : 480;
+  const GH = () => (typeof H !== 'undefined' && isFinite(H)) ? H : 270;
+  const clampM = (v, hi) => {
+    hi = (typeof hi === 'number' && isFinite(hi)) ? hi : 480;
+    if (!isFinite(v)) v = hi / 2;
+    return Math.max(1, Math.min(hi - 1, v));
+  };
   function isMelee(id) { const w = WEAPONS[id]; return w && ['melee', 'thrust', 'spin', 'whip', 'slam', 'iai', 'fist', 'reap'].includes(w.kind); }
   function nearestEnemy(x, y, maxD, needLos) {
     let best = null, bd = maxD;
@@ -253,7 +262,7 @@
       let tx = p.x + 60, ty = p.y;
       if (ne) { tx = ne.x; ty = ne.y; }                       // blink onto the nearest foe
       else { const a = Math.random() * 6.28; tx = p.x + Math.cos(a) * 90; ty = p.y + Math.sin(a) * 90; }
-      Input.mx = clampM(tx - G.cam.x, window.W); Input.my = clampM(ty - G.cam.y, window.H);
+      Input.mx = clampM(tx - G.cam.x, GW()); Input.my = clampM(ty - G.cam.y, GH());
       Input.clicked = true;
       A.status.note = '瞬移…';
       return;
@@ -289,7 +298,7 @@
     if (active || G.trial || near) {
       const ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
       // aim at the closest foe (screen coords = world - camera)
-      if (ne) { Input.mx = clampM(ne.x - G.cam.x, window.W); Input.my = clampM(ne.y - G.cam.y, window.H); }
+      if (ne) { Input.mx = clampM(ne.x - G.cam.x, GW()); Input.my = clampM(ne.y - G.cam.y, GH()); }
       if (ne) {
         const d = dist(p.x, p.y, ne.x, ne.y);
         // armor rhythm: with armor down, disengage for ~3.6s so it regenerates
