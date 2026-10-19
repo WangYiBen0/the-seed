@@ -26,10 +26,6 @@
   const SETTINGS_KEY = 'theseed.tools.settings';
   let settings = {};
   try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { }
-  // one-time migration (2026-10): the workshop panel and the telemetry HUD now
-  // start HIDDEN — apply once for existing visitors, new visitors get it via defaults
-  if (!settings._v2) { settings._v2 = 1; settings.panelOpen = false; settings.hudVisible = false;
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } }
   TSW.settings = {
     get(k, dflt) { return settings[k] !== undefined ? settings[k] : dflt; },
     set(k, v) { settings[k] = v; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } TSW.bus.emit('settings', settings); },
@@ -71,6 +67,12 @@
 
   function fireTick() {
     for (const fn of TSW.hooks._before) { try { fn(virt); } catch (e) { TSW.err('beforeTick', e); } }
+    // page-scope debug mirror (webdriver sandboxes can't see game lexical bindings)
+    if (window.__achroma) { try {
+      TSW.dbg = { state: __achroma.G.state, time: __achroma.G.time, hintQ: !!__achroma.G.hintQ,
+        keysE: !!(window.Input && Input.keys.Enter), prevE: !!(window.Input && Input.prev.Enter),
+        mode: TSW.auto ? TSW.auto.mode : '?' };
+    } catch (e) { } }
     // rAF is one-shot: take a snapshot, remove each handle as it fires (the
     // game's frame() re-registers itself, which must NOT accumulate here)
     const cbs = [...pending.entries()];

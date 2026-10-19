@@ -173,12 +173,14 @@
   const navProg = { tgt: null, x: 0, y: 0, t: 0 };
   A._taps = {};
   A._tick = 0;
+  A._tapGap = {};
   TSW.trace = new URLSearchParams(location.search).has('trace');
   TSW.hooks.beforeTick(() => {
     // release one-frame taps from the previous tick (always, even when off)
     for (const c in A._taps) if (A._taps[c]) { Input.keys[c] = false; A._taps[c] = 0; }
     const G = window.__achroma && __achroma.G;
     if (!G || !G.p || A.mode === 'off') return;
+    A._tick++;
     try { drive(G); } catch (e) { TSW.err('auto', e); A.status.note = 'err: ' + e.message; }
     if (TSW.trace && (++A._tick % 120 === 0)) {
       const p2 = G.p, foes = G.enemies ? G.enemies.filter((e) => !e.dead).length : 0;
@@ -189,7 +191,13 @@
 
   function drive(G) {
     const p = G.p;
-    const tap = (c) => { Input.keys[c] = true; A._taps[c] = 1; };
+    // edge-safe tap: the game detects key PRESSES (down && !prev-down).  Holding a
+    // key across ticks (e.g. re-tapping Enter every frame on a dialog) presses it
+    // exactly once and never again — so enforce >=1 released tick between taps.
+    const tap = (c) => {
+      if (A._tick - (A._tapGap[c] ?? -9) < 2) return;
+      Input.keys[c] = true; A._taps[c] = 1; A._tapGap[c] = A._tick;
+    };
 
     // first-run blockers: the mechanics-hint dialog and the name editor freeze the sim
     if (G.hintQ) { tap('ArrowRight'); tap('Enter'); A.status.note = '提示确认（否）'; return; }

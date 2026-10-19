@@ -96,7 +96,8 @@
     + 'user-select:none;-webkit-user-select:none;';
   xbtn.onmouseenter = () => { xbtn.style.color = '#efb94a'; xbtn.style.background = '#2d2925'; };
   xbtn.onmouseleave = () => { xbtn.style.color = '#8e877b'; xbtn.style.background = '#1d1a17'; };
-  xbtn.addEventListener('click', (e) => { e.stopPropagation(); TSW.hud.toggle(false); });
+  xbtn.addEventListener('click', (e) => { e.stopPropagation(); TSW.hud.toggle(); }); // toggles: never a dead button
+  xbtn.style.display = visible ? '' : 'none'; // stays in sync when the HUD starts hidden
   document.body.appendChild(xbtn);
 
   function draw() {

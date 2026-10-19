@@ -200,6 +200,23 @@
   bSi.onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json'; inp.onchange = async () => { try { const t = await inp.files[0].text(); const n = window.__dzmmMirror.import(t); note(`已导入 ${n} 个键，刷新页面生效`); } catch (e) { note('导入失败: ' + e.message); } }; inp.click(); };
   bSr.onclick = () => { if (confirm('清空本镜像的全部存档？（不影响上游 dzmm.ai 的存档）')) { window.__dzmmMirror.reset(); note('已清空，刷新页面生效'); } };
 
+  // ---------------- AI 设置（可选：OpenAI 兼容接口） ----------------
+  const sAI = section('AI 设置 · 小队/少女聊天（可选）');
+  const aiE = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace;margin:1px 0');
+  aiE.placeholder = 'OpenAI 兼容接口，如 https://api.openai.com/v1';
+  const aiK = el('input', aiE.style.cssText); aiK.type = 'password'; aiK.placeholder = 'API Key（留空则不带鉴权头）';
+  const aiM = el('input', aiE.style.cssText); aiM.placeholder = '模型名，如 gpt-4o-mini';
+  const aiCur = (() => { try { return JSON.parse(localStorage.getItem('theseed.ai') || 'null') || {}; } catch (e) { return {}; } })();
+  aiE.value = aiCur.endpoint || ''; aiK.value = aiCur.key || ''; aiM.value = aiCur.model || '';
+  sAI.append(aiE, aiK, aiM);
+  const rAI = row(sAI);
+  const bAiSave = btn('保存'); rAI.append(bAiSave);
+  const aiNote = el('span', 'color:#57534c', sAI); aiNote.textContent = '保存后刷新页面生效；不填 = AI 聊天保持关闭';
+  bAiSave.onclick = () => {
+    localStorage.setItem('theseed.ai', JSON.stringify({ endpoint: aiE.value.trim(), key: aiK.value.trim(), model: aiM.value.trim() }));
+    note('已保存 AI 配置，刷新页面生效');
+  };
+
   // ---------------- 关于 ----------------
   const sAbout = section('关于 · ABOUT');
   const about = el('div', 'color:#8e877b;user-select:text;-webkit-user-select:text', sAbout);
