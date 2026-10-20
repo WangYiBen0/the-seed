@@ -139,6 +139,7 @@
     if (TSW.perf.active) st.push('PERF');
     if (TSW.rng.on) st.push('SEED');
     L(st.length ? st.join('  ') : '×1 手动', st.length ? PAL.violet : PAL.dim, true);
+    if (TSW.cheats && TSW.cheats.on()) L('⚠ CHEAT · ' + TSW.cheats.label(), PAL.red, true);
 
     requestAnimationFrame(draw);
   }

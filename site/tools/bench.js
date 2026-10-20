@@ -90,8 +90,9 @@
     };
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900 } = {}) {
-    const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart;
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic' } = {}) {
+    const diff = opts.diff || 'classic';
+    const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
     TSW.auto.opts.autoRestart = false;
@@ -99,8 +100,8 @@
     TSW.speed.set(speed, true);
     const M = TSW.metrics;
     M.reset();
-    // start a fresh classic run (same entry the pause-menu restart uses)
-    SET.diff = 'classic'; saveSettings(); clearSave();
+    // start a fresh run (same entry the pause-menu restart uses)
+    SET.diff = diff; saveSettings(); clearSave();
     LAUNCH.fn = null; launchRun();
     const G = () => window.__achroma.G;
     const t0 = performance.now();
@@ -134,10 +135,11 @@
     TSW.auto.opts.autoRestart = wasRestart;
     TSW.auto.setPolicy(wasPolicy);
     TSW.speed.set(wasSpeed, true);
+    SET.diff = wasDiff; saveSettings();
     TSW.rng.clear();
     const g = G();
     return {
-      kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth,
+      kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
       end: res.end, wall: +res.wall.toFixed(1),
       gameT: +g.runT.toFixed(0), floor: g.floor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal),
@@ -153,7 +155,7 @@
   // validates everything — no source is modified).  The autopilot then plays
   // N game-seconds and we report kills/dmg per game-minute at that depth.
   // This is the empirical leg of docs/endless-guide.md.
-  async function runProbe({ depth = 5, seconds = 60, speed = 8, policy = 'bloom', seed = 7,
+  async function runProbe({ depth = 5, seconds = 60, speed = 8, policy = 'bloom', seed = 7, diff = 'classic',
     shards = { bloom: 3, shrap: 3 }, weapons = ['hail'], wlv = { hail: 3 }, skill = null, hp = null } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
     TSW.rng.seed(seed);
@@ -161,7 +163,7 @@
     TSW.speed.set(speed, true);
     const M = TSW.metrics; M.reset();
     const save = {
-      v: 1, at: Date.now(), floor: 4, diff: 'classic', hp: hp ?? 5, armor: 3,
+      v: 1, at: Date.now(), floor: 4, diff, hp: hp ?? 5, armor: 3,
       weapons: weapons.slice(), wi: 0, wlv: Object.assign({}, wlv), shards: Object.assign({}, shards),
       skill: skill || null, ink: 400, kills: 0, runT: 0, hits: 0, endless: depth,
       rid: 'r' + Date.now().toString(36),
@@ -196,7 +198,7 @@
     const kills = (g.kills | 0) - k0, dmg = Math.round(M.dmgTotal - d0);
     const cTmax = Math.max(1, cT);
     return {
-      kind: 'probe', at: Date.now(), depth, seconds, policy, seed, speed,
+      kind: 'probe', at: Date.now(), depth, seconds, policy, seed, speed, diff,
       build: { weapons, wlv, shards, skill },
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1), combatS: +cT.toFixed(1),
@@ -220,7 +222,7 @@
       else if (kind === 'fullrun') r = await runFullRun(opts);
       else if (kind === 'probe') r = await runProbe(opts);
       else throw new Error('unknown kind ' + kind);
-    } catch (e) { TSW.err('bench', e); B.running = null; TSW.bus.emit('bench'); return null; }
+    } catch (e) { TSW.err('bench', e); B.running = null; TSW.bus.emit('bench'); return { kind: 'error', error: String(e && e.stack || e).slice(0, 500) }; }
     B.running = null;
     if (r) { B.results.push(r); save(B.results); TSW.bus.emit('bench'); console.info('[TSW] bench result', r); }
     return r;

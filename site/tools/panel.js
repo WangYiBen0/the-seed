@@ -131,6 +131,17 @@
   modeSel.value = TSW.auto.mode; modeSel.onchange = () => { TSW.auto.setMode(modeSel.value); }; row(sAuto).append(modeSel);
   const polSel = sel([['bloom', '流派: 坏死爆裂连锁 (bloom)'], ['offense', '流派: 极限输出 (offense)'], ['balanced', '流派: 均衡 (balanced)'], ['survival', '流派: 生存 (survival)'], ['crit', '流派: 暴击狙击 (crit)'], ['dot', '流派: 元素侵蚀 (dot)'], ['melee', '流派: 近战斩击 (melee)'], ['ally', '流派: 伙伴军团 (ally)'], ['ammo', '流派: 弹药工程 (ammo)'], ['phase', '流派: 虚体闪避 (phase)']]);
   polSel.value = TSW.auto.policy; polSel.onchange = () => TSW.auto.setPolicy(polSel.value); row(sAuto).append(polSel);
+  // 排除列表 / 优先级 (comma-separated shard ids)
+  const exIn = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace;margin:1px 0');
+  exIn.placeholder = '排除血清(逗号分隔id): glass,allin,prism…';
+  exIn.value = (TSW.settings.get('serumExclude', []) || []).join(',');
+  exIn.onchange = () => { TSW.settings.set('serumExclude', exIn.value.split(',').map((x) => x.trim()).filter(Boolean)); note('排除列表已保存'); };
+  sAuto.append(exIn);
+  const prIn = el('input', exIn.style.cssText);
+  prIn.placeholder = '被迫选择时的优先级(逗号分隔id)';
+  prIn.value = (TSW.settings.get('serumPriority', []) || []).join(',');
+  prIn.onchange = () => { TSW.settings.set('serumPriority', prIn.value.split(',').map((x) => x.trim()).filter(Boolean)); note('优先级已保存'); };
+  sAuto.append(prIn);
   const ao = TSW.auto.opts;
   row(sAuto).append(
     check('自动选血清', () => ao.autoCards, (v) => ao.autoCards = v),
@@ -200,6 +211,23 @@
   bSi.onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json'; inp.onchange = async () => { try { const t = await inp.files[0].text(); const n = window.__dzmmMirror.import(t); note(`已导入 ${n} 个键，刷新页面生效`); } catch (e) { note('导入失败: ' + e.message); } }; inp.click(); };
   bSr.onclick = () => { if (confirm('清空本镜像的全部存档？（不影响上游 dzmm.ai 的存档）')) { window.__dzmmMirror.reset(); note('已清空，刷新页面生效'); } };
 
+  // ---------------- 指令 · 测试 ----------------
+  const sCmd = section('指令 · 测试（改游戏状态，测评数据作废）');
+  const cmdIn = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace');
+  cmdIn.placeholder = 'help / god / lockhp 5 / ink 500 / kill / next / endless / weapon rail ...';
+  sCmd.append(cmdIn);
+  const rC = row(sCmd);
+  const bCmd = btn('执行'); rC.append(bCmd);
+  const cmdOut = el('div', 'white-space:pre;overflow:auto;max-height:90px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px;min-height:14px');
+  sCmd.appendChild(cmdOut);
+  const runCmd = () => { if (!cmdIn.value.trim()) { cmdOut.textContent = TSW.cmd('help'); return; } cmdOut.textContent = TSW.cmd(cmdIn.value); cmdIn.select(); };
+  bCmd.onclick = runCmd;
+  cmdIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); runCmd(); } });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'F10') { e.preventDefault(); if (!TSW.panel.open) TSW.panel.toggle(); setTimeout(() => cmdIn.focus(), 60); }
+  });
+  cmdOut.textContent = 'F10 唤出 · help 查看指令';
+
   // ---------------- AI 设置（可选：OpenAI 兼容接口） ----------------
   const sAI = section('AI 设置 · 小队/少女聊天（可选）');
   const aiE = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace;margin:1px 0');
@@ -241,7 +269,7 @@
       speed: +(q.get('speed') || 8), seed: q.get('seed') != null ? +q.get('seed') : (kind === 'fullrun' || kind === 'probe' ? 7 : null),
       policy: q.get('policy') || 'bloom', goalDepth: +(q.get('goalDepth') || 1),
       timeoutS: +(q.get('timeoutS') || 900), seconds: +(q.get('seconds') || 12),
-      depth: +(q.get('depth') || 5),
+      depth: +(q.get('depth') || 5), diff: q.get('diff') || undefined,
     };
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }

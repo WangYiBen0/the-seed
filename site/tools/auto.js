@@ -116,6 +116,52 @@
     if (!isFinite(v)) v = hi / 2;
     return Math.max(1, Math.min(hi - 1, v));
   };
+  const clickAt = (x, y) => { Input.mx = x; Input.my = y; Input.clicked = true; };
+  const exclList = (k) => { const v = TSW.settings.get(k, []); return Array.isArray(v) ? v : []; };
+  const excluded = (id) => exclList('serumExclude').includes(id);
+  // BFS over the tile grid: real path around walls/pits instead of random wiggling
+  function gridPath(p, tx, ty) {
+    if (typeof WORLD === 'undefined' || !WORLD || !WORLD.tiles || typeof TL === 'undefined') return null;
+    const Wd = WORLD.w, Ht = WORLD.h, tiles = WORLD.tiles;
+    const okT = (gx, gy) => { if (gx < 0 || gy < 0 || gx >= Wd || gy >= Ht) return false; const t = tiles[gy * Wd + gx]; return t === TL.FLOOR || t === TL.SLUDGE; };
+    const sx = Math.floor(p.x / 16), sy = Math.floor(p.y / 16);
+    const gx2 = Math.floor(tx / 16), gy2 = Math.floor(ty / 16);
+    if (!okT(sx, sy) || !okT(gx2, gy2)) return null;
+    const start = sy * Wd + sx, goal = gy2 * Wd + gx2;
+    if (start === goal) return [];
+    const prev = new Map([[start, start]]);
+    const q = [start];
+    while (q.length) {
+      const cur = q.shift();
+      if (cur === goal) break;
+      const cx = cur % Wd, cy = (cur / Wd) | 0;
+      for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + d[0], ny = cy + d[1];
+        if (!okT(nx, ny)) continue;
+        const ni = ny * Wd + nx;
+        if (prev.has(ni)) continue;
+        prev.set(ni, cur); q.push(ni);
+      }
+    }
+    if (!prev.has(goal)) return null;
+    const path = []; let cur = goal;
+    while (cur !== start) { path.push([(cur % Wd) * 16 + 8, ((cur / Wd) | 0) * 16 + 8]); cur = prev.get(cur); }
+    path.reverse(); return path;
+  }
+  // dash only when the dash arc does not end inside a pit
+  function dashSafe(p, dx, dy) {
+    const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    for (let d = 10; d <= 56; d += 8) {
+      const t = tileAtPx(p.x + dx * d, p.y + dy * d);
+      if (t === TL.PIT) {
+        let land = -1;
+        for (let e = d + 8; e <= 62; e += 8) { const t3 = tileAtPx(p.x + dx * e, p.y + dy * e); if (t3 !== TL.PIT && t3 !== TL.VOID) { land = e; break; } }
+        if (land < 0 || land > 56) return false;
+      }
+    }
+    return true;
+  }
+
   function isMelee(id) { const w = WEAPONS[id]; return w && ['melee', 'thrust', 'spin', 'whip', 'slam', 'iai', 'fist', 'reap'].includes(w.kind); }
   function nearestEnemy(x, y, maxD, needLos) {
     let best = null, bd = maxD;
@@ -134,23 +180,38 @@
   }
   function spotDanger(x, y, p) {
     const G = __achroma.G; let d = 0;
+    const h = hard(), horizon = h ? .95 : .7, wMul = h ? 1.3 : 1;
     if (typeof inMech === 'function' && G.mechs) for (const m of G.mechs) {
       const w = mechDanger(m); if (!w) continue;
       let inside = false;
       try { inside = !!inMech(m, x, y); } catch (e) { }
-      if (inside) d += 2.2 * w;
+      if (inside) d += 2.2 * w * wMul;
     }
     for (const b of G.ebullets) {                     // closest-approach prediction
       const sp2 = b.vx * b.vx + b.vy * b.vy; if (sp2 < 25) continue;
       const t = ((x - b.x) * b.vx + (y - b.y) * b.vy) / sp2;
-      if (t < -.05 || t > .7) continue;
+      if (t < -.05 || t > horizon) continue;
       const bt = Math.max(0, t);
       const miss = Math.hypot(x - (b.x + b.vx * bt), y - (b.y + b.vy * bt));
       const rr = (b.r || 3) + p.r + 3;
-      if (miss < rr) d += 2.4 * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
+      if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
     }
     for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
+    // pits: walking in hurts and teleports back — never path through them
+    if (typeof TL !== 'undefined' && tileAtPx(x, y) === TL.PIT) d += 2.6;
     if (typeof TL !== 'undefined' && typeof spikeState === 'function' && tileAtPx(x, y) === TL.SPIKE && spikeState() === 2) d += 1.4;
+    // gunners locking a shot: stay off the firing line before the bullet exists
+    if (G.enemies) for (const e of G.enemies) {
+      if (e.dead || e.spawnT > 0 || e.st !== 'aim') continue;
+      const dxp = p.x - e.x, dyp = p.y - e.y, dE = Math.hypot(dxp, dyp);
+      if (dE > 340 || dE < 1) continue;
+      const ux = dxp / dE, uy = dyp / dE;
+      const lx = x - e.x, ly = y - e.y;
+      const along = lx * ux + ly * uy;
+      if (along < 0) continue;
+      const lat = Math.abs(lx * uy - ly * ux);
+      if (lat < 15 && along < dE + 70) d += 1.7;
+    }
     return d;
   }
   // choose the walk direction: alignment with "want", walls block, threats repel
@@ -180,7 +241,9 @@
   // ---------------- main per-tick driver ----------------
   let lastPos = { x: 0, y: 0, t: 0 };
   const navProg = { tgt: null, x: 0, y: 0, t: 0 };
+  const wiggle = { dir: null, until: 0, n: 0 };
   A._taps = {};
+  const hard = () => (typeof diffV === 'function') && diffV('mhp') >= 1.25;
   A._tick = 0;
   A._tapGap = {};
   TSW.trace = new URLSearchParams(location.search).has('trace');
@@ -235,10 +298,33 @@
 
   function driveCards(G, tap) {
     const cd = G.cards; if (!cd || cd.pick >= 0 || cd.t < .7) return;
-    let best = -1, bestV = -1;
-    cd.opts.forEach((id, i) => { const v = scoreShard(id, cd.lv ? cd.lv[i] : 1); if (v > bestV) { bestV = v; best = i; } });
+    if (cd.skipT !== undefined || cd.ban) return;   // sieve animation in progress
+    const ex = exclList('serumExclude'), prio = exclList('serumPriority');
+    const hasSv = (typeof svData === 'function') ? svData() : { ban: 0, skip: 0 };
+    const exIdx = cd.opts.map((id, i) => (ex.includes(id) ? i : -1)).filter((i) => i >= 0);
+    // 定向洗掉: wash excluded offers out with the game's own sieve (排除/跳过)
+    if (exIdx.length && (hasSv.ban > 0 || hasSv.skip > 0) && typeof svBtns === 'function' && typeof cardRect === 'function') {
+      const allEx = exIdx.length === cd.opts.length;
+      const btns = svBtns();
+      const press = (x, y, note) => { clickAt(x, y); A.status.note = note; };
+      if (allEx && hasSv.skip > 0) return press(btns[1].x + btns[1].w / 2, btns[1].y + btns[1].h / 2, '筛滤:跳过全部');
+      if (hasSv.ban > 0) {
+        if (!cd.banMode) return press(btns[0].x + btns[0].w / 2, btns[0].y + btns[0].h / 2, '筛滤:排除模式');
+        const i = exIdx[0], r = cardRect(i);
+        return press(r.x + 52, r.y + 104, '筛滤:排除 ' + cd.opts[i]);
+      }
+    }
+    let best = -1, bestV = -1e9;
+    cd.opts.forEach((id, i) => {
+      let v = scoreShard(id, cd.lv ? cd.lv[i] : 1);
+      if (ex.includes(id)) v -= 100;                      // 排除列表: last resort only
+      if (v > bestV) { bestV = v; best = i; }
+    });
     if (best < 0) return;
-    A.status.note = '选血清: ' + (SHARD[cd.opts[best]] ? sname(SHARD[cd.opts[best]]) : cd.opts[best]);
+    if (bestV < 0) {                                      // forced: all options excluded → priority order
+      for (const pid of prio) { const i = cd.opts.indexOf(pid); if (i >= 0) { best = i; break; } }
+      A.status.note = '被迫选: ' + cd.opts[best];
+    }
     tap('Digit' + (best + 1));
   }
 
@@ -280,7 +366,7 @@
         if (it.kind === 'forge' && A.opts.forge) { const lv = p.wlv[w.id] || 0, cost = 30 + lv * 25; if (lv < 3 && G.ink >= cost + 15) { A.status.note = '锻造 +' + (lv + 1); tap('KeyE'); } break; }
         if (it.kind === 'shop' && A.opts.shop && !it.sold) {
           if (it.what === 'heart' && p.hp < p.maxHp && G.ink >= it.price) { tap('KeyE'); break; }
-          if (it.what === 'shard' && G.ink >= it.price && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= 2) { tap('KeyE'); break; }
+          if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= 2) { tap('KeyE'); break; }
           if (it.what === 'weapon' && G.ink >= it.price && p.weapons.length < wCap() && wScore(it.id) > wScore(w.id) + .5) { tap('KeyE'); break; }
           if (it.what === 'chip' && G.ink >= it.price && !p.skill) { tap('KeyE'); break; }
           continue;
@@ -304,18 +390,45 @@
         // armor rhythm: with armor down, disengage for ~3.6s so it regenerates
         // (armor = 3 free hits in this game; lastHit > 3 starts the regen)
         const retreat = (p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0);
-        const band = retreat ? [160, 240] : melee ? [30, 52] : [80, 150];
+        const bs = hard() ? 1.2 : 1;                    // harder difficulties keep more distance
+        const band = (retreat ? [160, 240] : melee ? [30, 52] : [80, 150]).map((v) => Math.round(v * bs));
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
-        else { const s = Math.sin(G.time * 1.7) > 0 ? 1 : -1; mx += -uy * .6 * s; my += ux * .6 * s; } // strafe
+        else {                                           // strafe — sign persists per target (no spinning)
+          if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
+          mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
+        }
         wantFire = d < (melee ? 90 : 400);
+        if (wantFire && typeof los === 'function') wantFire = los(p.x, p.y, ne.x, ne.y); // don't spray walls
+      }
+      // doorway funnel: on hard difficulties, fight from the room's door —
+      // enemies arrive one by one from a narrow arc instead of surrounding us.
+      if (hard() && !melee && active && active.type === 'combat' && active.doors.length) {
+        let bd = null, bdd = 1e9;
+        for (const pair of active.doors) {
+          const px = pair[0] * 16 + 8, py = pair[1] * 16 + 8, dd = dist(p.x, p.y, px, py);
+          if (dd < bdd) { bdd = dd; bd = [px, py]; }
+        }
+        if (bd && bdd > 26 && bdd < 220) {
+          mx += (bd[0] - p.x) / bdd * .9; my += (bd[1] - p.y) / bdd * .9;
+          A.status.note = 'doorfunnel';
+        }
       }
       // threat field does the dodging: bullets, telegraph circles/lines, void zones, spikes
       [mx, my] = pickDir(p, mx, my);
-      // dash out when the current spot is about to hurt and the dash is up
-      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.8) tap('Space');
-      if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0) tap('Space');
+      // dash out when the current spot is about to hurt and the dash is up (never into a pit)
+      const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
+      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? 1.3 : 1.8) && dirdash()) tap('Space');
+      if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0 && dirdash()) tap('Space');
+      // proactive reload: a dry mag triggers the passive reload (SLOTH curse: 1 dmg each)
+      if (usesAmmo(w)) {
+        const a = ammoOf(p, w.id), cap = magSize(w) || 1;
+        const sloth = hasCurse('sloth');
+        const low = a.n <= Math.max(1, Math.round(cap * (sloth ? .45 : .2)));
+        const safeish = sloth || !nearestEnemy(p.x, p.y, 140, false);
+        if (a.rl <= 0 && p.dashT <= 0 && (a.n <= 0 || (low && safeish))) tap('KeyR');
+      }
       // cast the skill chip whenever it is up (E with no prompt casts)
       if (p.skill && !p.skillOn && p.skillCd <= 0 && (active || G.trial || near) && !G.prompt) tap('KeyE');
     }
@@ -329,21 +442,45 @@
         if (path && path.length > 1) { const { doorOf } = graph(); const key = path[0] + ':' + path[1]; wp = doorOf[key] || tgt.pt; }
         if (wp) {
           const dx = wp[0] - p.x, dy = wp[1] - p.y, dl = Math.hypot(dx, dy);
-          if (dl > 12) { [mx, my] = pickDir(p, dx, dy); }
+          // 破甲后在门口等甲回满再进下一个战斗房（HARD+ 是生死差）
+          if (tgt.label === 'fight' && p.armor < p.maxArmor - 1 && p.lastHit > 1 && dl < 90) {
+            mx = 0; my = 0; A.status.note = '等甲恢复 ' + p.armor + '/' + p.maxArmor;
+          } else if (dl > 12) { [mx, my] = pickDir(p, dx, dy); }
           // stuck on this objective? bench it for a while so the run keeps moving
           if (navProg.tgt === tgt.room && G.time - navProg.t > 6 && Math.hypot(p.x - navProg.x, p.y - navProg.y) < 40) { benchFor(tgt.room || tgt.pt, 30); navProg.t = G.time; }
           else if (navProg.tgt !== tgt.room) { navProg.tgt = tgt.room; navProg.x = p.x; navProg.y = p.y; navProg.t = G.time; }
           else if (Math.hypot(p.x - navProg.x, p.y - navProg.y) > 40) { navProg.x = p.x; navProg.y = p.y; navProg.t = G.time; }
           A.status.target = tgt.label;
+          A._lastWp = wp;
         }
       }
     } else A.status.target = null;
 
-    // stuck? wiggle — and dash across pits/obstacles when the dash is up
+    // stuck? first try REAL pathfinding to the last waypoint; wiggle is the last resort
     if (Math.abs(p.x - lastPos.x) + Math.abs(p.y - lastPos.y) < 2) {
-      if (G.time - lastPos.t > 2.5) { const a = Math.random() * Math.PI * 2; [mx, my] = [Math.cos(a), Math.sin(a)]; lastPos.t = G.time; }
-      if ((mx || my) && p.dashCd <= 0) tap('Space');
-    } else lastPos = { x: p.x, y: p.y, t: G.time };
+      if (G.time - lastPos.t > 1.2) {
+        lastPos.t = G.time;
+        let handled = false;
+        if (A._lastWp) {
+          const path = gridPath(p, A._lastWp[0], A._lastWp[1]);
+          if (path && path.length) {
+            for (const node of path) { if (dist(p.x, p.y, node[0], node[1]) > 14) { const l = Math.hypot(node[0] - p.x, node[1] - p.y) || 1; mx = (node[0] - p.x) / l; my = (node[1] - p.y) / l; handled = true; break; } }
+            A.status.note = '寻路绕行';
+          }
+        }
+        if (!handled) {  // no path: wiggle in a committed direction, dash through (pit-safe)
+          if (!wiggle.dir || wiggle.until < G.time) {
+            const a = Math.random() * Math.PI * 2;
+            wiggle.dir = [Math.cos(a), Math.sin(a)]; wiggle.until = G.time + 1.2;
+            wiggle.n = (wiggle.n || 0) + 1;
+            if (wiggle.n >= 3) { if (navProg.tgt) benchFor(navProg.tgt, 30); navCache = null; wiggle.n = 0; }
+          }
+          if (wiggle.dir && wiggle.until > G.time) [mx, my] = wiggle.dir;
+          const l = Math.hypot(mx, my) || 1;
+          if ((mx || my) && p.dashCd <= 0 && dashSafe(p, mx / l, my / l)) tap('Space');
+        }
+      }
+    } else { lastPos = { x: p.x, y: p.y, t: G.time }; wiggle.n = 0; }
 
     moveKeys(mx, my);
     A._dbg = [mx, my];
@@ -355,6 +492,23 @@
     const rooms = WORLD.rooms;
     // 1) loose pickups: prisms / keys (skip ones we failed to reach recently)
     for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it)) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
+    // 1b) weapon/chip drops on the floor worth walking to
+    let bw = null, bwd = 1e9;
+    for (const it of G.inter) {
+      if (it.kind !== 'weapon' && it.kind !== 'chip') continue;
+      if (unreachable(it)) continue;
+      const want = it.kind === 'chip' ? (!p.skill || it.id !== 'teleport')
+        : (p.weapons.length < wCap() || wScore(it.id) > wScore(p.weapons[p.wi]) + .5);
+      if (!want) continue;
+      const d = dist(p.x, p.y, it.x, it.y); if (d < bwd) { bwd = d; bw = it; }
+    }
+    if (bw) return { pt: [bw.x, bw.y], label: bw.kind, room: roomAt(bw.x, bw.y) };
+    // 1c) forge when the current weapon can still be upgraded and we can pay
+    for (const r of rooms) {
+      if (r.type !== 'forge' || unreachable(r)) continue;
+      const cur = p.weapons[p.wi], lv = p.wlv[cur] || 0;
+      if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+    }
     const boss = rooms.find((r) => r.type === 'boss');
     // 2) boss room once unlocked (or never locked)
     if (boss && !boss.cleared && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss)) return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
