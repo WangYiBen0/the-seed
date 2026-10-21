@@ -91,7 +91,6 @@
   }
 
   async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic' } = {}) {
-    const diff = opts.diff || 'classic';
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
@@ -155,7 +154,7 @@
   // validates everything — no source is modified).  The autopilot then plays
   // N game-seconds and we report kills/dmg per game-minute at that depth.
   // This is the empirical leg of docs/endless-guide.md.
-  async function runProbe({ depth = 5, seconds = 60, speed = 8, policy = 'bloom', seed = 7, diff = 'classic',
+  async function runProbe({ depth = 5, seconds = 60, speed = 8, policy = 'bloom', seed = 7,
     shards = { bloom: 3, shrap: 3 }, weapons = ['hail'], wlv = { hail: 3 }, skill = null, hp = null } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
     TSW.rng.seed(seed);
@@ -163,7 +162,7 @@
     TSW.speed.set(speed, true);
     const M = TSW.metrics; M.reset();
     const save = {
-      v: 1, at: Date.now(), floor: 4, diff, hp: hp ?? 5, armor: 3,
+      v: 1, at: Date.now(), floor: 4, diff: opts.diff || 'classic', hp: hp ?? 5, armor: 3,
       weapons: weapons.slice(), wi: 0, wlv: Object.assign({}, wlv), shards: Object.assign({}, shards),
       skill: skill || null, ink: 400, kills: 0, runT: 0, hits: 0, endless: depth,
       rid: 'r' + Date.now().toString(36),
@@ -198,7 +197,7 @@
     const kills = (g.kills | 0) - k0, dmg = Math.round(M.dmgTotal - d0);
     const cTmax = Math.max(1, cT);
     return {
-      kind: 'probe', at: Date.now(), depth, seconds, policy, seed, speed, diff,
+      kind: 'probe', at: Date.now(), depth, seconds, policy, seed, speed, diff: opts.diff || 'classic',
       build: { weapons, wlv, shards, skill },
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1), combatS: +cT.toFixed(1),
