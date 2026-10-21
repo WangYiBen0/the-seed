@@ -246,6 +246,7 @@
   const hard = () => (typeof diffV === 'function') && diffV('mhp') >= 1.25;
   A._tick = 0;
   A._tapGap = {};
+  A._pickTries = new Map();
   TSW.trace = new URLSearchParams(location.search).has('trace');
   TSW.hooks.beforeTick(() => {
     // release one-frame taps from the previous tick (always, even when off)
@@ -266,7 +267,8 @@
     // edge-safe tap: the game detects key PRESSES (down && !prev-down).  Holding a
     // key across ticks (e.g. re-tapping Enter every frame on a dialog) presses it
     // exactly once and never again — so enforce >=1 released tick between taps.
-    const tap = (c) => {
+    if (A._pickTries.size > 60) A._pickTries.clear();
+  const tap = (c) => {
       if (A._tick - (A._tapGap[c] ?? -9) < 2) return;
       Input.keys[c] = true; A._taps[c] = 1; A._tapGap[c] = A._tick;
     };
@@ -362,7 +364,16 @@
         if (it.kind === 'chest' && !it.used) { A.status.note = '开箱'; tap('KeyE'); break; }
         if (it.kind === 'key' || it.kind === 'prism') break; // walk over
         if (it.kind === 'chip') { if (!p.skill || it.id !== 'teleport') { tap('KeyE'); break; } continue; }
-        if (it.kind === 'weapon') { const cur = wScore(w.id), nw = wScore(it.id); if (nw > cur + .5 || p.weapons.length < wCap()) { A.status.note = '拿武器 ' + it.id; tap('KeyE'); } break; }
+        if (it.kind === 'weapon') {
+          const cur = wScore(w.id), nw = wScore(it.id);
+          if (nw > cur + .5 || p.weapons.length < wCap()) {
+            A.status.note = '拿武器 ' + it.id;
+            tap('KeyE');
+            const tries = (A._pickTries.get(it) || 0) + 1; A._pickTries.set(it, tries);
+            if (tries > 240) { benchFor(it, 90); A._pickTries.delete(it); A.status.note = '放弃该武器'; }
+          } else benchFor(it, 90);
+          break;
+        }
         if (it.kind === 'forge' && A.opts.forge) { const lv = p.wlv[w.id] || 0, cost = 30 + lv * 25; if (lv < 3 && G.ink >= cost + 15) { A.status.note = '锻造 +' + (lv + 1); tap('KeyE'); } break; }
         if (it.kind === 'shop' && A.opts.shop && !it.sold) {
           if (it.what === 'heart' && p.hp < p.maxHp && G.ink >= it.price) { tap('KeyE'); break; }
@@ -491,12 +502,12 @@
   function pickObjective(G, p) {
     const rooms = WORLD.rooms;
     // 1) loose pickups: prisms / keys (skip ones we failed to reach recently)
-    for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it)) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
+    for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
     // 1b) weapon/chip drops on the floor worth walking to
     let bw = null, bwd = 1e9;
     for (const it of G.inter) {
       if (it.kind !== 'weapon' && it.kind !== 'chip') continue;
-      if (unreachable(it)) continue;
+      if (unreachable(it) || unreachable(roomAt(it.x, it.y))) continue;
       const want = it.kind === 'chip' ? (!p.skill || it.id !== 'teleport')
         : (p.weapons.length < wCap() || wScore(it.id) > wScore(p.weapons[p.wi]) + .5);
       if (!want) continue;
