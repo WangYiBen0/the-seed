@@ -394,8 +394,11 @@
     let mx = 0, my = 0, wantFire = false;
     if (active || G.trial || near) {
       const ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
-      // aim at the closest foe (screen coords = world - camera)
-      if (ne) { Input.mx = clampM(ne.x - G.cam.x, GW()); Input.my = clampM(ne.y - G.cam.y, GH()); }
+      // aim at the closest foe WITH a clear shot (falls back to the closest so the
+      // aim stays warm); firing is gated on that target actually existing
+      const neF = nearestEnemy(p.x, p.y, 900, true);
+      const aimT = neF || ne;
+      if (aimT) { Input.mx = clampM(aimT.x - G.cam.x, GW()); Input.my = clampM(aimT.y - G.cam.y, GH()); }
       if (ne) {
         const d = dist(p.x, p.y, ne.x, ne.y);
         // armor rhythm: with armor down, disengage for ~3.6s so it regenerates
@@ -410,12 +413,12 @@
           if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
           mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
         }
-        wantFire = d < (melee ? 90 : 400);
-        if (wantFire && typeof los === 'function') wantFire = los(p.x, p.y, ne.x, ne.y); // don't spray walls
+        wantFire = !!neF && d < (melee ? 90 : 450);   // only shoot what we can actually hit
       }
       // doorway funnel: on hard difficulties, fight from the room's door —
       // enemies arrive one by one from a narrow arc instead of surrounding us.
-      if (hard() && !melee && active && active.type === 'combat' && active.doors.length) {
+      const neDist = ne ? dist(p.x, p.y, ne.x, ne.y) : 1e9;
+      if (hard() && !melee && neDist > 70 && active && active.type === 'combat' && active.doors.length) {
         let bd = null, bdd = 1e9;
         for (const pair of active.doors) {
           const px = pair[0] * 16 + 8, py = pair[1] * 16 + 8, dd = dist(p.x, p.y, px, py);
