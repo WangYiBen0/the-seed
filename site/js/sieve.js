@@ -29,10 +29,8 @@ const _mktIconSv = mktIcon; mktIcon = function (id) { if (id !== 'sieve' || MKT_
 const _rollCardsSv = rollCards; rollCards = function (...a) { const ban = (G && G.svBan) || [], sh = G && G.p && G.p.shards; if (!ban.length || !sh) return _rollCardsSv(...a);
   const keep = {}; for (const id of ban) if (SHARD[id]) { keep[id] = sh[id]; sh[id] = SHARD[id].max || 1; }
   try { return _rollCardsSv(...a); } finally { for (const id in keep) { if (keep[id] === undefined) delete sh[id]; else sh[id] = keep[id]; } } };
-const _newRunSv = newRun; newRun = function (...a) { const r = _newRunSv(...a); if (G) G.svBan = []; return r; };
-const _saveRunSv = saveRun; saveRun = function () { _saveRunSv(); if (RESUMING || !G.p || G.mode === 'invade' || (window.BOSS_TEST && BOSS_TEST.on)) return;
-  try { const s = JSON.parse(STORE.getItem(SAVE_KEY) || 'null'); if (!s) return; s.svBan = (G.svBan || []).slice(); STORE.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { } };
-const _resumeRunSv = resumeRun; resumeRun = function (...a) { const s = loadSave(), r = _resumeRunSv(...a); if (G && G.p && s && Array.isArray(s.svBan)) { G.svBan = [...new Set(s.svBan.filter(id => Object.hasOwn(SHARD, id)))]; saveRun(); } return r; };
+const _newRunSv = newRun; newRun = function (...a) { const r = _newRunSv(...a); if (G) { G.svBan = []; G.curseBan = []; G.armorLoss = 0; } return r; };
+// Exclusions and dialysis costs are saved/restored with the core run before floor generation.
 // ---------------- the choice: two buttons to the right of the reroll ----------------
 function svBtns() { const x = RRB.x + RRB.w + 8, w = 70; return [{ k: 'ban', x, y: RRB.y, w, h: RRB.h }, { k: 'skip', x: x + w + 6, y: RRB.y, w, h: RRB.h }]; }
 const svBusy = cd => cd.pick >= 0 || cd.skipT !== undefined || (cd.ban && !cd.ban.done);
@@ -51,7 +49,7 @@ function svRefill(cd) { const b = cd.ban, have = new Set(cd.opts.filter((q, j) =
   else { cd.opts.splice(b.i, 1); if (cd.lv) cd.lv.splice(b.i, 1); cd.born.splice(b.i, 1); cd.born = cd.born.map(() => -1); }
   b.done = true; if (!cd.opts.length) { G.cards = null; G.state = 'play'; } }
 function svSkip(cd) { const d = svData(); if (d.skip <= 0) { svDeny(cd, 'skip'); return; } d.skip--; gpSave(); cd.banMode = false; cd.skipT = 0; AU.play('menu', .7); AU.play('door', 1.8, .3); notify(L('sv_skipped'), '#c9c1b2'); }
-const _updateCardsSv = updateCards; updateCards = function (rdt) { const cd = G.cards; if (!cd) return _updateCardsSv(rdt);
+const _updateCardsSv = updateCards; updateCards = function (rdt) { const cd = G.cards; if (!cd || !Array.isArray(cd.opts) || !cd.opts.length) return _updateCardsSv(rdt);
   if (cd.frags) { cd.frags.t += rdt; for (const f of cd.frags.list) { f.vy += f.g * rdt; f.x += f.vx * rdt; f.y += f.vy * rdt; f.rot += f.vr * rdt; } if (cd.frags.t > 1.3) cd.frags = null; }
   if (cd.svDeny) { cd.svDeny.t -= rdt; if (cd.svDeny.t <= 0) cd.svDeny = null; }
   if (cd.skipT !== undefined) { cd.t += rdt; cd.skipT += rdt; if (cd.skipT > .55) { G.cards = null; G.state = 'play'; } Input.clicked = false; return; }
@@ -70,7 +68,7 @@ const _updateCardsSv = updateCards; updateCards = function (rdt) { const cd = G.
   if (banKey) { Input.clicked = false; if (svData().ban <= 0) svDeny(cd, 'ban'); else { cd.banMode = true; AU.play('menu', 1.2); } return; }
   if (skipKey) { Input.clicked = false; svSkip(cd); return; }
   return _updateCardsSv(rdt); };
-const _drawCardsSv = drawCards; drawCards = function () { _drawCardsSv(); const cd = G.cards; if (!cd) return;
+const _drawCardsSv = drawCards; drawCards = function () { _drawCardsSv(); const cd = G.cards; if (!cd || !Array.isArray(cd.opts)) return;
   // the shattered syringe: glass and serum flying apart, a ring where it was
   if (cd.frags) { const q = cd.frags.t, b = cd.ban; if (b && q < .1) { ctx.globalAlpha = 1 - q / .1; rect(b.cx - SYR.BW / 2, b.cy - SYR.BH / 2, SYR.BW, SYR.BH, '#ffffff'); ctx.globalAlpha = 1; }
     if (b && q < .35) { ctx.globalAlpha = 1 - q / .35; ringC(b.cx, b.cy, 20 + q * 160, b.c, 2); ringC(b.cx, b.cy, 10 + q * 90, '#ffffff', 1); ctx.globalAlpha = 1; }

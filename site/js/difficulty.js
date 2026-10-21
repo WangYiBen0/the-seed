@@ -74,13 +74,15 @@ function updateDiffSelect(rdt) {
   if (pressed('KeyD') || pressed('ArrowRight') || Input.wheel > 0) stepDiff(1);
   DSEL.hover = -1; for (let i = 0; i < DIFFS.length; i++) if (inR(diffCard(i), Input.mx, Input.my)) DSEL.hover = i;
   if (Input.clicked) { const h = DSEL.hits.find(q => inR(q, Input.mx, Input.my)); if (h) { Input.clicked = false; h.f(); return; }
-    if (DSEL.hover >= 0) { Input.clicked = false; if (DSEL.hover === DSEL.sel) pickDiff(); else { DSEL.sel = DSEL.hover; AU.play('menu', .85 + DSEL.sel * .14); } return; }
+    if (DSEL.hover >= 0) { Input.clicked = false; DSEL.sel = DSEL.hover; AU.play('menu', .85 + DSEL.sel * .14); return; }
     if (!inR(diffWin(), Input.mx, Input.my)) { Input.clicked = false; backPage(); return; } }
-  if (pressed('Enter') || pressed('Space') || pressed('KeyE')) { pickDiff(); return; }
+  if (pressed('Enter') || pressed('Space') || pressed('KeyE')) { const h=DSEL.hits.find(q=>inR(q,Input.mx,Input.my));if(h)h.f();return; }
   if (pressed('Escape')) backPage();
 }
-function pxEllipse(x, y, rx, ry, c, n = 48) { for (let i = 0; i < n; i++) { const a = i / n * 6.2832; rect(Math.round(x + Math.cos(a) * rx), Math.round(y + Math.sin(a) * ry), 1, 1, c); } }
-function pxDiamond(x, y, r, c) { if (r <= 0) return; ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.fill(); }
+function pxEllipse(x, y, rx, ry, c, n = 48) { for (let i = 0; i < n; i++) { const a = i / n * 6.2832; rect(Math.round(x + Math.cos(a) * rx), Math.round(y + Math.sin(a) * ry), 1, 1, c); } }
+
+function pxDiamond(x, y, r, c) { if (r <= 0) return; ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.fill(); }
+
 function drawDiffSelect(t) {
   const r = diffWin(), d = DIFFS[diffCur()], c = d.c(), k = easeOut(clamp(DSEL.t / .25, 0, 1)), yo = Math.round((1 - k) * 8); DSEL.hits = [];
   const invasion = typeof RUN_MODE !== 'undefined' && RUN_MODE === 'invade', ivd = invasion ? ivDifficulty(d.id) : null;

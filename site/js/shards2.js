@@ -152,7 +152,7 @@ function onReloadFinished(p, active) { const S = G.S; if (!S.refit || !active ||
   p.armor++; p.refitT = G.time + (5 - S.refit) * (SYN.fortress ? .5 : 1); AU.play('armor', 1.3); ringFx(p.x, p.y, 12, col(4), .25, 1); }
 function onArmorBroken(p) { const S = G.S; if (!S.breakw) return; const R = 70 + 40 * S.breakw;
   for (let i = G.ebullets.length - 1; i >= 0; i--) if (dist(p.x, p.y, G.ebullets[i].x, G.ebullets[i].y) < R) G.ebullets.splice(i, 1);
-  for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < R + e.r) hitEnemy(e, (14 + 8 * S.breakw) * S.dmg, { proc: .6, ka: ang(p.x, p.y, e.x, e.y), knock: 260, color: C.cyan, boom: true });
+  for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < R + e.r) hitEnemy(e, (14 + 8 * S.breakw) * S.dmg, { proc: .6, ka: ang(p.x, p.y, e.x, e.y), knock: 260, color: C.cyan, boom: true });
   for (let k = 0; k < 3; k++) ringFx(p.x, p.y, R * (.5 + k * .25), k % 2 ? col(5) : C.cyan, .35 + k * .08, 3); AU.play('dashOff'); flash(C.cyan, .3, true); shake(.3, true);
   if (SYN.lastbreath) p.inv = Math.max(p.inv, 1.5); }
 // flame trail left by dashes
@@ -160,7 +160,7 @@ function trailTick(p) { const S = G.S; if (!S.trail) return; G.fires = G.fires |
   if (!last || dist(last.x, last.y, p.x, p.y) > 7) G.fires.push({ x: p.x, y: p.y + 3, life: (1.2 + .4 * S.trail) * (SYN.blaze ? 2 : 1), max: (1.2 + .4 * S.trail) * (SYN.blaze ? 2 : 1), tick: 0 }); if (G.fires.length > 120) G.fires.shift(); }
 function updateFires(dt) { const F = G.fires; if (!F || !F.length) return; const S = G.S;
   for (let i = F.length - 1; i >= 0; i--) { const f = F[i]; f.life -= dt; f.tick -= dt; if (f.life <= 0) { F.splice(i, 1); continue; }
-    if (f.tick <= 0) { f.tick = .3; for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && !e.fly && dist(f.x, f.y, e.x, e.y) < 8 + e.r) { hitEnemy(e, (2 + S.trail * 1.5) * S.dmg, { proc: .2, fromField: true, knock: 0, quiet: true, color: C.orange }); e.burn = Math.max(e.burn, SYN.blaze ? 3 : 1); e.burnT = 3; } }
+    if (f.tick <= 0) { f.tick = .3; for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && !e.fly && dist(f.x, f.y, e.x, e.y) < 8 + e.r) { hitEnemy(e, (2 + S.trail * 1.5) * S.dmg, { proc: .2, fromField: true, knock: 0, quiet: true, color: C.orange }); e.burn = Math.max(e.burn, SYN.blaze ? 3 : 1); e.burnT = 3; } }
     if (Math.random() < .25) part({ x: f.x + rand(-3, 3), y: f.y - rand(0, 3), vx: rand(-6, 6), vy: rand(-40, -20), life: .35, max: .35, c: Math.random() < .5 ? C.orange : C.red, s: 1, drag: 0 }); } }
 function drawFires(cx, cy) { const F = G.fires; if (!F) return; for (const f of F) { const k = f.life / f.max, x = f.x - cx, y = f.y - cy, h = 3 + Math.sin(G.time * 18 + f.x) * 1.5;
   ctx.globalAlpha = .35 * k; disc(x, y, 5, C.red); ctx.globalAlpha = Math.min(1, k * 1.6); rect(x - 2, y - h, 4, h, C.orange); rect(x - 1, y - h + 1, 2, h - 1, C.gold); ctx.globalAlpha = 1; } }
@@ -189,18 +189,27 @@ function hasCurse(id) { return !!(G && G.curses && G.curses.includes(id)); }
 function curseStats(S) { if (hasCurse('hubris')) S.mag *= .6; if (hasCurse('slow')) S.armorRegen *= .5; }
 // the event: once the portal's black-out finishes closing, three curses surface through the dark
 const CQ = { w: 118, h: 150, gap: 14 };
+function cursePool() { return CURSES.filter(c => !(G.curses || []).includes(c.id) && !(G.curseBan || []).includes(c.id)); }
+function finishCurse() {
+  G.curseQ = null; G.curseDone = true; G.transDone = false;
+  G.transT = Number.isFinite(G.transT) ? Math.max(1, G.transT) : 1;
+  G.state = 'trans'; saveRun();
+}
 function openCurse() {
-  const pool = CURSES.filter(c => !(G.curses || []).includes(c.id));
+  const pool = cursePool(); if (!pool.length) { finishCurse(); return; }
   G.curseQ = { opts: shuffle(pool.slice()).slice(0, 3).map(c => c.id), t: 0, hover: -1, pick: -1, pickT: 0, rr: false, rrT: 9, lh: -1 };
   G.state = 'curse'; AU.play('dread'); shake(.3, true);
 }
 function curseRect(i) { const n = G.curseQ.opts.length; return { x: Math.round(W / 2 + (i - (n - 1) / 2) * (CQ.w + CQ.gap) - CQ.w / 2), y: 62, w: CQ.w, h: CQ.h }; }
 const CRR = { x: W / 2 - 62, y: 226, w: 124, h: 20 };
 RELAYOUT.push(() => { CRR.x = W / 2 - 62; });
-function curseRerollOk() { return !G.curseQ.rr && G.p.hp > 1; }
+function curseHasReplacement() { const q = G.curseQ; return !!(q && Array.isArray(q.opts) && cursePool().some(c => !q.opts.includes(c.id))); }
+function curseRerollOk() { return !!(G.curseQ && !G.curseQ.rr && G.p.hp > 1 && curseHasReplacement()); }
 function updateCurse(rdt) {
-  const q = G.curseQ; q.t += rdt; q.rrT += rdt;
-  if (q.pick >= 0) { q.pickT += rdt; if (q.pickT > 1.5) { G.curseQ = null; G.curseDone = true; G.state = 'trans'; saveRun(); } return; }
+  const q = G.curseQ;
+  if (!q || !Array.isArray(q.opts) || !q.opts.length || q.opts.some(id => !CURSE[id])) { if (G.curseDone) finishCurse(); else openCurse(); return; }
+  q.t += rdt; q.rrT += rdt;
+  if (q.pick >= 0) { q.pickT += rdt; if (q.pickT > 1.5) finishCurse(); return; }
   if (q.t < 1.3) return;
   q.hover = -1; q.opts.forEach((id, i) => { const r = curseRect(i); if (Input.mx > r.x && Input.mx < r.x + r.w && Input.my > r.y && Input.my < r.y + r.h) q.hover = i; });
   if (q.hover !== q.lh && q.hover >= 0) AU.play('ui', .5 + q.hover * .05); q.lh = q.hover;
@@ -208,9 +217,9 @@ function updateCurse(rdt) {
   let pick = -1; if (Input.clicked && q.hover >= 0) pick = q.hover; ['Digit1', 'Digit2', 'Digit3'].forEach((k, i) => { if (pressed(k) && i < q.opts.length) pick = i; });
   if ((pressed('KeyR') || (Input.clicked && q.rrHov)) && pick < 0) {
     if (curseRerollOk()) { q.rr = true; q.rrT = 0; G.p.hp--; AU.play('hurt'); AU.play('dread', 1.3, .6); flash(C.red, .35, true);
-      const pool = CURSES.filter(c => !(G.curses || []).includes(c.id) && !q.opts.includes(c.id)); const fresh = shuffle(pool.map(c => c.id)); q.opts = q.opts.map(id => fresh.pop() || id); q.t = .9; }
+      const fresh = shuffle(cursePool().filter(c => !q.opts.includes(c.id)).map(c => c.id)); q.opts = q.opts.map(id => fresh.pop() || id); q.t = .9; }
     else { AU.play('locked'); q.deny = .35; } }
-  if (pick >= 0) { q.pick = pick; q.pickT = 0; const id = q.opts[pick]; G.curses = (G.curses || []).concat(id); recomputeStats(); AU.play('cursePick'); shake(.6, true); chroma(1.5, true); }
+  if (pick >= 0) { q.pick = pick; q.pickT = 0; const id = q.opts[pick]; G.curses = [...new Set((G.curses || []).concat(id))]; recomputeStats(); G.curseDone = true; saveRun(); AU.play('cursePick'); shake(.6, true); chroma(1.5, true); }
   q.deny = Math.max(0, (q.deny || 0) - rdt);
 }
 // slice-shift the pixels already drawn in a band of the screen: cheap, convincing tearing
@@ -218,7 +227,7 @@ function tear(x, y, w, h, amp, n) { const v = view; ctx.save(); ctx.setTransform
   for (let i = 0; i < n; i++) { const sy = Math.round(rand(y, y + h)), sh = Math.round(rand(1, 5)), dx = Math.round(rand(-amp, amp)); if (!dx) continue;
     ctx.drawImage(v, Math.max(0, x * US), sy * US, w * US, sh * US, (x + dx) * US, sy * US, w * US, sh * US); } ctx.restore(); }
 function drawCurse() {
-  const q = G.curseQ; if (!q) return; const t = q.t, k = clamp(t / 1.2, 0, 1);
+  const q = G.curseQ; if (!q || !Array.isArray(q.opts) || q.opts.some(id => !CURSE[id])) return; const t = q.t, k = clamp(t / 1.2, 0, 1);
   rect(0, 0, W, H, '#000');
   // dark red breathing vignette and drifting static
   const br = .5 + Math.sin(t * 1.7) * .5; ctx.globalAlpha = .18 + br * .1; ctx.drawImage(glowSprite('#5a000c', 160), W / 2 - 160, H / 2 - 160 + 20); ctx.globalAlpha = 1;

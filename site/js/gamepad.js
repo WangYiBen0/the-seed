@@ -64,6 +64,8 @@ function padTargets() {
   let list = [];
   if (G.state === 'talk' && G.talk && G.talk.ask3) list = flBtns();
   else if (G.state === 'dialysis') list = DIA.hits;
+  else if (G.state === 'labq') list = LABQ.hits;
+  else if (G.state === 'ivendq') list = IVE.hits;
   else if (ivOn() && IVU.detail) list = IVU.hits;
   else if (ivOn() && IV_UI.has(G.state)) list = IVU.pop ? IVU.hits.slice(IVU.popAt || 0) : IVU.hits;
   else if (G.state === 'cards' && G.cards && G.cards.pick < 0 && G.cards.skipT === undefined) {
@@ -136,9 +138,11 @@ function gamepadPre(rdt) {
   if (PAD.neutral) { PAD.prev = down; if (active) return; PAD.neutral = false; }
   if (!PAD.active && !active) return;
   const newlyActive = !PAD.active || PAD.index !== p.index || PAD.id !== p.id;
+  const playing = inPlay() && !NAMEED.open && !OVL.open && !WC.open && !FSQ.open;
+  const firstFire = newlyActive && playing && !G.tpPause;
   if (newlyActive) {
     PAD.active = true; PAD.index = p.index; PAD.id = p.id; PAD.aim = G.p ? G.p.aim : 0; PAD.aimed = false; PAD.cursor = false; PAD.focus = null;
-    PAD.blocked = new Set(down.flatMap((on,i) => on ? [i] : [])); PAD.prev = down; PAD.context = ''; PAD.nav = '';
+    PAD.blocked = new Set(down.flatMap((on,i) => on && !(firstFire && i === 7) ? [i] : [])); PAD.prev = down; PAD.context = ''; PAD.nav = '';
     for (const k of TOUCH.held) Input.keys[k] = false;
     if (TOUCH.on) Input.down = Input.clicked = false;
     TOUCH.on = false; TOUCH.ids = {}; TOUCH.joy = null; TOUCH.jx = TOUCH.jy = 0; TOUCH.target = null; TOUCH.queue = []; TOUCH.held = [];
@@ -149,11 +153,10 @@ function gamepadPre(rdt) {
   for (const i of PAD.blocked) if (!down[i]) PAD.blocked.delete(i);
   const context = padContext();
   if (context !== PAD.context) {
-    for (let i=0;i<down.length;i++) if (down[i] && previous[i]) PAD.blocked.add(i);
+    for (let i=0;i<down.length;i++) if (down[i] && previous[i] && !(firstFire && i === 7)) PAD.blocked.add(i);
     PAD.context = context; PAD.focus = null; PAD.cursor = false; PAD.nav = ''; PAD.repeat = 0;
   }
   const edge = i => down[i] && !previous[i] && !PAD.blocked.has(i), held = i => down[i] && !PAD.blocked.has(i);
-  const playing = inPlay() && !NAMEED.open && !OVL.open && !WC.open && !FSQ.open;
   if (!playing) { padMenu(x,y,rx,ry,down,edge,dt); return; }
   TOUCH.target = null; TOUCH.setAim = false; G.aimX = G.aimY = undefined;
   if (edge(9)) { padPulse('Escape'); return; }

@@ -1,8 +1,8 @@
 // ===== TheSeed world channel: everyone playing can talk here (DZMM server function 'world') =====
 // polling: every 5 s while the panel is open, every 15 s for the main-menu card; during a run with the panel closed, a cheap check
-// every 60 s keeps the unread badge up to date (the whole game may only run 5 server calls at once, see fnCall in net.js). One message every 20 s, up to 30 characters; the server keeps 100.
+// every 60 s keeps the unread badge up to date (the whole game may only run 5 server calls at once, see fnCall in net.js). One message every 20 s, up to 100 characters; the server keeps 200.
 'use strict';
-const WC_POLL = 5, WC_CARD = 15, WC_HEAD = 60, WC_MAX = 30, WC_KEEP = 100;
+const WC_POLL = 5, WC_CARD = 15, WC_HEAD = 60, WC_MAX = 100, WC_KEEP = 200;
 const WC = { msgs: [], seq: -1, head: -1, open: false, from: 'menu', t: 0, busy: false, nextPoll: 0, nextHead: 0, cool: 0, err: '', errT: 0,
   el: null, inp: null, scroll: 0, drag: null, sending: false, more: true, older: false, cid: null, hov: -1 };
 const wcOn = () => !ONDZ() || PLAT.caps.fn !== false;
@@ -52,7 +52,7 @@ function closeWorld() { WC.open = false; if (WC.el) { WC.inp.blur(); WC.el.style
 function wcBuild() {
   if (WC.el) return;
   const el = document.createElement('div'); el.id = 'wcEd'; el.style.cssText = 'position:fixed;display:none;z-index:5';
-  const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 60; inp.autocomplete = 'off'; inp.spellcheck = false; inp.setAttribute('enterkeyhint', 'send');
+  const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = WC_MAX * 2; inp.autocomplete = 'off'; inp.spellcheck = false; inp.setAttribute('enterkeyhint', 'send');
   inp.style.cssText = 'box-sizing:border-box;width:100%;height:100%;margin:0;padding:0 .5em;border:0;outline:none;border-radius:0;background:transparent;color:#e8e1d3;cursor:text;caret-color:#efb94a;font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC","Hiragino Sans",sans-serif;-webkit-user-select:text;user-select:text';
   inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); wcSend(); } else if (e.key === 'Escape') { e.preventDefault(); closeWorld(); } });
   inp.addEventListener('input', () => { WC.err = ''; WC.cid = null; });
@@ -69,7 +69,7 @@ function wcSend() {
   if (WC.sending) return; if (!NET.user && ONDZ()) { wcFlash('wc_guest'); return; }
   const text = String(WC.inp.value || '').replace(/\s+/g, ' ').trim(); if (!text) return;
   if ([...text].length > WC_MAX) { wcFlash('wc_long', WC_MAX); AU.play('locked'); return; }
-  if (!ONDZ()) { wcLocalSeed(); const seq = WC.seq + 1; WC.msgs.push({ seq, name: SET.name || L('lg_guest'), title: achTitle(), text, at: Date.now(), mine: true }); WC.seq = WC.head = seq; WC.inp.value = ''; WC.err = ''; AU.play('select'); return; }
+  if (!ONDZ()) { wcLocalSeed(); const seq = WC.seq + 1; wcMerge([{ seq, name: SET.name || L('lg_guest'), title: achTitle(), text, at: Date.now(), mine: true }]); WC.seq = WC.head = seq; WC.inp.value = ''; WC.err = ''; AU.play('select'); return; }
   const left = Math.ceil(WC.cool - wcNow()); if (left > 0) { wcFlash('wc_wait', left); AU.play('locked'); return; }
   // the same id is reused if this exact message is sent again after a failure, so the server never posts it twice
   WC.cid = WC.cid || Date.now().toString(36) + Math.random().toString(36).slice(2, 7); WC.sending = true;
@@ -80,7 +80,7 @@ function wcSend() {
     .catch(() => { wcFlash('wc_fail'); AU.play('locked'); }).finally(() => { WC.sending = false; });
 }
 function wcLoadOlder() {
-  if (WC.older || !WC.more || !WC.msgs.length) return; WC.older = true;
+  if (WC.older || !WC.more || !WC.msgs.length || WC.msgs.length >= WC_KEEP) return; WC.older = true;
   worldFn('older', { before: WC.msgs[0].seq }).then(r => { if (!r || r.ok === false) return; WC.more = !!r.more && r.msgs.length > 0; wcMerge(r.msgs); }).catch(() => { }).finally(() => { WC.older = false; });
 }
 function updateWorld(rdt) {

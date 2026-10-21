@@ -1,10 +1,10 @@
 // ===== TheSeed limited-time event (server function 'event'): a server-wide task shown on the main menu =====
-// The current event: before 2026-10-22 23:59 GMT+8 the whole server clears 突入探索 6000 times and 入侵抵抗 6000 times. Each cleared run
+// The current event: before 2026-10-22 23:59 GMT+8 the whole server clears 突入探索 6000 times and 入侵抵抗 3000 times. Each cleared run
 // adds 1 to its mode's counter when it is settled (endless 突入探索 runs count as clears). When both counters reach the goal every player
 // can claim 20 embers and the new skill chip (Overclock!) once. The window refreshes every 60 s on the main menu; today's counts start
 // again at 0:00 GMT+8.
 'use strict';
-const EVC = { id: 'ev2', goal: 6000, end: Date.UTC(2026, 9, 22, 15, 59, 59, 999), reward: 20, chip: 'ovc' }; // the same numbers as functions/event.js
+const EVC = { id: 'ev2', goal: 6000, goalX: 6000, goalI: 3000, end: Date.UTC(2026, 9, 22, 15, 59, 59, 999), reward: 20, chip: 'ovc' }; // the same numbers as functions/event.js
 const EV_MAT = { easy: 1, classic: 1, hard: 1, nightmare: 1, despair: 1 }; // each clear counts once, on any difficulty
 const EV = { d: null, err: false, busy: false, next: 0, skew: 0, day: -1, claiming: false, hits: [], t: 0, flash: null };
 const evOn = () => ONDZ() && PLAT.caps.fn !== false;
@@ -12,15 +12,17 @@ const evNow = () => Date.now() + EV.skew; // the server's clock once we have hea
 const evDay = ms => Math.floor((ms + 8 * 3600e3) / 86400e3);
 const evOpen = () => evNow() <= EVC.end;
 const evX = () => EV.d ? EV.d.x | 0 : 0, evI = () => EV.d ? EV.d.i | 0 : 0, evTotal = () => evX() + evI();
-const evDone = () => evX() >= EVC.goal && evI() >= EVC.goal;
+const evGoal = kind => { const key = kind === 'i' ? 'goalI' : 'goalX', n = EV.d && EV.d[key]; return Number.isSafeInteger(n) && n > 0 ? n : EVC[key]; };
+const evDone = () => evX() >= evGoal('x') && evI() >= evGoal('i');
 const evClaimedHere = () => !!((gpLoad().ev || {})[EVC.id]);
+const evHidden = () => evDone() && evClaimedHere();
 // which counter a settled run adds to: 'x' a cleared (or endless) 突入探索 run, 'i' a cleared 入侵抵抗 run
 function evKind(R) { if (!R || !EV_MAT[R.diff]) return ''; if (R.mode === 'invade') return R.win ? 'i' : ''; return R.win || R.endless ? 'x' : ''; }
 // the countdown: "3天 04:12:09"
 function evLeft() { let s = Math.max(0, Math.floor((EVC.end - evNow()) / 1000)); const d = Math.floor(s / 86400); s %= 86400; const z = n => ('0' + n).slice(-2);
   return (d ? L('ev_days', d) + ' ' : '') + z(Math.floor(s / 3600)) + ':' + z(Math.floor(s / 60) % 60) + ':' + z(s % 60); }
 Object.assign(STR, {
-  ev_name: ['SERVER TASK: CLEAR EACH MODE 6000 TIMES', '全服任務：突入探索與入侵抵抗各通關 6000 次', '全サーバー任務：両モードを各6000回クリア', '全服任务：突入探索与入侵抵抗各通关 6000 次'],
+  ev_name: ['SERVER-WIDE JOINT MISSION', '全服聯合任務', '全サーバー共同任務', '全服联合任务'],
   ev_end: ['ENDS 2026.10.22 23:59 (GMT+8). REFRESHES DAILY AT 0:00 GMT+8', '結束時間：2026.10.22 23:59（GMT+8），每日 GMT+8 0 點刷新', '終了：2026.10.22 23:59（GMT+8）・毎日GMT+8の0時に更新', '结束时间：2026.10.22 23:59（GMT+8），每日 GMT+8 0 点刷新'],
   ev_rewardShort: ['REWARD: {0} EMBERS & A NEW SKILL CHIP EACH', '獎勵：每人 {0} 火種 & 新技能晶片', '報酬：全員に火種{0}＆新スキルチップ', '奖励：每人 {0} 火种 & 新技能芯片'],
   ev_reward: ['{0} EMBERS AND THE NEW SKILL CHIP OVERCLOCK! FOR EVERY PLAYER', '每位玩家 {0} 火種，並解鎖新技能晶片「Overclock!」', '全プレイヤーに火種{0}と新スキルチップ「Overclock!」', '每位玩家 {0} 火种，并解锁新技能芯片「Overclock!」'],
@@ -38,7 +40,7 @@ Object.assign(STR, {
 // ---- the server ----
 function evStatus() {
   if (!evOn() || EV.busy) return; EV.busy = true;
-  fnCall('event', 'status').then(r => { if (r && r.ok) { EV.d = r; EV.err = false; EV.skew = r.now - Date.now(); } else EV.err = true; })
+  fnCall('event', 'status').then(r => { if (r && r.ok) { EV.d = r; EV.err = false; EV.skew = r.now - Date.now(); if (evDone()) { const gp = gpLoad(); gp.chips = gp.chips || {}; if (!gp.chips[EVC.chip]) { gp.chips[EVC.chip] = 1; gpSave(); } } } else EV.err = true; })
     .catch(() => { EV.err = true; }).finally(() => { EV.busy = false; EV.next = performance.now() + (MENU.page === 'event' ? 20e3 : 60e3); EV.day = evDay(evNow()); });
 }
 // called every frame on the main menu and the event page: asks again every 60 s (20 s on the event page) and right after 0:00 GMT+8
@@ -71,7 +73,7 @@ const _netInitEv = netInit; netInit = function () { _netInitEv(); if (NET.user &
 const _finishRunEv = finishRun; finishRun = function (win) { _finishRunEv(win); try { evContribute(G.result); } catch (e) { console.error('[event]', e); } };
 
 // ---- the reward: embers and the new chip, which joins the run's chip pool from then on ----
-const chipUnlocked = k => k !== EVC.chip || !!((gpLoad().chips || {})[k]);
+const chipUnlocked = k => k !== EVC.chip || !!((gpLoad().chips || {})[k]) || evDone();
 async function evClaim() {
   if (!NET.user) { evFlash('wc_guest'); AU.play('locked'); return; } if (EV.claiming || evClaimedHere()) return; EV.claiming = true;
   const gp = gpLoad(); gp.evReceipts = gp.evReceipts || {};
@@ -88,18 +90,20 @@ async function evClaim() {
 function evFlash(k, c) { EV.flash = { txt: L(k, EVC.reward), c: c || TH.red, t: 0 }; }
 
 // ---- the main-menu window ----
-function evCardBox() { return { x: W - 186, y: 16, w: 158, h: 98 }; }
-function evBar(x, y, w, h, n, c) { const p = clamp(n / EVC.goal, 0, 1); rect(x, y, w, h, '#1a1a1f'); rect(x, y, Math.round(w * p), h, n >= EVC.goal ? TH.green : c); if (p > 0 && p < 1) rect(x + Math.round(w * p) - 1, y - 1, 2, h + 2, '#fff6d8'); }
+function evCardBox() { return { x: W - 200, y: 8, w: 188, h: 44 }; }
+function evBar(x, y, w, h, n, c, goal) { const p = clamp(n / goal, 0, 1); rect(x, y, w, h, '#1a1a1f'); rect(x, y, Math.round(w * p), h, n >= goal ? TH.green : c); if (p > 0 && p < 1) rect(x + Math.round(w * p) - 1, y - 1, 2, h + 2, '#fff6d8'); }
 function drawEventCard(t) {
-  const b = evCardBox(), k = easeOut(clamp((MENU.t - .2) / .5, 0, 1)); if (k <= 0) return;
-  const hov = !TOUCH.on && inR(b, Input.mx, Input.my), cx = b.x + Math.round((1 - k) * 20), w = b.w, y = b.y, lh = lineH(), acc = TH.ember; ctx.globalAlpha = k;
-  const open = evOpen(), left = open ? evLeft() : L('ev_over'); mmCard(cx, y, w, b.h, acc, L('ev_tag'), hov); text(left, cx + w - 6, y + 4 - (isCJK(left) ? 0 : -1), open ? TH.red : '#8e877b', 1, 'right');
-  let yy = y + 18; text(fitText(L('ev_name'), w - 14), cx + 7, yy - 1, '#e8e1d3'); yy += lh + 1;
-  // two counters, one bar each
-  for (const [lab, n, c] of [[L('ev_tx'), evX(), acc], [L('ev_ti'), evI(), '#8ed872']]) { text(lab, cx + 7, yy - 1, '#8e877b'); const s = EV.d ? fmtNum(n) + '/' + fmtNum(EVC.goal) : '-'; text(s, cx + w - 7, yy - 1, EV.d ? '#c9c1b2' : '#6e675c', 1, 'right'); yy += lh; evBar(cx + 7, yy, w - 14, 4, n, c); yy += 7; }
-  text(fitText(L('ev_rewardShort', EVC.reward), w - 14), cx + 7, yy, '#d8c890'); yy += lh + 1;
-  const tip = evDone() && !evClaimedHere() ? L('ev_claimTip') : L('ev_tip'), blink = ((t * 2) | 0) % 2 === 0 || hov;
-  text(tip + ' >', cx + w / 2, Math.min(yy, y + b.h - 11), blink ? TH.bone2 : TH.faint, 1, 'center');
+  if (evHidden()) return; const b = evCardBox(), k = easeOut(clamp((MENU.t - .2) / .5, 0, 1)); if (k <= 0) return;
+  const hov = !TOUCH.on && inR(b, Input.mx, Input.my), cx = b.x + Math.round((1 - k) * 20), w = b.w, y = b.y, acc = TH.ember; ctx.globalAlpha = k;
+  const ready = evDone() && !evClaimedHere(), right = (ready ? L('ev_claim') : evOpen() ? evLeft() : L('ev_over')) + ' >';
+  mmCard(cx, y, w, b.h, acc, fitText(L('ev_tag'), w - textW(right) - 20), hov);
+  text(right, cx + w - 7, y + 4, ready ? TH.gold : '#9f9aa9', 1, 'right');
+  // The summary stays on one screen; clicking anywhere opens the full rules and reward.
+  let yy = y + 17;
+  for (const [lab, n, c, goal] of [[L('ev_tx'), evX(), acc, evGoal('x')], [L('ev_ti'), evI(), '#8ed872', evGoal('i')]]) {
+    text(lab, cx + 7, yy, '#c9c1b2'); evBar(cx + 44, yy + 3, w - 121, 3, n, c, goal);
+    text(EV.d ? fmtNum(n) + '/' + fmtNum(goal) : '-', cx + w - 7, yy, EV.d ? '#c9c1b2' : '#6e675c', 1, 'right'); yy += 13;
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -119,10 +123,10 @@ function drawEvent(t) {
   { const left = open ? evLeft() : L('ev_over'); text(open ? L('ev_leftHead') : '', x + w - 2, y, '#6e675c', 1, 'right'); text(left, x + w - 2, y + lh, open ? TH.red : '#8e877b', 1.5, 'right'); }
   y += lh * 2 + 6;
   const half = Math.floor((w - 8) / 2);
-  [[L('ev_tx'), evX(), EV.d ? EV.d.todayX : 0, TH.gold, L('ev_hx')], [L('ev_ti'), evI(), EV.d ? EV.d.todayI : 0, '#8ed872', L('ev_hi')]].forEach(([lab, n, td, c, how], k) => {
-    const bx = x + k * (half + 8), done = n >= EVC.goal; evBox(bx, y, half, 58, done ? TH.green : c); text(lab, bx + 10, y + 6, '#e8e1d3'); if (done) text(L('ev_doneTag'), bx + half - 8, y + 6, TH.green, 1, 'right');
-    const p = clamp(n / EVC.goal, 0, 1), bw = half - 20, by = y + 20; rect(bx + 10, by, bw, 8, '#08080a'); box(bx + 9, by - 1, bw + 2, 10, null, '#2a2a30'); rect(bx + 10, by, Math.round(bw * p), 8, done ? TH.green : c); rect(bx + 10, by, Math.round(bw * p), 1, '#fff2c0');
-    const big = EV.d ? fmtNum(n) + ' / ' + fmtNum(EVC.goal) + '  ' + Math.floor(p * 100) + '%' : evOn() ? L('bd_loading') : L('g_dz'); text(big, bx + 10, by + 12, '#d8d4c8');
+  [[L('ev_tx'), evX(), EV.d ? EV.d.todayX : 0, TH.gold, L('ev_hx'), evGoal('x')], [L('ev_ti'), evI(), EV.d ? EV.d.todayI : 0, '#8ed872', L('ev_hi'), evGoal('i')]].forEach(([lab, n, td, c, how, goal], k) => {
+    const bx = x + k * (half + 8), done = n >= goal; evBox(bx, y, half, 58, done ? TH.green : c); text(lab, bx + 10, y + 6, '#e8e1d3'); if (done) text(L('ev_doneTag'), bx + half - 8, y + 6, TH.green, 1, 'right');
+    const p = clamp(n / goal, 0, 1), bw = half - 20, by = y + 20; rect(bx + 10, by, bw, 8, '#08080a'); box(bx + 9, by - 1, bw + 2, 10, null, '#2a2a30'); rect(bx + 10, by, Math.round(bw * p), 8, done ? TH.green : c); rect(bx + 10, by, Math.round(bw * p), 1, '#fff2c0');
+    const big = EV.d ? fmtNum(n) + ' / ' + fmtNum(goal) + '  ' + Math.floor(p * 100) + '%' : evOn() ? L('bd_loading') : L('g_dz'); text(big, bx + 10, by + 12, '#d8d4c8');
     if (EV.d) text(L('ev_today', fmtNum(td || 0)), bx + half - 10, by + 12, '#8e877b', 1, 'right'); text(fitText(how, half - 20), bx + 10, by + 25, '#6e675c'); });
   y += 64; text(fitText(L('ev_rule6') + (EV.d ? '   ' + L('ev_mine', fmtNum(EV.d.mine || 0)) : ''), w), x + 2, y, '#5a5a62'); y += lh + 4;
   // the reward

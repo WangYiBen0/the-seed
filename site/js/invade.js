@@ -23,9 +23,10 @@ function ivWCd(s) { const w=IV_W[s.id], a=ivStats().aspd+(G.iv.role==='brawler'&
 function ivWRange(s) { const w=IV_W[s.id], bonus=G.iv.role==='crazy'&&w.set.includes('precise')?100:0;
   return Math.max(30,(ivTier(w.range,s.t)+ivStats().range*(w.melee?.5:1)+bonus)/3); }
 function ivWCrit(s) { return clamp(ivTier(IV_W[s.id].crit,s.t) + ivStats().crit / 100, 0, 1); }
-const ivNeed = lv => (lv + 4) * (lv + 4);
+const ivNeed = lv => (lv + 4) * (lv + 4) * (ivRole()?.xpNeed || 1);
 function ivPrice(o) { if (o.price !== undefined) return o.price; const st = ivStats(), base = o.k === 'w' ? IV_W[o.id].price * IV_TIER_PRICE[o.t] : IV_I[o.id].p, wave = G.iv.wave; return Math.max(1, Math.floor((base + wave + base * .1 * wave) * (1 + (st.price || 0) / 100))); }
-const ivRerollCost = (rolls = G.iv.rr) => { const w = Math.max(1, G.iv.wave); return Math.floor(w * .75) + (rolls + 1) * Math.max(1, Math.floor(w * .4)); };
+// endless waves (js/invade-endless.js) raise rerolls by sqrt(1 + endless factor)
+const ivRerollCost = (rolls = G.iv.rr) => { const w = Math.max(1, G.iv.wave), c = Math.floor(w * .75) + (rolls + 1) * Math.max(1, Math.floor(w * .4)); return typeof ivEndless === 'function' && ivEndless() ? Math.max(1, Math.floor(c * Math.sqrt(1 + ivEndlessFactor()))) : c; };
 function ivRollTier() { const w = G.iv.wave, lk = Math.max(0,1 + ivStats().luck / 100), r = Math.random();
   const p4 = Math.min(.08, Math.max(0, (w - 7) * .0023) * lk), p3 = Math.min(.25, Math.max(0, (w - 3) * .02) * lk), p2 = Math.min(.6, Math.max(0, (w - 1) * .06) * lk);
   return r < p4 ? 3 : r < p3 ? 2 : r < p2 ? 1 : 0; }
@@ -70,7 +71,7 @@ function ivBegin() {
   IVU.pop = null; IVU.detail = null; IVU.flash = null; IVU.t = 0; G.state = 'ivrole'; IVU.roleSel = 0; IVU.itemPage = 0; IVU.hits = []; AU.setMode('calm'); if (AU.ctx) AU.setRoot(FLOORS[0].root);
 }
 // ---------------- waves ----------------
-const ivDur = w => w >= 20 ? 90 : Math.min(60, 15 + w * 5);
+const ivDur = w => w > 20 && G.iv && G.iv.endless ? 60 : w >= 20 ? 90 : Math.min(60, 15 + w * 5);
 function ivStartWave() {
   const iv = G.iv, p = G.p; ivClearCombat(); iv.wave++; iv.dur = iv.t = ivDur(iv.wave); iv.phase = 'fight'; iv.spawnT = .6; iv.magnet = false; iv.endT = 0; iv.angelOn = ivFx('angel') > 0; iv.str = []; iv.shots = []; iv.bosses = []; G.bossDead = false;
   iv.event = iv.events.find(e => e.wave === iv.wave) || null; iv.regT = iv.medT = iv.lsT = iv.lsN = 0;
@@ -299,7 +300,7 @@ function ivCombine(si) { const iv = G.iv, s = iv.w[si], j = iv.w.findIndex((q, k
 function ivNextWave() { if(G.state!=='ivshop')return;const iv = G.iv; IVU.pop = null; ivStartWave(); }
 function ivUpdateUI(rdt) { const st = G.state, iv = G.iv, mx = Input.mx, my = Input.my;
   if (Input.clicked) { const h = (IVU.pop ? IVU.hits.slice(IVU.popAt || 0) : IVU.hits).slice().reverse().find(b => inR(b, mx, my)); Input.clicked = false; if (h) { h.f(); return; } if (IVU.pop) { IVU.pop = null; return; } }
-  if(st==='ivrole'){for(let i=0;i<IV_ROLES.length;i++)if(pressed('Digit'+((i+1)%10)))IVU.roleSel=i; if(pressed('ArrowRight'))IVU.roleSel=((IVU.roleSel||0)+1)%IV_ROLES.length;if(pressed('ArrowLeft'))IVU.roleSel=((IVU.roleSel||0)+IV_ROLES.length-1)%IV_ROLES.length;if(pressed('ArrowDown'))IVU.roleSel=((IVU.roleSel||0)+2)%IV_ROLES.length;if(pressed('ArrowUp'))IVU.roleSel=((IVU.roleSel||0)+IV_ROLES.length-2)%IV_ROLES.length;if(pressed('Enter'))ivChooseRole(IV_ROLES[IVU.roleSel||0].id);}
+  if(st==='ivrole'){for(let i=0;i<Math.min(10,IV_ROLES.length);i++)if(pressed('Digit'+((i+1)%10)))IVU.roleSel=i; if(pressed('ArrowRight'))IVU.roleSel=((IVU.roleSel||0)+1)%IV_ROLES.length;if(pressed('ArrowLeft'))IVU.roleSel=((IVU.roleSel||0)+IV_ROLES.length-1)%IV_ROLES.length;if(pressed('ArrowDown'))IVU.roleSel=((IVU.roleSel||0)+2)%IV_ROLES.length;if(pressed('ArrowUp'))IVU.roleSel=((IVU.roleSel||0)+IV_ROLES.length-2)%IV_ROLES.length;if(pressed('Enter'))ivChooseRole(IV_ROLES[IVU.roleSel||0].id);}
   if(st==='ivstart'){if(pressed('Escape'))G.state='ivrole';for(let i=0;i<8;i++)if(pressed('Digit'+(i+1)))ivChooseWeapon(ivRole().start[(IVU.startPage||0)*8+i]);if(pressed('Enter'))ivChooseWeapon(ivRole().start[(IVU.startPage||0)*8+(IVU.startSel||0)]);}
   if (st === 'ivshop') { if (pressed('KeyR')) ivReroll(); if (pressed('Enter')) ivNextWave(); if (pressed('Escape') && IVU.pop) IVU.pop = null; }
   if (st === 'ivlv' && pressed('KeyR')) ivLvReroll();
@@ -371,7 +372,7 @@ const _updateTaskbarIv = updateTaskbar; updateTaskbar = function (rdt) {
   if (TBAR.area === 0 && TBAR.shown === 0 && DEP.mode && DEP.pick < 0 && (pressed('Escape') || pressed('Backspace'))) { DEP.mode = null; TBAR.subT = 0; TBAR.sel = 0; AU.play('menu', .8); Input.prev.Escape = true; Input.prev.Backspace = true; if (typeof ESC_TAP !== 'undefined') ESC_TAP = false; }
   return _updateTaskbarIv(rdt); };
 const _drawDeployCardIv = drawDeployCard; drawDeployCard = function (t, k0) { if (DEP.mode !== 'invade') return _drawDeployCardIv(t, k0);
-  DEP.btn = null; DEP.card = null; const d = DIFFS[DEP.pick]; if (!d) return; const q = easeOut(clamp(DEP.t / .28, 0, 1)) * k0; if (q <= .01) return;
+  DEP.btn = null; DEP.card = null; DEP.modBtn = null; const d = DIFFS[DEP.pick]; if (!d) return; const q = easeOut(clamp(DEP.t / .28, 0, 1)) * k0; if (q <= .01) return;
   const r = depCard(), c = d.c(), x = r.x + 10, iw = r.w - 20, lh = lineH(), by = r.y + r.h - 22, a0 = ctx.globalAlpha; DEP.card = r; DEP.btn = { x, y: by, w: iw, h: 16 };
   ctx.globalAlpha = a0 * q; ctx.save(); ctx.translate(0, Math.round((1 - q) * -12)); cardPlate(r.x, r.y, r.w, r.h, c);
   drawDiffEmblem(d.id, x - 3, r.y + 7, 1.4, t); textS(tr(d.nm), x + 36, r.y + 9, c, 2); text(L('md_invade'), x + 37, r.y + 30 - 1, TH.dim);

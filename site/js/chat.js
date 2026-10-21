@@ -8,8 +8,8 @@ const chatOn = () => ONDZ() && PLAT.caps.completions !== false;
 // in a run: whoever in the squad is still standing; on the 少女们 page: the girl you opened
 const chatMates = () => CHT.from === 'menu' ? (CHT.id ? [{ id: CHT.id }] : []) : (G.squad || []).filter(m => !m.away);
 function chatLog(id) { return girlData(id).log; }
-// stored: finished lines only, trimmed
-function chatPersist() { for (const id of SURV_IDS) { const d = gpLoad().girls[id]; if (d) d.log = d.log.filter(q => !q.live && q.r !== 'sys' && q.t).slice(-CHAT_KEEP).map(q => ({ r: q.r, t: String(q.t).slice(0, 300) })); } gpSave(); }
+// Keep complete finished messages; bound the number of messages, never cut off a reply.
+function chatPersist() { for (const id of SURV_IDS) { const d = gpLoad().girls[id]; if (d) d.log = d.log.filter(q => !q.live && q.r !== 'sys' && q.t).slice(-CHAT_KEEP).map(q => ({ r: q.r, t: String(q.t) })); } gpSave(); }
 
 // ---------------- opening and closing ----------------
 function openChat(from) {
@@ -50,7 +50,7 @@ async function chatSend() {
   const id = CHT.id, log = chatLog(id); CHT.inp.value = ''; log.push({ r: 'p', t: txt }); gpSave(); const msgs = buildChatMessages(id, log), reply = { r: 'h', t: '', live: true }; log.push(reply);
   CHT.busy = true; CHT.scroll = 0; const rq = ++CHT.req; AU.play('menu', 1.2);
   try {
-    await dzmm.completions({ model: chatModel(), messages: msgs, maxTokens: 300 }, (content, done) => {
+    await dzmm.completions({ model: chatModel(), messages: msgs }, (content, done) => {
       if (rq !== CHT.req) return; reply.t = String(content || '').trim(); if (done) reply.live = false; });
     if (rq === CHT.req && !reply.t) reply.t = L('ch_fail');
   } catch (e) {

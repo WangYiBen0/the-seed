@@ -9,7 +9,7 @@ const ONDZ = () => typeof PLAT !== 'undefined' && PLAT.dzmm;
 // the whole game (all players together) run only 5 calls at once and each player 3, and turns the rest away with 'too_many_requests'
 // before the function runs, so such a call is simply sent again after a pause (the server's retryAfterMs, else 1, 2, 4, 8, 16 s);
 // reads give up after 8 tries (about a minute), uploads and posts after 4; then it fails like any other error.
-const FN_PRI = { submit: 0, add: 0, claim: 1, post: 1, board: 2, mine: 2, run: 2, clears: 2, older: 3, list: 3, status: 3, head: 4 }, FN_READ = new Set(['board', 'mine', 'run', 'clears', 'older', 'list', 'head', 'status']);
+const FN_PRI = { limitedSubmit: -1, submit: 0, add: 0, claim: 1, post: 1, board: 2, mine: 2, run: 2, clears: 2, older: 3, list: 3, status: 3, limitedStatus: 3, head: 4 }, FN_READ = new Set(['board', 'mine', 'run', 'clears', 'older', 'list', 'head', 'status', 'limitedStatus']);
 const FNQ = { q: [], busy: false, hold: 0, fails: 0, n: 0, t: 0 };
 function fnCall(name, action, body) {
   if (!ONDZ()) return Promise.reject(Object.assign(new Error('offline'), { code: 'offline' }));
@@ -35,9 +35,9 @@ function netInit() {
 // guests are told how to get an identity (sign in to DZMM); there is no logging in or out inside the game
 function netLogin() { netToast(ONDZ() ? 'lg_guest2' : 'g_dz', '#8e877b'); }
 function loadBoard(force, mode) {
-  const k = mode === 'e' ? 'eboard' : mode === 'i' ? 'iboard' : 'board', busy = k + 'Busy', at = k + 'At';
+  const k = mode === 'e' ? 'eboard' : mode === 'i' ? 'iboard' : mode === 'ie' ? 'ieboard' : 'board', busy = k + 'Busy', at = k + 'At';
   if (NET[busy] || (!force && NET[k] && Date.now() - NET[at] < 15000)) return; NET[busy] = true;
-  boardFn('board', { mode: mode === 'e' || mode === 'i' ? mode : '' }).then(j => { NET[k] = j && Array.isArray(j.top) ? j : { err: true, top: [] }; NET[at] = Date.now(); }).catch(e => { if (!NET[k]) NET[k] = { err: true, top: [] }; }).finally(() => { NET[busy] = false; });
+  boardFn('board', { mode: ['e', 'i', 'ie'].includes(mode) ? mode : '' }).then(j => { NET[k] = j && Array.isArray(j.top) ? j : { err: true, top: [] }; NET[at] = Date.now(); }).catch(e => { if (!NET[k]) NET[k] = { err: true, top: [] }; }).finally(() => { NET[busy] = false; });
 }
 // how many runs have cleared each threat level on DZMM (shown on the sortie column); outside DZMM a fixed sample stands in
 const CLEARS_SAMPLE = { easy: 1286, classic: 3412, hard: 958, nightmare: 207, despair: 12 }, ICLEARS_SAMPLE = { easy: 842, classic: 1907, hard: 511, nightmare: 96, despair: 7 };
@@ -104,7 +104,7 @@ function submitResult(r) {
   if (NET.off || !NET.user) { r.up = { st: NET.off ? 'off' : 'login' }; return; }
   boardFn('submit', { run, avatar: NET.user.avatar })
     .then(j => { if (!j || j.ok !== true) { if (j && j.reject) { pendDrop(run.rid); r.up = { st: 'err' }; } else { r.up = { st: j && j.retry === 'login' ? 'login' : 'err' }; pendLater(); } return; }
-      pendDrop(run.rid); r.up = { st: 'ok', rank: j.rank || '100+', best: j.best, newBest: !!j.newBest, id: j.id }; NET.board = null; NET.eboard = null; NET.mine = null; })
+      pendDrop(run.rid); r.up = { st: 'ok', rank: j.rank || '100+', best: j.best, newBest: !!j.newBest, id: j.id }; NET.board = null; NET.eboard = null; NET.iboard = null; NET.ieboard = null; NET.mine = null; })
     .catch(() => { r.up = { st: 'err' }; pendLater(); });
 }
 function stripResult(r) { const o = {}; for (const k of ['rid', 'diff', 'runT', 'kills', 'hits', 'comboMax', 'synIds', 'weapons', 'wlv', 'shards', 'skill', 'maxHp', 'hp', 'ink', 'curses', 'assist', 'ver', 'endless', 'depth']) o[k] = r[k]; return o; }
@@ -114,7 +114,7 @@ function flushPending() {
   if (!NET.user || NET.off || NET.flushing) return; const a = pendGet(); if (!a.length) return; const next = a[0]; NET.flushing = true;
   boardFn('submit', { run: next, avatar: NET.user.avatar })
     .then(j => { if (!j || (j.ok !== true && !j.reject)) { pendLater(); return; }
-      pendDrop(next.rid); if (j.ok === true) { netToast('lg_flushed', C.gold); NET.board = null; NET.eboard = null; NET.mine = null; } setTimeout(flushPending, 400); })
+      pendDrop(next.rid); if (j.ok === true) { netToast('lg_flushed', C.gold); NET.board = null; NET.eboard = null; NET.iboard = null; NET.ieboard = null; NET.mine = null; } setTimeout(flushPending, 400); })
     .catch(() => pendLater()).finally(() => { NET.flushing = false; });
 }
 function fmtTime(s) { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, ss = ('0' + (s % 60)).slice(-2); return h ? h + ':' + ('0' + m).slice(-2) + ':' + ss : m + ':' + ss; }

@@ -236,10 +236,17 @@ function rollCards(minRar = 0, n = 3) {
   while (out.length < n && pool.length) { const s = weighted(pool, s => RAR[s.rar].w * (statFloor() >= 1 && s.rar >= 2 ? 1.5 : 1) * (p.shards[s.id] ? 1.4 : 1) * (synergyHint(s.id) ? 1.6 : 1)); out.push(s.id); pool.splice(pool.indexOf(s), 1); }
   return out;
 }
+function rollCardOptions(minRar = 0) { const opts = rollCards(minRar); return opts.length ? opts : rollCards(0); }
+function setCardOptions(cd, opts, t = 0) {
+  cd.opts = opts; cd.lv = opts.map(id => (G.p.shards[id] || 0) + 1); cd.t = t; cd.pick = cd.hover = cd.lastHover = -1; cd.pickT = 0;
+  // Exclusion arrival times belong to the previous offer, not the new reroll clock.
+  cd.born = null; cd.ban = null; cd.frags = null; cd.banMode = false; cd.svHov = cd.svHovL = -1; delete cd.skipT;
+}
+function finishExhaustedCards() { G.cards = null; G.state = 'play'; notify(L('n_maxed', gainInk(30)), C.gold); }
 function openCards(minRar = 0, titleKey = 'choose') {
-  let opts = rollCards(minRar); if (!opts.length) opts = rollCards(0);
-  if (!opts.length) { notify(L('n_maxed', gainInk(30)), C.gold); return; }
-  G.cards = { opts, lv: opts.map(id => (G.p.shards[id] || 0) + 1), t: 0, minRar, title: titleKey, hover: -1, pick: -1, pickT: 0 }; G.state = 'cards'; AU.play('card');
+  const opts = rollCardOptions(minRar);
+  if (!opts.length) { finishExhaustedCards(); return; }
+  G.cards = { minRar, title: titleKey }; setCardOptions(G.cards, opts); G.state = 'cards'; AU.play('card');
 }
 // each choice is a long syringe hanging needle-down, its label printed on the barrel
 const CARD = { w: 104, h: 208 }, SYR_Y = 30;
@@ -251,15 +258,18 @@ const RR_BASE = [30, 80, 180, 290, 430], RR_STEP = [20, 40, 80, 90, 120];
 function rerollCost() { const f = clamp(statFloor() | 0, 0, RR_BASE.length - 1); return RR_BASE[f] + (G.rerolls | 0) * RR_STEP[f]; }
 const RRB = { x: W / 2 - 64, y: H - 26, w: 128, h: 22 };
 RELAYOUT.push(() => { RRB.x = W / 2 - 64; RRB.y = H - 26; menuSky = null; });
-function doReroll() { const cd = G.cards; if (!cd || cd.pick >= 0) return;
+function doReroll() { const cd = G.cards; if (!cd || cd.pick >= 0 || cd.skipT !== undefined || cd.banMode || (cd.ban && !cd.ban.done)) return;
+  // No payment (including a free charge) when there is nothing left to offer.
+  const opts = rollCardOptions(cd.minRar);
+  if (!opts.length) { finishExhaustedCards(); return; }
   if (G.freeReroll) G.freeReroll = false;
   else { const c = rerollCost(); if (G.ink < c) { AU.play('ui', .5); notify(L('n_noInk'), C.red); cd.rrDeny = .35; cd.inkFl = .35; return; } G.ink -= c; G.rerolls++; }
-  cd.opts = rollCards(cd.minRar); if (!cd.opts.length) cd.opts = rollCards(0);
-  if (!cd.opts.length) { G.cards = null; G.state = 'play'; notify(L('n_maxed', gainInk(30)), C.gold); return; }
-  cd.lv = cd.opts.map(id => (G.p.shards[id] || 0) + 1); cd.t = .2; cd.rrT = 0; AU.play('card'); AU.play('menuOk'); }
+  setCardOptions(cd, opts, .2); cd.rrT = 0; AU.play('card'); AU.play('menuOk'); }
 function updateCards(rdt) {
-  const cd = G.cards; cd.t += rdt;
+  const cd = G.cards; if (!cd) { if (G.state === 'cards') G.state = 'play'; return; } cd.t += rdt;
   if (cd.pick >= 0) { cd.pickT += rdt; if (cd.pickT > 1.05) { G.cards = null; G.state = 'play'; } return; }
+  // Recover an empty choice regardless of ink or purchased skip charges.
+  if (!Array.isArray(cd.opts) || !cd.opts.length) { const opts = rollCardOptions(cd.minRar); if (opts.length) { setCardOptions(cd, opts); AU.play('card'); } else finishExhaustedCards(); return; }
   // the build view and the pause menu open on top of the choice and come back to it
   if (cd.t > .3 && pressed('Tab')) { openBuild('cards'); return; }
   if (cd.t > .3 && pressed('Escape')) { openPause('cards'); return; }
@@ -327,7 +337,7 @@ function drawSyringe(cx, top, s, lv, lit, press, t) {
   return bt + BH + 42;
 }
 function drawCards() {
-  const cd = G.cards; ctx.drawImage(ditherLayer(.75, col(0)), 0, 0);
+  const cd = G.cards; if (!cd || !Array.isArray(cd.opts)) return; ctx.drawImage(ditherLayer(.75, col(0)), 0, 0);
   if (cd.fromOrb && cd.t < .5) { const q = cd.t / .5; ctx.globalAlpha = 1 - q; for (let i = 0; i < 3; i++) ringC(W / 2 + (i - 1) * 140, SYR_Y + 98, 20 + q * 90, BLOOD[3], 1); ctx.globalAlpha = 1; }
   const ta = clamp(cd.t * 3, 0, 1), tyo = Math.round((1 - ta) * 8), out = cd.pick >= 0 ? clamp((cd.pickT - .85) / .2, 0, 1) : 0; ctx.globalAlpha = ta * (1 - (cd.pick >= 0 ? clamp(cd.pickT / .2, 0, 1) : 0)) * (cd.skipT !== undefined ? 1 - clamp(cd.skipT / .3, 0, 1) : 1);
   textS(L(cd.title), W / 2, 8 - tyo, TH.bone, 2, 'center'); ctx.globalAlpha = 1;
@@ -430,7 +440,7 @@ function updateMenu(rdt) {
   if (MENU.page === 'codex') { MENU.t += rdt; updateCodex(rdt); return; }
   if (G.state === 'menu') campBackdropTick(rdt);
   if (MENU.page === 'main' && G.state === 'menu') { evTick(); if (CAMP.dep) { MENU.t += rdt; return; }
-    if (TBAR.area < 0 && Input.clicked && inR(evCardBox(), Input.mx, Input.my)) { Input.clicked = false; openEvent(); return; }
+    if (TBAR.area < 0 && Input.clicked && !evHidden() && inR(evCardBox(), Input.mx, Input.my) && (typeof ltCardHit !== 'function' || ltCardHit(evCardBox()))) { Input.clicked = false; openEvent(); return; }
     const b = loginBox(); MENU.lgHov = NET.ready && inR(b, Input.mx, Input.my); if (MENU.lgHov && Input.clicked) { Input.clicked = false; if (!NET.user) netLogin(); else netToast('lg_plat', '#8e877b'); return; }
     MENU.t += rdt; updateTaskbar(rdt); return; }
   if (MENU.page === 'event') { MENU.t += rdt; updateEvent(rdt); return; }
@@ -765,7 +775,7 @@ function drawLaunchIn(cx, cy) {
 
 // ================= system notices =================
 // short, formally worded messages shown in a fixed log under the vitals instead of floating over the hero
-function notify(txt, c) { if (!G || !G.notes) return; const n = G.notes.find(q => q.txt === txt); if (n) { n.n++; n.born = G.time; return; }
+function notify(txt, c, count = true) { if (!G || !G.notes) return; const n = G.notes.find(q => q.txt === txt); if (n) { n.n = count ? n.n + 1 : 1; n.born = G.time; return; }
   G.notes.unshift({ txt, c: c || col(5), born: G.time, n: 1 }); if (G.notes.length > 4) G.notes.length = 4; }
 function drawNotes() { const ns = G.notes; if (!ns || !ns.length) return; let y = (TOUCH.on ? 96 : 48) + (G.curse || (G.curses && G.curses.length) ? 10 : 0) + (G.state === 'play' ? statusH() : 0);
   for (const q of ns) { const age = G.time - q.born, s = q.txt + (q.n > 1 ? '  X' + q.n : ''), w = textW(s) + 14, x = 6 - (1 - easeOut(Math.min(1, age / .16))) * (w + 10), a = clamp((2.8 - age) / .4, 0, 1);

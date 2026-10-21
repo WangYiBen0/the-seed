@@ -172,7 +172,7 @@ const STR = {
   sup_gun: ['ARTILLERY', '炮擊支援', '砲撃支援', '炮击支援'],
   sup_sentry: ['SENTRY DROP', '哨戒炮空投', '歩哨砲投下', '哨戒炮空投'],
   sup_talk: ['TALK', '交談', '話す', '交谈'],
-  sup_gone: ['SUPPORT ALREADY SENT', '援助已派出', '支援は出動済み', '援助已派出'],
+  sup_gone: ['ROOM SUPPORT ALREADY CLAIMED', '本房間支援已領取', 'この部屋の支援は受領済み', '本房间支援已领取'],
   sup_have: ['YOU ARE ALREADY CARRYING ONE CALL. USE IT, THEN COME BACK.', '你身上已經有一次援助了。用完再來。', 'もう一回分の支援を持っているだろう。使ってから来い。', '你身上已经有一次援助了。用完再来。'],
   sup_ask: ['REQUEST', '申請援助', '支援要請', '申请援助'],
   sup_leave: ['LEAVE', '離開', '去る', '离开'],

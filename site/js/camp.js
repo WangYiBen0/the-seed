@@ -397,7 +397,7 @@ const CAMP_PROPS = [
 const CAMP_DECOR = [['wall', CPOS.wall], ['line', CPOS.line], ['tent', CPOS.tent], ['dog', CPOS.dog], ['tank', CPOS.tank], ['gen', CPOS.gen], ['barrel', CPOS.barrel], ['fire', CAMP_FIRE]];
 const GIRL_SPOTS = [620, 700, 582, 738, 544, 776, 814];
 function campGirls() { return SURV_IDS.filter(girlMet).map((id, i) => ({ id: 'g:' + id, gid: id, x: GIRL_SPOTS[i % GIRL_SPOTS.length], rw: 16, k: () => svName(id), act: () => { GIRLS.sel = id; openGirls(); } })); }
-const campObjs = () => CAMP_PROPS.concat(campGirls());
+const campObjs = () => CAMP_PROPS.filter(o => o.id !== 'event' || !(typeof evHidden === 'function' && evHidden())).concat(campGirls());
 
 // ---------------- people ----------------
 // the girls: their portraits shrunk to pixel figures, darkened for the night, an orange rim where the fire catches them
