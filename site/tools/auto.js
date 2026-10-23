@@ -20,10 +20,15 @@
       shop: TSW.settings.get('autoShop', true),
       forge: TSW.settings.get('autoForge', true),
       dash: TSW.settings.get('autoDash', true),
+      noFire: false,                                       // dodge-bench stress mode: never shoot
+      dodgeEngine: TSW.settings.get('dodgeEngine', 'v2'),  // v2 | simple (A/B)
     },
+    // evasion scorecard, accumulated per play tick (see the dodge benchmark)
+    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0 },
     status: { note: '', target: null },
   };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
+  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
   A.setPolicy = (p) => { A.policy = p; TSW.settings.set('autoPolicy', p); TSW.bus.emit('auto'); };
 
@@ -218,6 +223,26 @@
   // stays from this lane.  Maximising the MINIMUM clearance is what turns
   // "dodge the average" into "never get squeezed" — the 16-way version only
   // summed danger, so it happily picked a lane with one near-miss on each side.
+  // the old v1 movement scorer: 16 directions, two radii, average danger only.
+  // Kept switchable so the dodge benchmark can A/B it against v2.
+  function pickDirSimple(p, wx, wy) {
+    const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
+    let best = null, bestScore = -1e9;
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+      const nx = p.x + dx * 16, ny = p.y + dy * 16, fx = p.x + dx * 46, fy = p.y + dy * 46;
+      let v;
+      if (collides(nx, ny, p.r, false) || collides(fx, fy, p.r, false)) v = -8;
+      else {
+        v = wl > .1 ? 2.2 * (dx * wx + dy * wy) / wl : 0;
+        v -= 2.0 * spotDanger(nx, ny, p) + .9 * spotDanger(fx, fy, p);
+        v += .18 * (dx * ld[0] + dy * ld[1]);
+      }
+      if (v > bestScore) { bestScore = v; best = [dx, dy]; }
+    }
+    if (best) A._lastDir = best;
+    return best || [0, 0];
+  }
   function laneClear(p, dx, dy) {
     const G = __achroma.G, R = 46;
     let m = 40;
@@ -514,13 +539,20 @@
         }
       }
       // threat field does the dodging: bullets, telegraph circles/lines, void zones, spikes
-      [mx, my] = pickDir(p, mx, my);
+      [mx, my] = A.opts.dodgeEngine === 'simple' ? pickDirSimple(p, mx, my) : pickDir(p, mx, my);
+      // ---- evasion scorecard (meaningful while a fight is live)
+      {  // always score the dodge while a run is live (benchmark + HUD)
+        const M = A.metrics, dg = spotDanger(p.x, p.y, p);
+        M.ticks++; M.dangerSum += dg; if (dg >= 1.2) M.hazard++;
+        const cl = laneClear(p, mx, my); M.clearSum += cl; if (cl < M.clearMin) M.clearMin = cl;
+        if (M.samples.length < 4000) M.samples.push(cl);
+      }
       // dash out when the current spot is about to hurt and the dash is up (never into a pit)
       const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
       if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? 1.3 : 1.8)) {
         const dd = dashDir(p, [mx, my]);                 // escape toward the calmest arc
-        if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); }
-        else if (dirdash()) tap('Space');
+        if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
+        else if (dirdash()) { tap('Space'); A.metrics.dash++; }
       }
       if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0 && dirdash()) tap('Space');
       // proactive reload: a dry mag triggers the passive reload (SLOTH curse: 1 dmg each)
@@ -586,7 +618,7 @@
 
     moveKeys(mx, my);
     A._dbg = [mx, my];
-    Input.down = !!wantFire && A.mode !== 'off';
+    Input.down = !!wantFire && A.mode !== 'off' && !A.opts.noFire;
   }
 
   // choose the next room/point to walk to

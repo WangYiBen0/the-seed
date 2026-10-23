@@ -193,11 +193,49 @@
   bBf.onclick = () => { note('跑分中…（全自动一局，目标无尽1）'); TSW.bench.run('fullrun', { speed: 8, seed: 7, policy: 'bloom', goalDepth: 1, timeoutS: 900 }); };
   bBmd.onclick = () => navigator.clipboard && navigator.clipboard.writeText(TSW.bench.markdown()).then(() => note('已复制'), () => { });
   bBclr.onclick = () => { TSW.bench.clear(); renderBench(); };
+  // ---------------- 躲弹幕测评 (pure-evasion stress test) ----------------
+  const sDodge = section('躲弹幕测评 · DODGE BENCH');
+  const dHelp = el('div', 'color:#8d867a');
+  dHelp.textContent = '禁止开火 + 持续补充远程敌人：敌人不会减少，弹幕只会更密。\n指标：受击/游戏分钟（越低越好）、危险值均值、暴露率、弹幕余量、冲刺频率。\n"对比"会依次跑 v2（当前）与 v1（旧算法）并给出差值。';
+  sDodge.appendChild(dHelp);
+  const numIn = (ph, w) => { const n = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:' + w + 'px;font:11px monospace'); n.placeholder = ph; return n; };
+  const dR1 = row(sDodge);
+  const dEng = sel([['v2', 'v2 当前算法'], ['simple', 'v1 旧算法'], ['both', '对比 v2 vs v1']]);
+  const dSec = numIn('秒', 44), dDep = numIn('深度', 40), dSeed = numIn('种子', 44);
+  dEng.style.width = '130px';
+  dSec.value = '45'; dDep.value = '6'; dSeed.value = '11';
+  dR1.append(dEng, dSec, dDep, dSeed);
+  dEng.value = TSW.settings.get('dodgeEngine', 'v2') === 'simple' ? 'simple' : 'v2';
+  const dR2 = row(sDodge);
+  const dGo = btn('开始躲弹幕测评');
+  const dAb = btn('对比 v2 vs v1');
+  dR2.append(dGo, dAb);
+  const dOut = el('div', 'white-space:pre;overflow:auto;max-height:170px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px');
+  sDodge.appendChild(dOut);
+  const fmt = (r, name) => `${name} 受击 ${r.hitsPerMin}/分（${r.hits} 次 / ${r.gameMinutes} 分）\n` +
+    `   危险值 ${r.dangerAvg} · 暴露率 ${r.hazardPct}% · 弹幕余量均值 ${r.clearAvg}（最差 ${r.clearMin}）\n` +
+    `   冲刺 ${r.dashesPerMin}/分 · 存活 ${r.end === 'dead' ? '阵亡' : '存活'} · ticks ${r.ticks}`;
+  const runDodge = async (engine) => {
+    note('躲弹幕测评中…（×8，需要几十秒）');
+    dOut.textContent = '跑分中…';
+    const o = { engine, seconds: +dSec.value || 45, depth: +dDep.value || 6, seed: +dSeed.value || 11, speed: 8 };
+    const r = await TSW.bench.run('dodge', o);
+    if (!r) { dOut.textContent = '（失败）'; return; }
+    if (r.kind === 'dodge-ab') dOut.textContent = fmt(r.v2, 'v2 ') + '\n' + fmt(r.simple, 'v1 ') + '\n结论：' + r.verdict + `（受击差 ${r.delta.hitsPerMin}/分）`;
+    else if (r.kind === 'error') dOut.textContent = '错误：' + r.error;
+    else dOut.textContent = fmt(r, r.engine);
+    note('完成');
+  };
+  dGo.onclick = () => runDodge(dEng.value);
+  dAb.onclick = () => runDodge('both');
+
   function renderBench() {
     const rs = TSW.bench.results.slice(-8).reverse();
     benchOut.textContent = rs.length ? rs.map((r) => {
       if (r.kind === 'throughput') return `吞吐 ×${r.speed}: ${r.tps} ticks/s · 游戏时间/真实=${r.ratio}`;
       if (r.kind === 'macro') return `宏 ×${r.speed}: 游戏时间/真实=${r.ratio} (目标 ${r.speed}) · 击杀 ${r.kills} · 伤害 ${(r.dmg / 1000).toFixed(1)}k`;
+      if (r.kind === 'dodge') return `躲弹幕 ${r.engine} 深度${r.depth} seed=${r.seed}: 受击 ${r.hitsPerMin}/分 · 危险 ${r.dangerAvg} · 余量 ${r.clearAvg}`;
+      if (r.kind === 'dodge-ab') return `躲弹幕对比 深度${r.depth} seed=${r.seed}: v2 ${r.v2.hitsPerMin}/分 vs v1 ${r.simple.hitsPerMin}/分 → ${r.verdict}`;
       return `全自动 ×${r.speed} seed=${r.seed}: ${r.end} 深度${r.depth} 击杀${r.kills} 用时${r.wall}s(真实)`;
     }).join('\n') : '（暂无结果）';
   }
@@ -271,6 +309,7 @@
       policy: q.get('policy') || 'bloom', goalDepth: +(q.get('goalDepth') || 1),
       timeoutS: +(q.get('timeoutS') || 900), seconds: +(q.get('seconds') || 12),
       depth: +(q.get('depth') || 5), diff: q.get('diff') || undefined,
+      engine: q.get('engine') || 'v2',
     };
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
@@ -282,6 +321,7 @@
         else if (kind === 'macro') emit(await TSW.bench.run('macro', opts));
         else if (kind === 'fullrun') emit(await TSW.bench.run('fullrun', opts));
         else if (kind === 'probe') emit(await TSW.bench.run('probe', opts));
+        else if (kind === 'dodge') emit(await TSW.bench.run('dodge', opts));
         else if (kind === 'explore') {
           const n = +(q.get('results') || 4);
           TSW.explore.start({ policies: [opts.policy], seeds: Array.from({ length: n }, (_, i) => 101 + i * 17), speed: opts.speed, goalDepth: opts.goalDepth, timeoutS: opts.timeoutS });
