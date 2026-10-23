@@ -80,8 +80,8 @@ function bootRetry(msg) {
   });
 }
 const GAME_SCRIPTS = ['engine', 'i18n', 'net', 'sfxdata', 'audio', 'world', 'combat', 'weapons', 'enemies', 'boss', 'ui', 'skills', 'shards2', 'shards3', 'enemies2', 'weapons2', 'boss2', 'boss3',
-  'traps', 'difficulty', 'news', 'screens', 'name', 'overlay', 'panels', 'game', 'weapons3', 'enemies3', 'shards4', 'bossart', 'curses2', 'rooms', 'support', 'testmode', 'chips2', 'squad', 'prompts', 'chat', 'girls', 'stories-data', 'stories', 'market', 'wchat', 'event', 'camp', 'look', 'codex2', 'touch', 'partners', 'invade-data', 'invade-items', 'invade-weapons', 'invade-roles', 'invade-art-data', 'invade-art', 'invade-enemies', 'invade-weapon-info', 'invade', 'invade-effects', 'invade-details', 'invade-visuals', 'invade-presentation', 'invade-summons', 'invade-style', 'invade-extras', 'achieve', 'follow', 'sieve', 'gamepad', 'balance', 'modifiers', 'invade-endless', 'labserum', 'daily', 'limited'];
-const GAME_V = 'mvffch7m';
+  'traps', 'difficulty', 'news', 'screens', 'name', 'overlay', 'panels', 'game', 'weapons3', 'enemies3', 'shards4', 'bossart', 'curses2', 'rooms', 'support', 'testmode', 'chips2', 'squad', 'prompts', 'chat', 'girls', 'stories-data', 'stories', 'market', 'wchat', 'event', 'camp', 'look', 'codex2', 'touch', 'partners', 'invade-data', 'invade-items', 'invade-weapons', 'invade-roles', 'invade-art-data', 'invade-art', 'invade-enemies', 'invade-weapon-info', 'invade', 'invade-effects', 'invade-details', 'invade-visuals', 'invade-presentation', 'invade-summons', 'invade-style', 'invade-extras', 'achieve', 'follow', 'sieve', 'gamepad', 'balance', 'modifiers', 'invade-endless', 'labserum', 'daily', 'limited', 'arsenal'];
+const GAME_V = 'mvkp5c7g';
 // served from this machine (development): never reuse cached scripts
 const DEV_BUST = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? '.' + Date.now() : '';
 // startup timings (ms since the page started): printed to the console, and sent once to the author's DZMM log

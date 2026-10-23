@@ -49,7 +49,7 @@ function mktGearCard(k, x, y, h, gp, t) { const G2 = PGEAR[k], own = pgOwned(k),
   drawBtn(b.x, b.y, b.w, b.h, own ? L('g_owned') : L('mk_buy'), !TOUCH.on && !own && inR(b, Input.mx, Input.my), own ? '#3c3732' : c); }
 const ADREN_CD = 60, ADREN_T = 3;
 const mkt = () => { const gp = gpLoad(), m = gp.market || (gp.market = { armory: null, adren: false, resolve: false }); if (!m.unl || typeof m.unl !== 'object') m.unl = {}; return m; };
-const mktOwned = id => { const m = mkt(); return id === 'armory' ? !!m.armory : id === 'serum' ? !!m.serum : !!m[id]; };
+const mktOwned = id => { const m = mkt(); return id === 'armory' ? !!m.armory : id === 'serum' ? !!m.serum : id === 'chip_ovc' ? !!((gpLoad().chips || {}).ovc) : !!m[id]; };
 // the serum list: every serum, chosen like the armory's weapon (changing your mind before the sortie is free)
 function mktPickSerum(paid) { const items = SHARDS.filter(s => SHARD[s.id]).map(s => ({ v: s.id, label: sname(s), sub: L('rar' + s.rar) }));
   openPicker({ title: tr(MARKET.find(q => q.id === 'serum').n), items, cur: mkt().serum || '', acc: C.green, onPick: v => { if (!paid && !buyProofs(5)) return; mkt().serum = v; gpSave(); AU.play('shop'); } }); }

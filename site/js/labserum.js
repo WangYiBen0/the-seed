@@ -25,7 +25,7 @@ const EXP = {
     down: N4('ATTACK SPEED -50%.', '攻擊速度降低 50%。', '攻撃速度-50%。', '攻击速度降低 50%。'),
     up: N4('ATTACK SPEED +30%.', '攻擊速度永久提升 30%。', '攻撃速度+30%。', '攻击速度永久提升 30%。') },
   o: { n: N4('EXPERIMENTAL SERUM Ω', '實驗血清Ω', '実験血清Ω', '实验血清Ω'), c: '#c89aff', glyph: 'Ω',
-    down: N4('YOU CANNOT DASH.', '無法衝刺。', 'ダッシュできない。', '无法冲刺。'),
+    down: N4('ARMOR REGENERATES AT HALF SPEED.', '護甲回復效率減半。', 'アーマーの回復速度が半分になる。', '护甲回复效率减半。'),
     up: N4('MAXIMUM ARMOR +1.', '護甲上限永久 +1。', '最大アーマー+1。', '护甲上限永久 +1。') },
 };
 const EXP_IDS = Object.keys(EXP), EXP_FIGHTS = 3;
@@ -77,7 +77,7 @@ const _updateLab = update; update = function (rdt) { if (!G || G.state !== 'labq
   if (LABQ.t < .3) { Input.clicked = false; return; }
   const pick = Input.clicked && hv >= 0 ? hv : pressed('Enter') || pressed('Space') || pressed('KeyE') ? LABQ.sel : -1; Input.clicked = false;
   if (pick === 0) labInject(); else if (pick === 1) { labClose(); AU.play('menu', .8); } };
-const _renderLab = render; render = function () { _renderLab(); if (G && G.state === 'labq' && LABQ.it) drawLabQ(); else if (G && G.p && G.exp && G.exp.left > 0 && (G.state === 'play' || G.state === 'build')) drawExpTag(); };
+const _renderLab = render; render = function () { _renderLab(); if (G && G.state === 'labq' && LABQ.it) drawLabQ(); else if (G && G.p && G.exp && G.exp.left > 0 && G.state === 'play') drawExpTag(); };
 function drawLabQ() { const e = EXP[LABQ.it.exp], c = e.c, k = easeOut(clamp(LABQ.t / .3, 0, 1)), w = 250, lh = lineH(), dl = wrapW(tr(e.down), w - 40), ul = wrapW(tr(e.up), w - 40);
   const h = 70 + (dl.length + ul.length) * lh + 50, x = Math.round(W / 2 - w / 2), y = Math.round(H / 2 - h / 2 + (1 - k) * 8); LABQ.hits = [];
   ctx.globalAlpha = .65 * k; rect(0, 0, W, H, '#000'); ctx.globalAlpha = k; frame2(x, y, w, h, c, L('lab_prompt'));
@@ -98,7 +98,8 @@ const _baseStatsLab = baseStats; baseStats = function () { const S = _baseStatsL
 const _recomputeLab = recomputeStats; recomputeStats = function () { _recomputeLab(); const S = G && G.S, p = G && G.p; if (!S || !p) return;
   if (expPerm('a')) S.dmg *= Math.pow(1.25, expPerm('a'));
   if (expPerm('b')) S.rate *= Math.pow(1.3, expPerm('b'));
-  if (expOn('b')) S.rate *= .5; };
+  if (expOn('b')) S.rate *= .5;
+  if (expOn('o')) S.armorRegen *= .5; };
 // α: health lost goes from maximum health instead (while maximum health can still go down; below that it is ordinary damage)
 const _hurtPlayerLab = hurtPlayer; hurtPlayer = function (dmg, sx, sy, mechHit, pierce) { const p = G.p; if (!expOn('a') || !p || !p.alive || (typeof ivOn === 'function' && ivOn())) return _hurtPlayerLab(dmg, sx, sy, mechHit, pierce);
   const hp0 = p.hp; p.hp += 1000; const r = _hurtPlayerLab(dmg, sx, sy, mechHit, pierce); const lost = Math.max(0, hp0 + 1000 - p.hp); p.hp = hp0; if (!lost) return r;
@@ -106,9 +107,6 @@ const _hurtPlayerLab = hurtPlayer; hurtPlayer = function (dmg, sx, sy, mechHit, 
   if (drop > 0) { notify(L('lab_mhp', drop), EXP.a.c); floatText(p.x, p.y - 18, '-' + drop + ' MAX', EXP.a.c, 1, .8); }
   if (drop < lost) { p.inv = 0; return _hurtPlayerLab(lost - drop, sx, sy, true, true); }
   return r; };
-// Ω: no dash while it works
-const _updatePlayerLab = updatePlayer; updatePlayer = function (dt) { const p = G && G.p; if (p && expOn('o')) { p.dashCd = Math.max(p.dashCd || 0, .05); if (pressed('Space') || pressed('ShiftLeft') || Input.rclicked) { if (!(G.expDenyT > G.time)) { G.expDenyT = G.time + 1.2; notify(L('lab_noDash'), EXP.o.c); } } }
-  return _updatePlayerLab(dt); };
 // a fight is over: one step closer
 function expBattle() { const x = G.exp; if (!x || !(x.left > 0)) return; x.left--; const e = EXP[x.id];
   if (x.left > 0) { notify(L('lab_left', tr(e.n), x.left), e.c); return; }

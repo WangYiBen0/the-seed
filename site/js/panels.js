@@ -36,9 +36,10 @@ function buildLay() { const rx = W - 152, top = 34, bot = H - 8;
   const L0 = { x: 12, y: top, w: rx - 20, h: bot - top }, R0 = { x: rx, y: top + 98, w: W - rx - 12, h: bot - top - 98 };
   return { L0, list: { x: L0.x + 6, y: L0.y + 16, w: L0.w - 16, h: L0.h - 21 }, st: { x: rx, y: top, w: W - rx - 12, h: 92 }, R0, rl: { x: R0.x + 5, y: R0.y + 16, w: R0.w - 14, h: R0.h - 21 }, cw: Math.floor((L0.w - 16 - 6) / 2) }; }
 // the right-hand list: active synergies, then (if any) the curses you carry
-function buildRight() { const out = SYNERGIES.filter(q => SYN[q.id]).map(q => ({ kind: 'syn', id: q.id, h: 19 })); const cs = G.curses || [];
+function buildRight() { const out = SYNERGIES.filter(q => SYN[q.id]).map(q => ({ kind: 'syn', id: q.id, h: 19 })); const cs = G.curses || [], fx = buildEffects();
+  if (fx.length) { out.push({ kind: 'fxhdr', h: 13 }); fx.forEach((f, i) => out.push(Object.assign({ kind: 'fx', id: 'fx' + i, h: 19 }, f))); }
   if (cs.length) { out.push({ kind: 'hdr', h: 13 }); cs.forEach(id => { if (CURSE[id]) out.push({ kind: 'curse', id, h: 19 }); }); } return out; }
-function buildRightAt(items, y) { let acc = 0; for (const it of items) { if (y >= acc && y < acc + it.h - 2) return it.kind === 'hdr' ? null : it; acc += it.h; } return null; }
+function buildRightAt(items, y) { let acc = 0; for (const it of items) { if (y >= acc && y < acc + it.h - 2) return it.kind === 'hdr' || it.kind === 'fxhdr' || it.kind === 'fx' ? null : it; acc += it.h; } return null; }
 function updateBuild(rdt) {
   BUILD.t += rdt;
   if (BUILD.out >= 0) { BUILD.out += rdt; if (BUILD.out > BUILD_OUT) { G.state = BUILD.ret || 'play'; BUILD.out = -1; } return; }
@@ -86,8 +87,16 @@ function drawBuildOverlay() {
   { const kk = slideK(.08), st = Ly.st, rw = st.w, rx = st.x; ctx.save(); ctx.translate(Math.round((1 - kk) * 36), 0); ctx.globalAlpha = kk;
     frame2(rx, st.y, rw, st.h, C.cyan, L('stats'));
     const S = G.S, w = WEAPONS[p.weapons[p.wi]];
-    const rows = [[L('st_dmg'), 'X' + S.dmg.toFixed(2)], [L('st_rate'), 'X' + rateMul().toFixed(2)], [L('st_crit'), Math.round(S.crit * 100) + '%'], [L('st_size'), 'X' + S.size.toFixed(2)], [L('st_mag'), usesAmmo(w) ? 'X' + S.mag.toFixed(2) : '-'], [L('st_rel'), 'X' + S.reload.toFixed(2)]];
-    rows.forEach(([a, v], i) => { const y = st.y + 18 + i * 11, rk = opening ? clamp((t - .14 - i * .03) / .15, 0, 1) : 1; ctx.globalAlpha = kk * rk; text(fitText(a, rw - 50), rx + 8, y, '#8e877b'); text(v, rx + rw - 8, y, '#e8e1d3', 1, 'right'); });
+    // value, the base value, and whether more is better (green above the base, red below)
+    const B0 = baseStats(), X = v => 'X' + v.toFixed(2), rows = [
+      ['bs_dmg', X(S.dmg), S.dmg, 1, 1], ['bs_rate', X(rateMul()), rateMul(), 1, 1], ['bs_crit', Math.round(S.crit * 100) + '%', S.crit, B0.crit, 1], ['bs_critM', X(S.critMul), S.critMul, B0.critMul, 1],
+      ['bs_size', X(S.size), S.size, 1, 1], ['bs_mag', usesAmmo(w) ? X(S.mag) : '-', usesAmmo(w) ? S.mag : 1, 1, 1], ['bs_rel', X(S.reload), S.reload, 1, -1], ['bs_pierce', '+' + (S.pierce | 0), S.pierce, 0, 1],
+      ['bs_bounce', '+' + (S.bounce | 0), S.bounce, 0, 1], ['bs_hp', String(p.maxHp), p.maxHp, 5, 1], ['bs_armor', String(p.maxArmor), p.maxArmor, 3, 1], ['bs_regen', X(S.armorRegen), S.armorRegen, 1, 1],
+      ['bs_speed', X(S.speed), S.speed, 1, 1], ['bs_dash', X(S.dashCd), S.dashCd, 1, -1]];
+    const cw2 = Math.floor((rw - 16) / 2);
+    rows.forEach(([k2, v, n, b0, dir], i) => { const col2 = i % 2, x0 = rx + 8 + col2 * (cw2 + 2), y = st.y + 17 + Math.floor(i / 2) * 10, rk = opening ? clamp((t - .14 - i * .02) / .15, 0, 1) : 1; ctx.globalAlpha = kk * rk;
+      const d = (n - b0) * dir, vc = Math.abs(n - b0) < 1e-6 ? '#e8e1d3' : d > 0 ? '#8ed872' : '#e0807a'; text(fitText(L(k2), cw2 - 30), x0, y, '#8e877b'); text(v, x0 + cw2 - 4, y, vc, 1, 'right'); });
+    { const ly = st.y + 15; ctx.globalAlpha = kk * .6; rect(rx + 8 + cw2, ly, 1, 70, '#24211e'); }
     ctx.restore(); }
   // ---- synergies + curses (right, bottom) ----
   { const kk = slideK(.12), R0 = Ly.R0, rl = Ly.rl, S = BUILD.SR, items = buildRight(), nS = items.filter(it => it.kind === 'syn').length; ctx.save(); ctx.translate(Math.round((1 - kk) * 36), 0); ctx.globalAlpha = kk;
@@ -96,6 +105,8 @@ function drawBuildOverlay() {
     scrollClip(rl); let y = rl.y - S.pos;
     items.forEach((it, i) => { const yy = Math.round(y); y += it.h; if (yy > rl.y + rl.h || yy + it.h < rl.y) return; const ik = opening ? easeOut(clamp((t - .16 - i * .04) / .2, 0, 1)) : 1; ctx.globalAlpha = kk * ik;
       const hov = BUILD.hov === it.kind + it.id, ox = Math.round((1 - ik) * 8);
+      if (it.kind === 'fxhdr') { const s = L('b_fx'); rect(rl.x + 1, yy + 4, 3, 5, C.gold); text(s, rl.x + 8, yy + 3 - cjY(s), '#e8d8a8'); pxLine(rl.x + 12 + textW(s), yy + 6, rl.x + rl.w, yy + 6, '#3a3220'); return; }
+      if (it.kind === 'fx') { rect(rl.x + 1 + ox, yy, 2, 16, it.c); text(fitText(it.n, rl.w - 8), rl.x + 6 + ox, yy + 1, it.c); text(fitText(it.d, rl.w - 8), rl.x + 6 + ox, yy + 9, it.bad ? '#8c6a6e' : '#8e877b'); return; }
       if (it.kind === 'hdr') { rect(rl.x + 1, yy + 4, 3, 5, CURSE_C); text(L('b_curses'), rl.x + 8, yy + 3 - cjY(L('b_curses')), '#e8b8bc'); pxLine(rl.x + 12 + textW(L('b_curses')), yy + 6, rl.x + rl.w, yy + 6, '#3a1c20'); return; }
       if (hov) rect(rl.x - 1 + ox, yy - 1, rl.w + 2, it.h - 1, '#17171c');
       if (it.kind === 'syn') { const q = SYNERGIES.find(s => s.id === it.id); rect(rl.x + 1 + ox, yy, 2, 16, q.c); text(fitText(tr(q.n), rl.w - 8), rl.x + 6 + ox, yy + 1, q.c); text(fitText(tr(q.d), rl.w - 8), rl.x + 6 + ox, yy + 9, hov ? '#c9c1b2' : '#8e877b'); }
@@ -225,3 +236,27 @@ const _drawSkillHUDP = drawSkillHUD; drawSkillHUD = function () { _drawSkillHUDP
   ctx.globalAlpha = .78; poly(pts, '#0a0405'); ctx.globalAlpha = 1; poly(pts, null, CURSE_C); icon('lock', hx - 8, hy - 8, CURSE_C, 2);
   const k = s / 3; for (let i = 0; i < 18; i++) { if (i / 18 >= k) break; const a = -Math.PI / 2 + i / 18 * 6.283; rect(hx + Math.cos(a) * (R + 4) - .5, hy + Math.sin(a) * (R + 4) - .5, 2, 2, CURSE_C); }
   hudPlate(W - 128, H - 26, 84, 11, CURSE_C, null, '#0a0405'); text(L('sk_sealed') + ' ' + s.toFixed(1) + 'S', W - 118, H - 23 - cjY(L('sk_sealed')), CURSE_C, 1); };
+
+// the run's other lasting effects, for the build overlay: experimental serums, the dialysis machine's price, lost maximum health,
+// the despair modifiers and the black market's buffs
+Object.assign(STR, {
+  b_fx: ['RUN EFFECTS', '局內效果', 'この出撃の効果', '局内效果'],
+  bs_dmg: ['DMG', '傷害', '威力', '伤害'], bs_rate: ['ATK SPD', '攻速', '攻速', '攻速'], bs_crit: ['CRIT', '暴擊', '会心', '暴击'], bs_critM: ['CRIT DMG', '暴傷', '会心ダメ', '暴伤'],
+  bs_size: ['SIZE', '體積', 'サイズ', '体积'], bs_mag: ['MAG', '彈匣', '装弾', '弹匣'], bs_rel: ['RELOAD', '換彈', 'リロード', '换弹'], bs_pierce: ['PIERCE', '穿透', '貫通', '穿透'],
+  bs_bounce: ['BOUNCE', '彈射', '跳弾', '弹射'], bs_hp: ['MAX HP', '生命', '最大HP', '生命'], bs_armor: ['ARMOR', '護甲', 'アーマー', '护甲'], bs_regen: ['ARM REGEN', '回甲', '回復', '回甲'],
+  bs_speed: ['MOVE', '移速', '移動', '移速'], bs_dash: ['DASH CD', '衝刺CD', 'ダッシュCT', '冲刺CD'],
+  bf_exp: ['{0} ×{1}', '{0} ×{1}', '{0} ×{1}', '{0} ×{1}'], bf_expOn: ['{0} · {1} FIGHTS LEFT', '{0} · 還剩 {1} 次戰鬥', '{0}・残り{1}戦闘', '{0} · 还剩 {1} 次战斗'],
+  bf_dia: ['DIALYSIS', '透析機', '透析装置', '透析机'], bf_diaD: ['MAX ARMOR -{0}', '護甲上限 -{0}', '最大アーマー-{0}', '护甲上限 -{0}'],
+  bf_mhp: ['LOST MAXIMUM HEALTH', '生命上限損失', '最大HPの損失', '生命上限损失'], bf_mhpD: ['MAX HEALTH -{0}', '生命上限 -{0}', '最大HP -{0}', '生命上限 -{0}'],
+  bf_ban: ['EXCLUDED SERUMS', '已排除的血清', '除外した血清', '已排除的血清'], bf_curse: ['IDOL CURSES', '神像詛咒', '偶像の呪い', '神像诅咒'], bf_curseD: ['FOES HEALTH +{0}%', '敵人生命 +{0}%', '敵の体力+{0}%', '敌人生命 +{0}%'],
+});
+function buildEffects() { const out = [], add = (n, d, c, bad) => out.push({ n, d, c, bad: !!bad });
+  if (typeof EXP !== 'undefined') { for (const k of EXP_IDS) { const n = expPerm(k); if (n) add(L('bf_exp', tr(EXP[k].n), n), tr(EXP[k].up), EXP[k].c); }
+    if (G.exp && G.exp.left > 0) { const e = EXP[G.exp.id]; add(L('bf_expOn', tr(e.n), G.exp.left), tr(e.down), '#e0807a', true); } }
+  if (G.armorLoss > 0) add(L('bf_dia'), L('bf_diaD', G.armorLoss), '#a4cfe0', true);
+  if (G.mhpLoss > 0) add(L('bf_mhp'), L('bf_mhpD', G.mhpLoss), '#e0807a', true);
+  if (G.curse > 0) add(L('bf_curse') + ' ×' + G.curse, L('bf_curseD', 20 * G.curse), '#c89aff', true);
+  if (Array.isArray(G.svBan) && G.svBan.length) add(L('bf_ban') + ' ×' + G.svBan.length, G.svBan.map(id => SHARD[id] ? sname(SHARD[id]) : id).join('、'), '#8e877b');
+  if (typeof RUN_MODIFIERS !== 'undefined') for (const m of RUN_MODIFIERS) if (hasRunModifier(m.id)) add(m.n, m.d, m.c, true);
+  if (typeof MARKET !== 'undefined' && G.buffs) for (const k of ['adren', 'resolve']) if (G.buffs[k]) { const it = MARKET.find(q => q.id === k); if (it) add(tr(it.n), tr(it.d), it.c(), false); }
+  return out; }
