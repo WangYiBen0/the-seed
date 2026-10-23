@@ -165,7 +165,7 @@
   function isMelee(id) { const w = WEAPONS[id]; return w && ['melee', 'thrust', 'spin', 'whip', 'slam', 'iai', 'fist', 'reap'].includes(w.kind); }
   function nearestEnemy(x, y, maxD, needLos) {
     let best = null, bd = maxD;
-    for (const e of __achroma.G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(x, y, e.x, e.y); if (d < bd && (!needLos || los(x, y, e.x, e.y))) { bd = d; best = e; } }
+    for (const e of __achroma.G.enemies) { if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.inv > 0) continue; const d = dist(x, y, e.x, e.y); if (d < bd && (!needLos || los(x, y, e.x, e.y))) { bd = d; best = e; } }
     return best;
   }
   // ---------- threat field ----------
@@ -202,7 +202,7 @@
     if (typeof TL !== 'undefined' && typeof spikeState === 'function' && tileAtPx(x, y) === TL.SPIKE && spikeState() === 2) d += 1.4;
     // gunners locking a shot: stay off the firing line before the bullet exists
     if (G.enemies) for (const e of G.enemies) {
-      if (e.dead || e.spawnT > 0 || e.st !== 'aim') continue;
+      if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.st !== 'aim') continue;
       const dxp = p.x - e.x, dyp = p.y - e.y, dE = Math.hypot(dxp, dyp);
       if (dE > 340 || dE < 1) continue;
       const ux = dxp / dE, uy = dyp / dE;
@@ -214,24 +214,72 @@
     }
     return d;
   }
-  // choose the walk direction: alignment with "want", walls block, threats repel
+  // the worst-case clearance along a short ray: how far the closest bullet path
+  // stays from this lane.  Maximising the MINIMUM clearance is what turns
+  // "dodge the average" into "never get squeezed" — the 16-way version only
+  // summed danger, so it happily picked a lane with one near-miss on each side.
+  function laneClear(p, dx, dy) {
+    const G = __achroma.G, R = 46;
+    let m = 40;
+    for (const b of G.ebullets) {
+      const cx = b.x - p.x, cy = b.y - p.y;
+      if (Math.abs(cx) > 140 || Math.abs(cy) > 140) continue;
+      const sp2 = b.vx * b.vx + b.vy * b.vy; if (sp2 < 25) continue;
+      const t = ((p.x - b.x) * b.vx + (p.y - b.y) * b.vy) / sp2;
+      if (t < -.05 || t > 1.05) continue;
+      const bx = b.x + b.vx * Math.max(0, t), by = b.y + b.vy * Math.max(0, t);
+      const lx = bx - p.x, ly = by - p.y;
+      const along = lx * dx + ly * dy;
+      if (along < 0 || along > R) continue;
+      const lat = Math.abs(-lx * dy + ly * dx) - (b.r || 3) - p.r;
+      if (lat < m) m = lat;
+    }
+    return Math.max(0, m);
+  }
+  // choose the walk direction: alignment with "want", walls block, threats repel.
+  // 24 candidate angles, three sampling radii (the near ring dominates), then a
+  // half-step refinement around the winner.
   function pickDir(p, wx, wy) {
     const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
+    const RX = [18, 42, 70], RW = [2.0, 1.0, .5];
+    const evalDir = (a) => {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      let s = 0, hit = false;
+      for (let k = 0; k < 3; k++) {
+        const nx = p.x + dx * RX[k], ny = p.y + dy * RX[k];
+        if (collides(nx, ny, p.r, false)) { if (k === 0) { hit = true; break; } s -= 4 * RW[k]; continue; }
+        s -= 1.8 * RW[k] * spotDanger(nx, ny, p);
+      }
+      if (hit) return -1e9;
+      if (wl > .1) s += 2.2 * (dx * wx + dy * wy) / wl;
+      s += .18 * (dx * ld[0] + dy * ld[1]);          // anti-jitter
+      s += 1.15 * Math.min(1.6, laneClear(p, dx, dy) / 26);
+      return s;
+    };
+    const N = 24;
+    let bestS = -1e9, bestA = 0;
+    for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2, v = evalDir(a); if (v > bestS) { bestS = v; bestA = a; } }
+    const hstep = Math.PI / N / 2;
+    for (const a of [bestA - hstep, bestA + hstep]) { const v = evalDir(a); if (v > bestS) { bestS = v; bestA = a; } }
+    const best = [Math.cos(bestA), Math.sin(bestA)];
+    A._lastDir = best;
+    return best;
+  }
+  // pick the dash direction: among the 16 arcs that are safe to land, take the one
+  // that ends in the calmest spot (a dash is also our escape from a squeeze).
+  function dashDir(p, prefer) {
     let best = null, bestScore = -1e9;
     for (let i = 0; i < 16; i++) {
       const a = i / 16 * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
-      const nx = p.x + dx * 16, ny = p.y + dy * 16, fx = p.x + dx * 46, fy = p.y + dy * 46;
-      let s;
-      if (collides(nx, ny, p.r, false) || collides(fx, fy, p.r, false)) s = -8;
-      else {
-        s = wl > .1 ? 2.2 * (dx * wx + dy * wy) / wl : 0;
-        s -= 2.0 * spotDanger(nx, ny, p) + .9 * spotDanger(fx, fy, p);
-        s += .18 * (dx * ld[0] + dy * ld[1]);         // anti-jitter
-      }
+      if (!dashSafe(p, dx, dy)) continue;
+      const ex = p.x + dx * 52, ey = p.y + dy * 52;
+      let s = -spotDanger(ex, ey, p) - .8 * spotDanger(p.x + dx * 30, p.y + dy * 30, p)
+        + .9 * Math.min(1.6, laneClear(p, dx, dy) / 26);
+      const pl = Math.hypot(prefer[0], prefer[1]) || 1;
+      s += .9 * (dx * prefer[0] + dy * prefer[1]) / pl;
       if (s > bestScore) { bestScore = s; best = [dx, dy]; }
     }
-    if (best) A._lastDir = best;
-    return best || [0, 0];
+    return best;
   }
   const moveKeys = (dx, dy) => {
     Input.keys.KeyW = dy < -.3; Input.keys.KeyS = dy > .3; Input.keys.KeyA = dx < -.3; Input.keys.KeyD = dx > .3;
@@ -262,6 +310,38 @@
     }
   });
 
+  // ---- the game's picker overlay: walk the selection to the best row, confirm.
+  // Weapon racks (the update's armory) are scored with the same table as card
+  // picks; for any other list we keep the current value, or cancel — never make
+  // a blind choice.  Every key goes through the edge-safe tap().
+  function drivePicker(tap) {
+    const o = (typeof OVL !== 'undefined' && OVL.o) || {}, items = o.items || [], n = items.length;
+    if (!n) { tap('Escape'); A.status.note = '关闭选择框'; return; }
+    const cur = G.p && G.p.weapons ? G.p.weapons[G.p.wi] : null;
+    let want = -1;
+    if (items.every((it) => WEAPONS[it.v])) {
+      // armory rack: take the best weapon we do not already carry better
+      let best = -1, bestId = null;
+      for (const it of items) { const s = wScore(it.v); if (it.v !== cur && s > best) { best = s; bestId = it.v; } }
+      const cs = cur && WEAPONS[cur] ? wScore(cur) : -1e9;
+      if (bestId && best > cs + .5) want = items.findIndex((it) => it.v === bestId);
+      else if (cur) want = items.findIndex((it) => it.v === cur);
+      if (want < 0) want = 0;
+      A.status.note = '军械库选武器 ' + items[want].v;
+    } else if (o.cur !== undefined && items.some((it) => it.v === o.cur)) {
+      want = items.findIndex((it) => it.v === o.cur);   // keep the current value
+      A.status.note = '选择框：保持当前项';
+    } else {
+      A.status.note = '关闭选择框';
+      tap('Escape');
+      return;
+    }
+    const sel = typeof OVL.sel === 'number' ? OVL.sel : 0;
+    if (sel === want) { tap('Enter'); return; }
+    const down = (want - sel + n) % n;
+    tap(down <= n - down ? 'KeyS' : 'KeyW');
+  }
+
   function drive(G) {
     const p = G.p;
     // edge-safe tap: the game detects key PRESSES (down && !prev-down).  Holding a
@@ -273,6 +353,9 @@
       Input.keys[c] = true; A._taps[c] = 1; A._tapGap[c] = A._tick;
     };
 
+    // the canvas picker overlay (armory weapon rack, camp/market lists) REPLACES
+    // update() while open — if we do not drive it the whole run soft-locks.
+    if (typeof OVL !== 'undefined' && OVL.open) { drivePicker(tap); return; }
     // first-run blockers: the mechanics-hint dialog and the name editor freeze the sim
     if (G.hintQ) { tap('ArrowRight'); tap('Enter'); A.status.note = '提示确认（否）'; return; }
     if (window.NAMEED && NAMEED.open) {
@@ -362,6 +445,7 @@
         const d = dist(p.x, p.y, it.x, it.y); if (d > 24) continue;
         if (it.kind === 'fount' && !it.used && p.hp < p.maxHp - 1 && !hasCurse('drought') && G.ink >= it.cost) { A.status.note = '治疗'; tap('KeyE'); break; }
         if (it.kind === 'chest' && !it.used) { A.status.note = '开箱'; tap('KeyE'); break; }
+        if (it.kind === 'arsrack' && !it.used) { A.status.note = '军械库：打开武器架'; tap('KeyE'); break; }
         if (it.kind === 'key' || it.kind === 'prism') break; // walk over
         if (it.kind === 'chip') { if (!p.skill || it.id !== 'teleport') { tap('KeyE'); break; } continue; }
         if (it.kind === 'weapon') {
@@ -433,7 +517,11 @@
       [mx, my] = pickDir(p, mx, my);
       // dash out when the current spot is about to hurt and the dash is up (never into a pit)
       const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
-      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? 1.3 : 1.8) && dirdash()) tap('Space');
+      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? 1.3 : 1.8)) {
+        const dd = dashDir(p, [mx, my]);                 // escape toward the calmest arc
+        if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); }
+        else if (dirdash()) tap('Space');
+      }
       if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0 && dirdash()) tap('Space');
       // proactive reload: a dry mag triggers the passive reload (SLOTH curse: 1 dmg each)
       if (usesAmmo(w)) {
@@ -505,6 +593,8 @@
   function pickObjective(G, p) {
     const rooms = WORLD.rooms;
     // 1) loose pickups: prisms / keys (skip ones we failed to reach recently)
+    for (const it of G.inter) if (it.kind === 'arsrack' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+      return { pt: [it.x, it.y], label: '军械库', room: roomAt(it.x, it.y) };
     for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
     // 1b) weapon/chip drops on the floor worth walking to
     let bw = null, bwd = 1e9;
