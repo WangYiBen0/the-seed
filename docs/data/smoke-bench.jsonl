@@ -1,0 +1,6 @@
+{"kind":"throughput","at":1792172445034,"speed":8,"seconds":6,"ticks":2879,"tps":479.7,"gameS":48,"ratio":8,"inRun":true,"ua":"Chrome/155.0.0.0"}
+{"kind":"macro","at":1792172501490,"speed":4,"seconds":15,"macro":"hold-attack","gameS":null,"wall":5.8,"ratio":null,"kills":0,"dmg":0,"ua":"Chrome/155.0.0.0"}
+{"kind":"macro","at":1792172533781,"speed":4,"seconds":15,"macro":"hold-attack","gameS":25.1,"wall":6.3,"ratio":4,"kills":0,"dmg":0,"ua":"Chrome/155.0.0.0"}
+{"kind":"fullrun","at":1792172938775,"speed":8,"seed":7,"policy":"bloom","goalDepth":1,"end":"timeout","wall":360.1,"gameT":2034,"floor":0,"depth":0,"kills":9,"hits":0,"dmg":337,"weapons":["nail"],"shards":{"quick":1},"syn":0,"ua":"Chrome/155.0.0.0"}
+{"kind":"fullrun","at":1792173453857,"speed":8,"seed":7,"policy":"bloom","goalDepth":1,"end":"death","wall":28.3,"gameT":103,"floor":0,"depth":0,"kills":69,"hits":13,"dmg":2262,"weapons":["nail"],"shards":{"stat":1,"rnova":1,"rico":1,"fury":1},"syn":0,"ua":"Chrome/155.0.0.0"}
+{"kind":"fullrun","at":1792173936981,"speed":8,"seed":7,"policy":"bloom","goalDepth":1,"end":"timeout","wall":300.1,"gameT":1550,"floor":0,"depth":0,"kills":43,"hits":4,"dmg":1028,"weapons":["nail"],"shards":{"after":2,"stat":1,"primed":1},"syn":0,"ua":"Chrome/155.0.0.0"}
