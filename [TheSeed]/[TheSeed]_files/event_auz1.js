@@ -4,7 +4,9 @@
 // can claim 20 embers and the new skill chip (Overclock!) once. The window refreshes every 60 s on the main menu; today's counts start
 // again at 0:00 GMT+8.
 'use strict';
-const EVC = { id: 'ev2', goal: 6000, goalX: 6000, goalI: 3000, end: Date.UTC(2026, 9, 22, 15, 59, 59, 999), reward: 20, chip: 'ovc' }; // the same numbers as functions/event.js
+// ev3: before 2026-11-01 0:00 GMT+8 the server clears 突入探索 on despair with at least one modifier 500 times; each player then claims
+// 30 embers, and the arsenal room (choose any weapon in a run) joins every player's floors once the goal is reached
+const EVC = { id: 'ev3', goal: 500, goalX: 500, goalI: 0, end: Date.UTC(2026, 9, 31, 15, 59, 59, 999), reward: 30, unlock: 'arsenal' }; // the same numbers as functions/event.js
 const EV_MAT = { easy: 1, classic: 1, hard: 1, nightmare: 1, despair: 1 }; // each clear counts once, on any difficulty
 const EV = { d: null, err: false, busy: false, next: 0, skew: 0, day: -1, claiming: false, hits: [], t: 0, flash: null };
 const evOn = () => ONDZ() && PLAT.caps.fn !== false;
@@ -12,23 +14,25 @@ const evNow = () => Date.now() + EV.skew; // the server's clock once we have hea
 const evDay = ms => Math.floor((ms + 8 * 3600e3) / 86400e3);
 const evOpen = () => evNow() <= EVC.end;
 const evX = () => EV.d ? EV.d.x | 0 : 0, evI = () => EV.d ? EV.d.i | 0 : 0, evTotal = () => evX() + evI();
-const evGoal = kind => { const key = kind === 'i' ? 'goalI' : 'goalX', n = EV.d && EV.d[key]; return Number.isSafeInteger(n) && n > 0 ? n : EVC[key]; };
+const evGoal = kind => { const key = kind === 'i' ? 'goalI' : 'goalX', n = EV.d && EV.d[key]; return Number.isSafeInteger(n) && n >= 0 && EV.d ? n : EVC[key]; };
+const evKinds = () => ['x', 'i'].filter(k => evGoal(k) > 0); // the counters this event shows
 const evDone = () => evX() >= evGoal('x') && evI() >= evGoal('i');
 const evClaimedHere = () => !!((gpLoad().ev || {})[EVC.id]);
 const evHidden = () => evDone() && evClaimedHere();
 // which counter a settled run adds to: 'x' a cleared (or endless) 突入探索 run, 'i' a cleared 入侵抵抗 run
-function evKind(R) { if (!R || !EV_MAT[R.diff]) return ''; if (R.mode === 'invade') return R.win ? 'i' : ''; return R.win || R.endless ? 'x' : ''; }
+// this event: only a cleared (or endless) 突入探索 run on despair that carried at least one modifier counts
+function evKind(R) { if (!R || R.mode === 'invade' || R.diff !== 'despair' || !(R.win || R.endless)) return ''; const mods = R.modifiers || (G && G.result === R ? G.modifiers : null); return Array.isArray(mods) && mods.length ? 'x' : ''; }
 // the countdown: "3天 04:12:09"
 function evLeft() { let s = Math.max(0, Math.floor((EVC.end - evNow()) / 1000)); const d = Math.floor(s / 86400); s %= 86400; const z = n => ('0' + n).slice(-2);
   return (d ? L('ev_days', d) + ' ' : '') + z(Math.floor(s / 3600)) + ':' + z(Math.floor(s / 60) % 60) + ':' + z(s % 60); }
 Object.assign(STR, {
-  ev_name: ['SERVER-WIDE JOINT MISSION', '全服聯合任務', '全サーバー共同任務', '全服联合任务'],
-  ev_end: ['ENDS 2026.10.22 23:59 (GMT+8). REFRESHES DAILY AT 0:00 GMT+8', '結束時間：2026.10.22 23:59（GMT+8），每日 GMT+8 0 點刷新', '終了：2026.10.22 23:59（GMT+8）・毎日GMT+8の0時に更新', '结束时间：2026.10.22 23:59（GMT+8），每日 GMT+8 0 点刷新'],
-  ev_rewardShort: ['REWARD: {0} EMBERS & A NEW SKILL CHIP EACH', '獎勵：每人 {0} 火種 & 新技能晶片', '報酬：全員に火種{0}＆新スキルチップ', '奖励：每人 {0} 火种 & 新技能芯片'],
-  ev_reward: ['{0} EMBERS AND THE NEW SKILL CHIP OVERCLOCK! FOR EVERY PLAYER', '每位玩家 {0} 火種，並解鎖新技能晶片「Overclock!」', '全プレイヤーに火種{0}と新スキルチップ「Overclock!」', '每位玩家 {0} 火种，并解锁新技能芯片「Overclock!」'],
-  ev_claim: ['CLAIM THE REWARD', '領取獎勵', '報酬を受け取る', '领取奖励'], ev_got: ['+{0} EMBERS · OVERCLOCK! UNLOCKED', '已領取 {0} 火種，「Overclock!」已解鎖', '火種+{0}・Overclock!解放', '已领取 {0} 火种，「Overclock!」已解锁'],
-  ev_howHead: ['HOW IT COUNTS', '計入方式', '加算のしかた', '计入方式'], ev_tx: ['突入探索', '突入探索', '突入探索', '突入探索'], ev_ti: ['入侵抵抗', '入侵抵抗', '入侵抵抗', '入侵抵抗'],
-  ev_hx: ['EVERY CLEAR (ENDLESS TOO) +1', '每次通關（含無盡）+1', 'クリアごと（無限含む）+1', '每次通关（含无尽）+1'], ev_hi: ['EVERY CLEAR +1', '每次通關 +1', 'クリアごと +1', '每次通关 +1'],
+  ev_name: ['SERVER-WIDE DESPAIR CHALLENGE', '全服絕境挑戰', '全サーバー絶境チャレンジ', '全服绝境挑战'],
+  ev_end: ['ENDS 2026.11.01 0:00 (GMT+8)', '截止時間：2026.11.01 0:00（GMT+8）', '終了：2026.11.01 0:00（GMT+8）', '截止时间：2026.11.01 0:00（GMT+8）'],
+  ev_rewardShort: ['REWARD: {0} EMBERS & THE ARSENAL ROOM', '獎勵：每人 {0} 火種 & 自選武器房間', '報酬：火種{0}＆武器庫の部屋', '奖励：每人 {0} 火种 & 自选武器房间'],
+  ev_reward: ['{0} EMBERS FOR EVERY PLAYER, AND A NEW ROOM IN 突入探索: THE ARSENAL, WHERE YOU CHOOSE ANY WEAPON', '每位玩家 {0} 火種，並在突入探索中新增特殊房間「軍械庫」：局內自選一把武器', '全員に火種{0}、突入探索に新しい部屋「武器庫」：好きな武器を一つ選べる', '每位玩家 {0} 火种，并在突入探索中新增特殊房间「军械库」：局内自选一把武器'],
+  ev_claim: ['CLAIM THE REWARD', '領取獎勵', '報酬を受け取る', '领取奖励'], ev_got: ['+{0} EMBERS · THE ARSENAL ROOM IS OPEN', '已領取 {0} 火種，「軍械庫」房間已開放', '火種+{0}・武器庫の部屋が開放', '已领取 {0} 火种，「军械库」房间已开放'],
+  ev_howHead: ['HOW IT COUNTS', '計入方式', '加算のしかた', '计入方式'], ev_tx: ['DESPAIR + MOD', '絕境 + 修飾', '絶境+修飾', '绝境 + 修饰'], ev_ti: ['入侵抵抗', '入侵抵抗', '入侵抵抗', '入侵抵抗'],
+  ev_hx: ['EVERY DESPAIR CLEAR WITH 1+ MODIFIER +1', '攜帶至少 1 個修飾符通關絕境 +1', '修飾1つ以上で絶境クリア +1', '携带至少 1 个修饰符通关绝境 +1'], ev_hi: ['EVERY CLEAR +1', '每次通關 +1', 'クリアごと +1', '每次通关 +1'],
   ev_rule6: ['CLEARS ARE ADDED TO THE SERVER TOTAL WHEN THE RUN IS SETTLED (SIGNED-IN DZMM PLAYERS).', '在最終結算時累計到全服數量（需登入 DZMM）。', '最終精算時に全サーバー合計へ加算（DZMMログイン時）。', '在最终结算时累计到全服数量（需登录 DZMM）。'],
   ev_addUp: ['SERVER TASK: SENDING THIS CLEAR', '全服任務：正在提交本次通關', '全サーバー任務：クリアを送信中', '全服任务：正在提交本次通关'],
   ev_addOk: ['SERVER TASK: THIS CLEAR COUNTED', '全服任務：本次通關已計入全服', '全サーバー任務：クリアを加算', '全服任务：本次通关已计入全服'],
@@ -40,7 +44,7 @@ Object.assign(STR, {
 // ---- the server ----
 function evStatus() {
   if (!evOn() || EV.busy) return; EV.busy = true;
-  fnCall('event', 'status').then(r => { if (r && r.ok) { EV.d = r; EV.err = false; EV.skew = r.now - Date.now(); if (evDone()) { const gp = gpLoad(); gp.chips = gp.chips || {}; if (!gp.chips[EVC.chip]) { gp.chips[EVC.chip] = 1; gpSave(); } } } else EV.err = true; })
+  fnCall('event', 'status').then(r => { if (r && r.ok) { EV.d = r; EV.err = false; EV.skew = r.now - Date.now(); if (evDone()) { const gp = gpLoad(); gp.unlocks = gp.unlocks || {}; if (!gp.unlocks[EVC.unlock]) { gp.unlocks[EVC.unlock] = 1; gpSave(); } } } else EV.err = true; })
     .catch(() => { EV.err = true; }).finally(() => { EV.busy = false; EV.next = performance.now() + (MENU.page === 'event' ? 20e3 : 60e3); EV.day = evDay(evNow()); });
 }
 // called every frame on the main menu and the event page: asks again every 60 s (20 s on the event page) and right after 0:00 GMT+8
@@ -73,7 +77,8 @@ const _netInitEv = netInit; netInit = function () { _netInitEv(); if (NET.user &
 const _finishRunEv = finishRun; finishRun = function (win) { _finishRunEv(win); try { evContribute(G.result); } catch (e) { console.error('[event]', e); } };
 
 // ---- the reward: embers and the new chip, which joins the run's chip pool from then on ----
-const chipUnlocked = k => k !== EVC.chip || !!((gpLoad().chips || {})[k]) || evDone();
+// Overclock! (the last event's chip) is sold at the black market now; it joins the chip pools once bought (gp.chips.ovc)
+const chipUnlocked = k => k !== 'ovc' || !!((gpLoad().chips || {})[k]);
 async function evClaim() {
   if (!NET.user) { evFlash('wc_guest'); AU.play('locked'); return; } if (EV.claiming || evClaimedHere()) return; EV.claiming = true;
   const gp = gpLoad(); gp.evReceipts = gp.evReceipts || {};
@@ -82,7 +87,7 @@ async function evClaim() {
   if (!await STORE.flush()) { EV.claiming = false; evFlash('wc_fail'); return; }
   const receipt = gp.evReceipts[EVC.id];
   fnCall('event', 'claim', { receipt }).then(r => {
-    if (r && r.ok) { const gp = gpLoad(); gp.ev = gp.ev || {}; if (!gp.ev[EVC.id]) { gp.ev[EVC.id] = true; gp.chips = gp.chips || {}; gp.chips[EVC.chip] = true;
+    if (r && r.ok) { const gp = gpLoad(); gp.ev = gp.ev || {}; if (!gp.ev[EVC.id]) { gp.ev[EVC.id] = true; gp.unlocks = gp.unlocks || {}; gp.unlocks[EVC.unlock] = 1;
         if (r.grant === true || (r.grant === undefined && r.first === true)) { gp.proofs += EVC.reward; evFlash('ev_got', TH.gold); AU.play('shop'); } gpSave(); } if (EV.d) EV.d.claimed = true; }
     else if (r && r.reject === 'notyet') evFlash('ev_notyet'); else evFlash('wc_fail'); })
     .catch(() => evFlash('wc_fail')).finally(() => { EV.claiming = false; });
@@ -100,7 +105,7 @@ function drawEventCard(t) {
   text(right, cx + w - 7, y + 4, ready ? TH.gold : '#9f9aa9', 1, 'right');
   // The summary stays on one screen; clicking anywhere opens the full rules and reward.
   let yy = y + 17;
-  for (const [lab, n, c, goal] of [[L('ev_tx'), evX(), acc, evGoal('x')], [L('ev_ti'), evI(), '#8ed872', evGoal('i')]]) {
+  for (const [lab, n, c, goal] of [[L('ev_tx'), evX(), acc, evGoal('x')], [L('ev_ti'), evI(), '#8ed872', evGoal('i')]].filter((r, j) => evKinds().includes(['x', 'i'][j]))) {
     text(lab, cx + 7, yy, '#c9c1b2'); evBar(cx + 44, yy + 3, w - 121, 3, n, c, goal);
     text(EV.d ? fmtNum(n) + '/' + fmtNum(goal) : '-', cx + w - 7, yy, EV.d ? '#c9c1b2' : '#6e675c', 1, 'right'); yy += 13;
   }
@@ -122,8 +127,8 @@ function drawEvent(t) {
   let y = 38; text(L('ev_name'), x + 2, y, '#e8e1d3'); text(L('ev_end'), x + 2, y + lh, '#5a5a62');
   { const left = open ? evLeft() : L('ev_over'); text(open ? L('ev_leftHead') : '', x + w - 2, y, '#6e675c', 1, 'right'); text(left, x + w - 2, y + lh, open ? TH.red : '#8e877b', 1.5, 'right'); }
   y += lh * 2 + 6;
-  const half = Math.floor((w - 8) / 2);
-  [[L('ev_tx'), evX(), EV.d ? EV.d.todayX : 0, TH.gold, L('ev_hx'), evGoal('x')], [L('ev_ti'), evI(), EV.d ? EV.d.todayI : 0, '#8ed872', L('ev_hi'), evGoal('i')]].forEach(([lab, n, td, c, how, goal], k) => {
+  const nk = evKinds().length || 1, half = Math.floor((w - 8 * (nk - 1)) / nk);
+  [[L('ev_tx'), evX(), EV.d ? EV.d.todayX : 0, TH.gold, L('ev_hx'), evGoal('x')], [L('ev_ti'), evI(), EV.d ? EV.d.todayI : 0, '#8ed872', L('ev_hi'), evGoal('i')]].filter((r, j) => evKinds().includes(['x', 'i'][j])).forEach(([lab, n, td, c, how, goal], k) => {
     const bx = x + k * (half + 8), done = n >= goal; evBox(bx, y, half, 58, done ? TH.green : c); text(lab, bx + 10, y + 6, '#e8e1d3'); if (done) text(L('ev_doneTag'), bx + half - 8, y + 6, TH.green, 1, 'right');
     const p = clamp(n / goal, 0, 1), bw = half - 20, by = y + 20; rect(bx + 10, by, bw, 8, '#08080a'); box(bx + 9, by - 1, bw + 2, 10, null, '#2a2a30'); rect(bx + 10, by, Math.round(bw * p), 8, done ? TH.green : c); rect(bx + 10, by, Math.round(bw * p), 1, '#fff2c0');
     const big = EV.d ? fmtNum(n) + ' / ' + fmtNum(goal) + '  ' + Math.floor(p * 100) + '%' : evOn() ? L('bd_loading') : L('g_dz'); text(big, bx + 10, by + 12, '#d8d4c8');
