@@ -8,6 +8,7 @@
 #   nix run .#bench      # headless chromium benchmark (see scripts/headless-bench.mjs)
 #   nix run .#sync       # refresh site/js/ from a fresh browser "save page as"
 #   nix run .#source     # fetch assets the game asked for but we don't have (404s)
+#   nix run .#test       # unit tests for the tools (node --test)
 #   nix build            # static site ready to upload (result/)
 #
 # NOTE: `nix run .#bench` needs a chromium on PATH (NixOS: usually
@@ -28,6 +29,10 @@
         seedSource = pkgs.writeShellScriptBin "seed-source" ''
           exec ${pkgs.nodejs}/bin/node ${./scripts/fetch-source.mjs} "$@"
         '';
+        seedTest = pkgs.writeShellScriptBin "seed-test" ''
+          cd "$PWD"
+          exec ${pkgs.nodejs}/bin/node --test "tests/*.test.mjs" "$@"
+        '';
         seedSync = pkgs.writeShellScriptBin "seed-sync" ''
           exec ${pkgs.nodejs}/bin/node ${./scripts/sync-upstream.mjs} "$@"
         '';
@@ -40,7 +45,7 @@
       devShells = forAll (pkgs:
         let h = mkHelpers pkgs; in {
           default = pkgs.mkShell {
-            packages = with pkgs; [ nodejs python3 chromium git gh jq ] ++ [ h.seedServe h.seedSync h.seedBench h.seedSource ];
+            packages = with pkgs; [ nodejs python3 chromium git gh jq ] ++ [ h.seedServe h.seedSync h.seedBench h.seedSource h.seedTest ];
             shellHook = ''
               echo "[TheSeed] mirror dev shell — $(node --version) · $(chromium --version 2>/dev/null | head -1)"
               echo "  seed-serve   static server for site/        (also: nix run .#serve)"
@@ -56,6 +61,7 @@
           bench = { type = "app"; program = "${h.seedBench}/bin/seed-bench"; };
           sync = { type = "app"; program = "${h.seedSync}/bin/seed-sync"; };
           source = { type = "app"; program = "${h.seedSource}/bin/seed-source"; };
+          test = { type = "app"; program = "${h.seedTest}/bin/seed-test"; };
         });
 
       # `nix build` produces the uploadable static site (including .nojekyll).

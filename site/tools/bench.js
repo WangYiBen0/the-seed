@@ -285,21 +285,33 @@
       clearP5: pct(.05), clearP1: pct(.01), clearMin: A.clearMin === 1e9 ? 0 : +A.clearMin.toFixed(2),
       dashes: A.dash, dashesPerMin: +(A.dash / mins).toFixed(2),
       spawned, ticks: A.ticks, hitsMetric: M.hitsTaken | 0, hitsGame: (g.hits | 0) - h0,
+      // a run that never got into combat measures nothing: 0 hits would be a
+      // false win, so such a sample is flagged invalid and retried by runDodge.
+      valid: A.ticks >= 600,
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
     };
   }
   async function runDodge(o = {}) {
     const eng = o.engine || 'both';
-    if (eng !== 'both') return runDodgeOne(Object.assign({}, o, { engine: eng }));
-    const a = await runDodgeOne(Object.assign({}, o, { engine: 'v2' }));
-    const b = await runDodgeOne(Object.assign({}, o, { engine: 'simple' }));
+    // retry a run whose arena never went live (ticks ≈ 0): reporting 0 hits/min
+    // there would look like a flawless dodge instead of a broken sample
+    const one = async (e) => {
+      let r = await runDodgeOne(Object.assign({}, o, { engine: e }));
+      for (let i = 0; i < 2 && r && !r.valid; i++) { TSW.log('dodge sample invalid (' + r.ticks + ' ticks), retry ' + (i + 1)); r = await runDodgeOne(Object.assign({}, o, { engine: e })); }
+      return r;
+    };
+    if (eng !== 'both') return one(eng);
+    const a = await one('v2');
+    const b = await one('simple');
     const d = (k) => +(a[k] - b[k]).toFixed(2);
     return {
       kind: 'dodge-ab', at: Date.now(), depth: o.depth ?? 6, seconds: o.seconds ?? 45, seed: o.seed ?? 11,
       v2: a, simple: b,
       // lower is better for hits/danger; higher is better for clearance
       delta: { hitsPerMin: d('hitsPerMin'), dangerAvg: d('dangerAvg'), hazardPct: d('hazardPct'), clearP5: d('clearP5'), clearMin: d('clearMin') },
-      verdict: a.hitsPerMin < b.hitsPerMin ? 'v2 受击更少' : (a.hitsPerMin > b.hitsPerMin ? 'simple 受击更少' : '打平'),
+      verdict: (!a.valid || !b.valid)
+        ? ('样本无效：' + (!a.valid ? 'v2 ' : '') + (!b.valid ? 'simple ' : '') + '未进入战斗（ticks ≈ 0），不可作为结论')
+        : (a.hitsPerMin < b.hitsPerMin ? 'v2 受击更少' : (a.hitsPerMin > b.hitsPerMin ? 'simple 受击更少' : '打平')),
       ua: a.ua,
     };
   }
