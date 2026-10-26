@@ -141,7 +141,8 @@
     };
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null } = {}) {
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null } = {}) {
+    const detMode = !!(TSW.det && TSW.det.on);
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
@@ -211,10 +212,13 @@
         }
       } catch (e) { }
     }, 250);
+    const tickBudget = detMode ? Math.round((ticks || 18000)) : 0;   // 18000 ticks = 300 game-s
     const res = await new Promise((resolve) => {
       const iv = setInterval(() => {
         const g = G(), wall = (performance.now() - t0) / 1000;
-        const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win');
+        const ticksDone = (TSW.det && TSW.det.on && TSW.det.ticks) ? TSW.det.ticks : 0;
+        const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
+          || (detMode && ticksDone >= tickBudget);
         if (done || wall > timeoutS) {
           clearInterval(iv);
           resolve({ end: g.state === 'dead' ? 'death' : g.state === 'win' ? 'ascend' : g.endless >= goalDepth ? 'goal' : 'timeout', wall });
@@ -231,6 +235,7 @@
     const g = G();
     return {
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
+      det: !!detMode, ticks: (TSW.det && TSW.det.ticks) || 0,
       modifiers: modsEarly,
       modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
       end: res.end, wall: +res.wall.toFixed(1),
