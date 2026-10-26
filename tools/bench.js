@@ -182,6 +182,35 @@
         }
       } else { lastSig = sig; lastSigT = performance.now(); }
     }, 1000);
+    // ---- 局部指标采样 ----------------------------------------------------------
+    // Whole-run gameT has SD 147-208s, so a +50s change needs ~35 pairs.  Room
+    // clear times give hundreds of samples per run with far lower variance, and
+    // "kills per 100 game-seconds" is scale-free.  Both are used for A/B.
+    const roomT = new Map();          // room id -> {t0, dur}
+    const clears = [];
+    let lastK = 0, lastT = 0, kRate = [];
+    const sampler = setInterval(() => {
+      try {
+        const g = G(); if (!g || !g.p || g.state !== 'play') return;
+        const rooms = (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms : [];
+        const now = g.runT || 0;
+        for (const r of rooms) {
+          const id = r.id != null ? r.id : (r.cx + ':' + r.cy);
+          if (r.active && !roomT.has(id)) roomT.set(id, { t0: now });
+          else if (!r.active && r.cleared && roomT.has(id)) {
+            const d = now - roomT.get(id).t0;
+            if (d > 0.4 && d < 600) clears.push(+d.toFixed(1));
+            roomT.set(id, { done: true });
+          }
+        }
+        // rolling kill rate per 100 game-seconds
+        if (now - lastT >= 10) {
+          const dk = (g.kills | 0) - lastK, dt = now - lastT;
+          if (dt > 0) kRate.push(dk / dt * 100);
+          lastK = g.kills | 0; lastT = now;
+        }
+      } catch (e) { }
+    }, 250);
     const res = await new Promise((resolve) => {
       const iv = setInterval(() => {
         const g = G(), wall = (performance.now() - t0) / 1000;
@@ -192,7 +221,7 @@
         }
       }, 500);
     });
-    clearInterval(wd);
+    clearInterval(wd); clearInterval(sampler);
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
     TSW.auto.setPolicy(wasPolicy);
@@ -207,6 +236,11 @@
       end: res.end, wall: +res.wall.toFixed(1),
       gameT: +g.runT.toFixed(0), floor: g.floor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
+      // local, low-variance metrics
+      roomClears: clears.length,
+      roomClearMean: clears.length ? +(clears.reduce((a, b) => a + b, 0) / clears.length).toFixed(1) : 0,
+      roomClearMax: clears.length ? Math.max(...clears) : 0,
+      killPer100: kRate.length ? +(kRate.reduce((a, b) => a + b, 0) / kRate.length).toFixed(1) : 0,
       weapons: (g.p ? g.p.weapons : []).slice(), shards: Object.assign({}, g.p ? g.p.shards : {}),
       syn: Object.keys(SYN || {}).length,
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
