@@ -424,6 +424,7 @@
       kind: 'invade', at: Date.now(), seed, diff, role, startWave: wave, seconds, speed,
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1), waveReached: peakWave || (iv.wave | 0), wavePhase: iv.phase || '',
+      survived: +gameS.toFixed(1),
       kills: (g.kills | 0) - k0, hits: g.hits | 0,
       dmg: Math.round(TSW.metrics.dmgTotal - d0),
       weapons: (iv.w || []).map((w) => w.id + ':t' + w.t),
@@ -445,8 +446,9 @@
   // optA / optB 是本模块认识的选项覆盖，例如 { policy: 'rounded' } 与
   // { onLowKillsDps: true }（后者由 auto.js 的 A.opts 读取）。
   async function runAB({ rounds = 5, abKind = null, kind = null, base = {}, optA = {}, optB = {},
-    seconds = 60, speed = 8, seed = null, diff = 'despair', mods = null, goalDepth = 1, timeoutS = 200 } = {}) {
+    seconds = 60, speed = 8, seed = null, diff = 'despair', mods = null, goalDepth = 1, timeoutS = 200, metric = null } = {}) {
     const K = abKind || kind || 'fullrun';        // inner scenario
+    const metricKey = metric || (K === 'invade' ? 'survived' : 'gameT');
     const A = Object.assign({}, base, optA), B = Object.assign({}, base, optB);
     const pairs = [];
     const exec = async (o) => {
@@ -468,9 +470,8 @@
       const a = await exec(A);                       // A first
       TSW.log('AB round ' + (i + 1) + ' B...');
       const b = await exec(B);                       // then B — same session, adjacent in time
-      const key = K === 'invade' ? 'waveReached' : 'gameT';
-      const ka = K === 'invade' ? (a && a.waveReached) || 0 : (a && a.gameT) || 0;
-      const kb = K === 'invade' ? (b && b.waveReached) || 0 : (b && b.gameT) || 0;
+      const ka = (a && a[metricKey]) || 0;
+      const kb = (b && b[metricKey]) || 0;
       const kk = 'kills';
       pairs.push({ i: i + 1, a: ka, b: kb, da: (a && a[kk]) || 0, db: (b && b[kk]) || 0, d: +(kb - ka).toFixed(1), kd: (((b && b[kk]) || 0) - ((a && a[kk]) || 0)) });
       TSW.log('AB pair ' + (i + 1) + ': ' + ka + ' vs ' + kb + ' (delta ' + (kb - ka) + ')');
@@ -484,7 +485,7 @@
     // paired t (two-sided, df = n-1) — report a rough 95% interval
     const t = ds.length > 1 ? md / (sem || 1) : 0;
     return {
-      kind: 'ab', at: Date.now(), inner: K, metric: K === 'invade' ? 'waveReached' : 'gameT',
+      kind: 'ab', at: Date.now(), inner: K, metric: metricKey,
       rounds: ds.length, seconds, speed, diff, mods, optA, optB,
       aMean: +mean(pairs.map((p) => p.a)).toFixed(1), bMean: +mean(pairs.map((p) => p.b)).toFixed(1),
       deltaMean: +md.toFixed(1), deltaSd: +sdd.toFixed(1), sem: +sem.toFixed(1),
