@@ -411,7 +411,20 @@
       const gg = window.__achroma.G;
       if (gg && gg.iv && (gg.iv.wave | 0) > peakWave) peakWave = gg.iv.wave | 0;
     }, 250);
-    await new Promise((res) => setTimeout(res, Math.max(4000, seconds * 1000 / Math.min(4, speed) + 3000)));
+    // Run until the player dies (or the wall budget expires) instead of a fixed
+    // duration.  Fixed 60-150s windows always ended "alive" and hid the real
+    // ceiling (measured death: wave 5 / 127s), so they had no resolution for
+    // anything that only pays off later.
+    {
+      const budget = Math.max(6000, seconds * 1000 / Math.min(4, speed) + 3000);
+      const t1 = performance.now();
+      while (performance.now() - t1 < budget) {
+        const gg = window.__achroma.G;
+        if (!gg) break;
+        if (gg.state === 'dead' || gg.state === 'win') break;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
     clearInterval(mon);
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
