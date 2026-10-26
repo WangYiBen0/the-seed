@@ -37,6 +37,7 @@
       weaponSwap: TSW.settings.get('autoWeaponSwap', true),// swap to the sidearm during a reload
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
+      navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -913,7 +914,7 @@
     // Measured failure (seed 91): the bot locked a far objective and stood still
     // for 90+ game-seconds with a valid waypoint,因为 pickDir 在该点找不到任何
     // 得分 > 0 的方向（威胁场 + 墙惩罚同时压制）。 任何「零位移」都必须被打破。
-    if ((A.mode === 'full') && !active && !G.trial) {
+    if (A.opts.navFallback && (A.mode === 'full') && !active && !G.trial) {
       const moved = (A._mvRef && Math.hypot(p.x - A._mvRef[0], p.y - A._mvRef[1]));
       if (!A._mvRef || !isFinite(moved) || moved > 6) { A._mvRef = [p.x, p.y]; A._mvT = G.time; }
       else if (G.time - (A._mvT || 0) > 2.5) {
