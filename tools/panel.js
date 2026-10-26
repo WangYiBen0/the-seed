@@ -427,6 +427,7 @@
       rounds: q.get('rounds') ? +q.get('rounds') : 5,
       abKind: q.get('abKind') || 'fullrun',
       base: q.get('startWave') ? { wave: +q.get('startWave') } : {},
+      metric: q.get('metric') || undefined,
       optA: q.get('optA') ? JSON.parse(q.get('optA')) : {},
       optB: q.get('optB') ? JSON.parse(q.get('optB')) : {},
     };
