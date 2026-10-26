@@ -38,6 +38,7 @@
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
+      invadeCircle: true,                                    // invade: circulate instead of straight backoff
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -731,20 +732,45 @@
     let tgt = null, bd = 1e9;
     for (const e of foes) { const d = dist(p.x, p.y, e.x, e.y); if (d < bd) { bd = d; tgt = e; } }
     if (tgt) { Input.mx = clampM(tgt.x - G.cam.x, GW()); Input.my = clampM(tgt.y - G.cam.y, GH()); }
-    // 2) kite: stay off the swarm, but keep inside firing range.  Bosses/waves are
-    //    dense here, so threat-weighted direction choice with a wide band.
+    // 2) kite: the arena is a walled box, so "back off" alone walks into a corner
+    //    and dies.  Instead we circulate: pick the tangential direction (clockwise
+    //    or counter-clockwise, committed for the whole wave) and add a radial
+    //    correction that keeps us in the firing band.  That keeps a ring of space
+    //    between the swarm and the wall.
     if (tgt) {
       const ux = (tgt.x - p.x) / (bd || 1), uy = (tgt.y - p.y) / (bd || 1);
-      const band = iv.wave % 5 === 0 ? [70, 130] : [55, 110];      // boss waves: keep further
-      if (bd < band[0]) { mx -= ux; my -= uy; A.status.note = '入侵：拉开距离'; }
-      else if (bd > band[1]) { mx += ux; my += uy; A.status.note = '入侵：接近'; }
-      else { mx += -uy * .5; my += ux * .5; A.status.note = '入侵：绕行'; }
+      const band = iv.wave % 5 === 0 ? [80, 150] : [60, 120];      // boss waves: keep further
+      if (A._ivWave !== iv.wave) { A._ivWave = iv.wave; A._ivSpin = Math.random() < .5 ? 1 : -1; }
+      if (A.opts.invadeCircle === false) {            // A/B: plain backoff/approach
+        if (bd < band[0]) { mx = -ux; my = -uy; A.status.note = '入侵：拉开距离'; }
+        else if (bd > band[1]) { mx = ux; my = uy; A.status.note = '入侵：接近'; }
+        else { mx = -uy * A._ivSpin * .6; my = ux * A._ivSpin * .6; A.status.note = '入侵：绕行'; }
+        moveKeys(mx, my); [mx, my] = pickDir(p, mx, my);
+        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.6) {
+          const dd0 = dashDir(p, [mx, my]);
+          if (dd0) { tap('Space'); A.metrics.dash++; }
+        }
+        moveKeys(mx, my); A.status.target = 'invade'; return;
+      }
+      const tx = -uy * A._ivSpin, ty = ux * A._ivSpin;           // tangential (circle)
+      if (bd < band[0]) { mx = tx * .8 - ux * 1.2; my = ty * .8 - uy * 1.2; A.status.note = '入侵：绕圈脱离'; }
+      else if (bd > band[1]) { mx = tx * .5 + ux * .9; my = ty * .5 + uy * .9; A.status.note = '入侵：绕圈接近'; }
+      else { mx = tx; my = ty; A.status.note = '入侵：绕圈'; }
+      // wall repulsion: if the tangential path points into a wall, flip the spin
+      const probeX = p.x + mx * 40, probeY = p.y + my * 40;
+      if (typeof collides === 'function' && collides(probeX, probeY, p.r, false)) {
+        A._ivSpin = -A._ivSpin;
+        mx = -tx; my = -ty;
+        A.status.note = '入侵：反向绕圈';
+      }
     } else if (iv.phase === 'fight') {
-      // nothing to shoot: drift toward the arena centre so we are not hugging a wall
+      // nothing to shoot: orbit the arena (never idle in the middle of the box)
       const cx = W.w * 8, cy = W.h * 8;
-      const dx = cx - p.x, dy = cy - p.y, l = Math.hypot(dx, dy) || 1;
-      if (l > 40) { mx += dx / l; my += dy / l; }
-      A.status.note = '入侵：等待刷怪';
+      const dx = p.x - cx, dy = p.y - cy, l = Math.hypot(dx, dy) || 1;
+      if (A._ivWave !== iv.wave) { A._ivWave = iv.wave; A._ivSpin = Math.random() < .5 ? 1 : -1; }
+      mx = (-dy / l) * A._ivSpin; my = (dx / l) * A._ivSpin;
+      if (l < 60) { mx += dx / l; my += dy / l; }                 // move out from the centre
+      A.status.note = '入侵：绕场等刷怪';
     }
     [mx, my] = pickDir(p, mx, my);
     // dash away when the local threat spikes
