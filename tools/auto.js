@@ -718,7 +718,47 @@
     if (best >= 0) tap('Digit' + (best + 1));
   }
 
+  // ---------------- 入侵抵抗（Brotato 式竞技场）-------------------------------
+  // 没有房间/门/交互物，只有一波一波的敌人和计时器。突入探索的那套
+  // (房间图/门框/目标) 在这里全部失效——实测挂机会在无目标状态下游走。
+  function driveInvade(G, p, tap) {
+    const iv = G.iv || {};
+    const W = (typeof WORLD !== 'undefined' && WORLD) ? WORLD : null;
+    if (!W || !W.w) { A.status.note = '入侵：等待场地…'; return; }
+    let mx = 0, my = 0;
+    const foes = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0);
+    // 1) shoot: invade fires automatically, we only aim (the game aims via Input)
+    let tgt = null, bd = 1e9;
+    for (const e of foes) { const d = dist(p.x, p.y, e.x, e.y); if (d < bd) { bd = d; tgt = e; } }
+    if (tgt) { Input.mx = clampM(tgt.x - G.cam.x, GW()); Input.my = clampM(tgt.y - G.cam.y, GH()); }
+    // 2) kite: stay off the swarm, but keep inside firing range.  Bosses/waves are
+    //    dense here, so threat-weighted direction choice with a wide band.
+    if (tgt) {
+      const ux = (tgt.x - p.x) / (bd || 1), uy = (tgt.y - p.y) / (bd || 1);
+      const band = iv.wave % 5 === 0 ? [70, 130] : [55, 110];      // boss waves: keep further
+      if (bd < band[0]) { mx -= ux; my -= uy; A.status.note = '入侵：拉开距离'; }
+      else if (bd > band[1]) { mx += ux; my += uy; A.status.note = '入侵：接近'; }
+      else { mx += -uy * .5; my += ux * .5; A.status.note = '入侵：绕行'; }
+    } else if (iv.phase === 'fight') {
+      // nothing to shoot: drift toward the arena centre so we are not hugging a wall
+      const cx = W.w * 8, cy = W.h * 8;
+      const dx = cx - p.x, dy = cy - p.y, l = Math.hypot(dx, dy) || 1;
+      if (l > 40) { mx += dx / l; my += dy / l; }
+      A.status.note = '入侵：等待刷怪';
+    }
+    [mx, my] = pickDir(p, mx, my);
+    // dash away when the local threat spikes
+    if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.6) {
+      const dd = dashDir(p, [mx, my]);
+      if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
+    }
+    moveKeys(mx, my);
+    A.status.target = 'invade';
+  }
+
   function drivePlay(G, p, tap) {
+    // invade runs its own arena logic (no rooms/doors/interactables at all)
+    if (G.mode === 'invade') { driveInvade(G, p, tap); return; }
     // no floor yet: do nothing but keep the status honest (a stale objective here
     // used to strand the autopilot in an endless "walk to X" loop)
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) {
