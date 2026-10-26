@@ -45,6 +45,7 @@
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set
+      invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -760,6 +761,34 @@
           if (dd0) { tap('Space'); A.metrics.dash++; }
         }
         moveKeys(mx, my); A.status.target = 'invade'; return;
+      }
+      // ---- 被围时向「最空的一侧」突围 -------------------------------------
+      // Circling inside a closed ring walks THROUGH the swarm.  When >=3 foes are
+      // close, score 8 escape sectors by how many enemies sit in them and run for
+      // the emptiest one (this is also what lets us leave a corner).
+      const near = foes.filter((e) => Math.hypot(e.x - p.x, e.y - p.y) < 95);
+      if (A.opts.invadeEscape !== false && near.length >= 3) {
+        let bestA2 = 0, bestCost = 1e9;
+        for (let k = 0; k < 8; k++) {
+          const a2 = k / 8 * Math.PI * 2, ex = Math.cos(a2), ey = Math.sin(a2);
+          let cost = 0;
+          for (const e of near) {
+            const ux2 = e.x - p.x, uy2 = e.y - p.y, d2 = Math.hypot(ux2, uy2) || 1;
+            const align = (ex * ux2 + ey * uy2) / d2;            // 1 = straight into it
+            if (align > 0) cost += align * (120 / Math.max(30, d2));
+          }
+          // avoid walls: sample 3 distances
+          for (const dd of [26, 52, 80]) {
+            if (typeof collides === 'function' && collides(p.x + ex * dd, p.y + ey * dd, p.r, false)) { cost += 3; break; }
+          }
+          if (cost < bestCost) { bestCost = cost; bestA2 = a2; }
+        }
+        mx = Math.cos(bestA2); my = Math.sin(bestA2);
+        A.status.note = '入侵：突围（' + near.length + ' 敌包围）';
+        [mx, my] = pickDir(p, mx, my);
+        moveKeys(mx, my);
+        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.3 && typeof dashSafe === 'function' && dashSafe(p, mx, my)) { tap('Space'); A.metrics.dash++; }
+        A.status.target = 'invade'; return;
       }
       const tx = -uy * A._ivSpin, ty = ux * A._ivSpin;           // tangential (circle)
       if (bd < band[0]) { mx = tx * .8 - ux * 1.2; my = ty * .8 - uy * 1.2; A.status.note = '入侵：绕圈脱离'; }
