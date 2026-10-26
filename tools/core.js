@@ -65,7 +65,9 @@
     nudge(dir) { const steps = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16]; let i = steps.findIndex((s) => s >= speed - 1e-9); i = Math.min(steps.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir)); return this.set(steps[i]); },
   };
 
+  let tickN = 0;
   function fireTick() {
+    tickN++;
     for (const fn of TSW.hooks._before) { try { fn(virt); } catch (e) { TSW.err('beforeTick', e); } }
     // page-scope debug mirror (webdriver sandboxes can't see game lexical bindings)
     if (window.__achroma) { try {
@@ -82,11 +84,30 @@
     }
   }
 
+  // ---- 确定性模式 -----------------------------------------------------------
+  // 游戏用真实经过时间算 dt（game.js:693 `rdt = (now-last)/1000`），所以同 seed
+  // 也跑出不同结果。 det 模式下我们给游戏一个**严格按 16.667ms 递增**的时间轴，
+  // 每帧一个固定 tick → 同 seed 同结果，A/B 方差趋近 0。
+  let det = false;
+  TSW.det = {
+    get on() { return det; },
+    get ticks() { return tickN; },
+    enable() { det = true; acc = 0; return det; },
+    disable() { det = false; acc = 0; return det; },
+  };
+
   function pump(realNow) {
     rafId = realRAF(pump);
     const dt = Math.min(250, Math.max(0, realNow - lastReal));
     lastReal = realNow;
     if (!pending.size) return;
+    if (det) {                       // fixed tick regardless of wall clock / speed
+      acc += dt * Math.max(1, speed);
+      let steps = 0;
+      while (acc >= VIRT_DT && steps < MAX_STEPS) { acc -= VIRT_DT; virt += VIRT_DT; fireTick(); steps++; }
+      if (steps >= MAX_STEPS) acc = 0;
+      return;
+    }
     if (speed === 1) { virt += dt; fireTick(); return; }
     acc += dt * speed;
     let steps = 0;
