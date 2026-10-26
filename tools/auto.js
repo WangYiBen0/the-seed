@@ -39,6 +39,7 @@
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
+      invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -660,6 +661,9 @@
       return;
     }
 
+    // 入侵的三个波间界面（crate/lv/shop）不是普通 state，必须主动驱动
+    if ((G.state === 'ivcrate' || G.state === 'ivlv' || G.state === 'ivshop') && driveInvadeUI(G, tap)) return;
+
     switch (G.state) {
       case 'play': return drivePlay(G, p, tap);
       case 'cards': return A.opts.autoCards && driveCards(G, tap);
@@ -780,6 +784,47 @@
     }
     moveKeys(mx, my);
     A.status.target = 'invade';
+  }
+
+  // 入侵波间：补给箱 → 升级 → 商店 → 下一波。挂机原来完全不认识这三个界面，
+  // 所以永远停在商店/升级里（或被时间耗尽）。游戏自身按钮都带合法性与付款
+  // 检查（ivBuy 内部校验武器槽/物品上限/ivPay），因此按优先级点按钮是安全的。
+  function driveInvadeUI(G, tap) {
+    const iv = G.iv; if (!iv) return false;
+    const hits = (typeof IVU !== 'undefined' && IVU && IVU.hits) ? IVU.hits : [];
+    const call = (h) => { try { if (h && typeof h.f === 'function') { h.f(); return true; } } catch (e) { } return false; };
+    if (G.state === 'ivcrate') { tap('Enter'); A.status.note = '入侵：领补给箱'; return true; }
+    if (G.state === 'ivlv') {
+      // pick the upgrade that best matches the goal build: damage first, then hp
+      const opts = iv.lvOpts || [];
+      const pref = ['dmg', 'aspd', 'crit', 'range', 'hp', 'speed', 'eng', 'elem', 'melee', 'ranged', 'harvest', 'luck', 'armor', 'dodge', 'regen'];
+      let best = null, bw = -1e9;
+      for (const o of opts) { const w = pref.length - (pref.indexOf(o.id) >= 0 ? pref.indexOf(o.id) : pref.length); if (w > bw) { bw = w; best = o; } }
+      if (best && typeof ivLvPick === 'function') { ivLvPick(best); A.status.note = '入侵：升级 ' + best.id; return true; }
+      tap('Enter'); A.status.note = '入侵：升级'; return true;
+    }
+    if (G.state === 'ivshop') {
+      // buy affordable offers, most useful first, then start the next wave
+      if (A.opts.invadeShop !== false) {
+        const offers = iv.offers || [];
+        const priceOf = (o) => { try { return ivPrice(o); } catch (e) { return 1e9; } };
+        const rank = (o) => {
+          if (!o) return -1;
+          if (o.k === 'w') return 100 + (o.t || 0) * 10;         // weapons: strongest first
+          const id = o.id || '';
+          if (/dmg|crit|aspd|atk/.test(id)) return 90;
+          if (/hp|armor|regen|life/.test(id)) return 70;
+          if (/speed|dodge/.test(id)) return 60;
+          return 40;
+        };
+        let bi = -1, bs = -1;
+        for (let i = 0; i < offers.length; i++) { const o = offers[i]; if (!o) continue; if (priceOf(o) > (G.ink | 0)) continue; const s2 = rank(o); if (s2 > bs) { bs = s2; bi = i; } }
+        if (bi >= 0 && typeof ivBuy === 'function') { ivBuy(bi); A.status.note = '入侵：购买 #' + bi; return true; }
+      }
+      if (typeof ivNextWave === 'function') { ivNextWave(); A.status.note = '入侵：开始第 ' + ((iv.wave | 0) + 1) + ' 波'; return true; }
+      return false;
+    }
+    return false;
   }
 
   function drivePlay(G, p, tap) {
