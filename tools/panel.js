@@ -425,6 +425,7 @@
       mods: q.get('mods') ? q.get('mods').split(',').map((x) => x.trim()).filter(Boolean) : null,
       role: q.get('role') || undefined, wave: q.get('wave') ? +q.get('wave') : undefined,
       rounds: q.get('rounds') ? +q.get('rounds') : 5,
+      abKind: q.get('abKind') || 'fullrun',
       optA: q.get('optA') ? JSON.parse(q.get('optA')) : {},
       optB: q.get('optB') ? JSON.parse(q.get('optB')) : {},
     };
