@@ -803,3 +803,45 @@ A（仅绕圈）75.6s | B（突围）75.8s
 | 被围突围 | +0.2s | [-3.1, 3.5] | 不显著 |
 
 原始数据：`docs/data/ab-invade-escape.txt`。
+
+## 23. 结论 9（不显著）+ 决定性 trace：第 4 波是被「刷怪速度」淹掉的
+
+### 结论 9：升级选「收获/幸运优先」（growth）vs「伤害优先」（dps）
+
+机制上 growth 应该更好：`ivGainMat` 同时给钱和经验（invade.js:118），
+而 `luck` 直接乘每击杀掉落（invade-effects.js:116 `lk = 1 + luck/100`）。
+
+```
+A(dps) 76.6s | B(growth) 76.5s
+配对差 -0.1 ± 2.3    95% CI [-2.4, +2.1]     ← 跨 0
+```
+
+**不显著**。原因见下：第 4 波根本活不到「成长复利」生效的时候。
+
+### 决定性 trace（`?trace=1`，第 1 波起，150 秒）
+
+```
+t=54  wave3  phase=fight  t_=3   lv3  ink=54  foes=26   note=突围（6 敌包围）
+t=60  wave4  phase=fight  t_=34  lv4  ink=7   foes=5    note=绕场等刷怪
+t=66  wave4  phase=fight  t_=28  lv4  ink=11  foes=17   note=绕圈
+t=72  wave4  phase=fight  t_=22  lv4  ink=11  foes=23   note=绕圈
+t=78  wave4  phase=fight  t_=17  lv4  ink=20  foes=27   note=突围（3 敌包围）
+t=81  wave4  phase=fight  t_=14  lv4  ink=25  foes=32   note=突围（4 敌包围）
+```
+
+**场上敌人数 5 → 32 单调上升，而 ink 只涨了 18**：清怪速度远低于刷怪速度。
+波次计时器走完就判负——不是「走位不行」，也不是「成长不够快」，
+而是**绝对 DPS 不足以把第 4 波的刷新量清掉**。
+
+### 这解释了之前所有的「不显著」
+
+| 尝试过的方向 | 结果 |
+|---|---|
+| 升级优先级（dps/tank/growth） | 全在 ±2s，CI 跨 0 |
+| 商店优先级、套装、突围 | +0.7、+0.2、… 都不显著 |
+| 三条通过的改动（冲刺、合成、只买武器、卖弱换强） | 每条都是**直接提高 DPS 或救急** |
+
+规律非常清楚：**只有直接影响 DPS/瞬时生存的改动才有效**，
+间接的成长/经济/走位微调都被「第 4 波刷怪量」这道墙挡住。
+
+原始数据：`docs/data/ab-invade-growth.txt`。
