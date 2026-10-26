@@ -834,8 +834,13 @@
       // priority is switchable for A/B (A.opts.invadeLvPref)
       const DPS_FIRST = ['dmg', 'aspd', 'crit', 'range', 'elem', 'melee', 'ranged', 'eng', 'hp', 'armor', 'dodge', 'speed', 'steal', 'regen', 'harvest', 'luck'];
       const TANK_FIRST = ['hp', 'armor', 'regen', 'steal', 'dodge', 'dmg', 'aspd', 'crit', 'speed', 'range', 'elem', 'melee', 'ranged', 'eng', 'harvest', 'luck'];
+      // growth-first: harvest (per-wave materials) and luck (per-kill loot multiplier,
+      // invade-effects.js:116 -> lk = 1 + luck/100) compound into money+XP, which is
+      // what actually gates wave progression.
+      const GROWTH_FIRST = ['harvest', 'luck', 'dmg', 'aspd', 'hp', 'crit', 'range', 'armor', 'elem', 'melee', 'ranged', 'eng', 'speed', 'dodge', 'steal', 'regen'];
       const pref = Array.isArray(A.opts.invadeLvPref) ? A.opts.invadeLvPref
-        : (A.opts.invadeLvStyle === 'tank' ? TANK_FIRST : DPS_FIRST);
+        : (A.opts.invadeLvStyle === 'tank' ? TANK_FIRST
+          : (A.opts.invadeLvStyle === 'growth' ? GROWTH_FIRST : DPS_FIRST));
       let best = null, bw = -1e9;
       for (const o of opts) {
         const idx = pref.indexOf(o.id);
@@ -923,7 +928,20 @@
 
   function drivePlay(G, p, tap) {
     // invade runs its own arena logic (no rooms/doors/interactables at all)
-    if (G.mode === 'invade') { driveInvade(G, p, tap); return; }
+    if (G.mode === 'invade') {
+      driveInvade(G, p, tap);
+      // trace: invade state is invisible to the normal debug mirror (we return early)
+      if (TSW.trace) {
+        const iv0 = G.iv || {};
+        try {
+          A.dbg = { t: G.time | 0, mode: 'invade', state: G.state, wave: iv0.wave | 0, phase: iv0.phase || '',
+            t_: Math.round(iv0.t || 0), lv: iv0.lv | 0, lvPend: iv0.lvPend | 0, ink: G.ink | 0,
+            foes: (G.enemies || []).filter((e) => !e.dead).length, note: A.status.note, px: Math.round(p.x), py: Math.round(p.y) };
+          if ((G.time | 0) % 3 === 0 && A._dbgT !== (G.time | 0)) { A._dbgT = G.time | 0; TSW.log('DBG ' + JSON.stringify(A.dbg)); }
+        } catch (e) { }
+      }
+      return;
+    }
     // no floor yet: do nothing but keep the status honest (a stale objective here
     // used to strand the autopilot in an endless "walk to X" loop)
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) {
