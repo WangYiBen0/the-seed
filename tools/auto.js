@@ -402,15 +402,23 @@
   function pickDir(p, wx, wy) {
     const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
     const RX = [18, 42, 70], RW = [2.0, 1.0, .5];
+    // A direction is only truly unusable when the FIRST ring is inside geometry.
+    // Everything else is a soft penalty — the old code returned -1e9 for *any*
+    // blocked sample, so when the bot stood in a corner every candidate scored
+    // -1e9, `bestA` fell back to 0 (due east) and it pressed into the wall and
+    // never moved (measured: 9s frozen, seed 91).
+    let blockedAll = true;
     const evalDir = (a) => {
       const dx = Math.cos(a), dy = Math.sin(a);
-      let s = 0, hit = false;
+      const nx0 = p.x + dx * RX[0], ny0 = p.y + dy * RX[0];
+      if (collides(nx0, ny0, p.r, false)) return -1e9;      // really cannot step
+      blockedAll = false;
+      let s = 0;
       for (let k = 0; k < 3; k++) {
         const nx = p.x + dx * RX[k], ny = p.y + dy * RX[k];
-        if (collides(nx, ny, p.r, false)) { if (k === 0) { hit = true; break; } s -= 4 * RW[k]; continue; }
+        if (collides(nx, ny, p.r, false)) { s -= 4 * RW[k]; continue; }
         s -= 1.8 * RW[k] * spotDanger(nx, ny, p);
       }
-      if (hit) return -1e9;
       if (wl > .1) s += 2.2 * (dx * wx + dy * wy) / wl;
       s += .18 * (dx * ld[0] + dy * ld[1]);          // anti-jitter
       s += 1.15 * Math.min(1.6, laneClear(p, dx, dy) / 26);
@@ -421,6 +429,20 @@
     for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2, v = evalDir(a); if (v > bestS) { bestS = v; bestA = a; } }
     const hstep = Math.PI / N / 2;
     for (const a of [bestA - hstep, bestA + hstep]) { const v = evalDir(a); if (v > bestS) { bestS = v; bestA = a; } }
+    // Absolute fallback: if the first ring is blocked in every one of the 24
+    // directions we are wedged.  Press the direction with the most open space
+    // (probe out to 4 rings) instead of standing still.
+    if (blockedAll) {
+      let fbA = 0, fbFree = -1;
+      for (let i = 0; i < N; i++) {
+        const a = i / N * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+        let free = 0;
+        for (let k = 1; k <= 4; k++) { if (collides(p.x + dx * 10 * k, p.y + dy * 10 * k, p.r, false)) break; free++; }
+        if (free > fbFree) { fbFree = free; fbA = a; }
+      }
+      bestA = fbA;
+      A.metrics.navStall = (A.metrics.navStall | 0) + 1;
+    }
     const best = [Math.cos(bestA), Math.sin(bestA)];
     A._lastDir = best;
     return best;
