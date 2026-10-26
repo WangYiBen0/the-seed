@@ -900,6 +900,22 @@
         // one of is worth extra.
         const setOf = (id) => { try { const w = IV_W[id]; return (w && Array.isArray(w.set)) ? w.set : []; } catch (e) { return []; } };
         const counts = (() => { const c = {}; for (const s2 of (iv.w || [])) for (const k of setOf(s2.id)) c[k] = (c[k] || 0) + 1; return c; })();
+        // Real DPS of an offered weapon at tier t: damage x projectiles / cooldown.
+        // Ranking by tier alone (the old rule) picks a t3 wet noodle over a t1
+        // hammer.  The measured wall is raw DPS (wave 4: foes 5->32 while ink +18).
+        const dpsOf = (id, t) => {
+          try {
+            const w = IV_W[id]; if (!w) return 0;
+            const dmg = Array.isArray(w.dmg) ? (w.dmg[Math.min(3, t | 0)] || 0) : (w.dmg || 0);
+            const cd = Array.isArray(w.cd) ? (w.cd[Math.min(3, t | 0)] || 1) : (w.cd || 1);
+            const n = w.n ? (Array.isArray(w.n) ? (w.n[Math.min(3, t | 0)] || 1) : w.n) : 1;
+            return (dmg * n) / Math.max(.15, cd);
+          } catch (e) { return 0; }
+        };
+        // duplicate of something we own at the same tier => buying it enables a
+        // COMBINE (+1 tier, multiplicative damage), which is worth more than a
+        // same-DPS stranger.
+        const dupBonus = (id, t) => ((iv.w || []).some((q) => q && q.id === id && (q.t | 0) === (t | 0)) ? 120 : 0);
         const setBonus = (id) => {
           if (A.opts.invadeSets === false) return 0;
           let b = 0;
@@ -908,7 +924,7 @@
         };
         const rank = (o) => {
           if (!o) return -1;
-          if (style === 'weapon') return o.k === 'w' ? 200 + setBonus(o.id) : 10;   // weapons only
+          if (style === 'weapon') return o.k === 'w' ? 60 + dpsOf(o.id, o.t | 0) + dupBonus(o.id, o.t | 0) + setBonus(o.id) : 10;   // weapons only, best DPS first
           if (o.k === 'w') return 100 + (o.t || 0) * 10;            // otherwise strongest weapon
           const id = o.id || '';
           if (/dmg|crit|aspd|atk|power/.test(id)) return 90;
