@@ -46,6 +46,7 @@
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
+      exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -1285,6 +1286,13 @@
       if (r.type !== 'forge' || unreachable(r)) continue;
       const cur = p.weapons[p.wi], lv = p.wlv[cur] || 0;
       if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+    }
+    // ---- 资源优先 vs 直接清房（A/B 开关 A.opts.exploreOrder）-----------------
+    // 绝境里 输出/补给 往往比多打一个房间更值：先去商店/锻造/神龛/宝箱，
+    // 再回头清战斗房。 默认保持原顺序（直接清房），可用 A/B 切换验证。
+    if (A.opts.exploreOrder === 'resources') {
+      if (A.opts.shop) for (const r of rooms) if (!r.visited && ['treasure', 'shop', 'camp', 'dialysis', 'barracks'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
+      for (const r of rooms) if (!r.visited && ['forge', 'shrine'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
     }
     const boss = rooms.find((r) => r.type === 'boss');
     // 2) boss room once unlocked (or never locked)
