@@ -47,6 +47,7 @@
       invadeSets: true,                                      // invade: prefer weapons that complete a set
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
+      fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -1055,13 +1056,35 @@
       } else if (neF) A._hunt = 0;
       const aimT = neF || ne;
       if (aimT) { Input.mx = clampM(aimT.x - G.cam.x, GW()); Input.my = clampM(aimT.y - G.cam.y, GH()); }
+      // ---- 战斗状态机：RETREAT / FOCUS / KITE ------------------------------
+      // 原来的逻辑是逐帧的临时判断（护甲阈值 + 距离带），没有记忆，于是会在
+      // 边界上抖动。 这里引入明确的三态：
+      //   RETREAT  护甲破且未恢复 / 低血              → 拉远到 170~250 且不开火
+      //   FOCUS    场上 <=3 敌且血量健康              → 压到近距（40~90）抢输出
+      //   KITE     其它情况（人海）                   → 保持 90~150 绕行
+      // 进入/退出都带滞回（迟滞窗口），避免逐帧翻转。
       if (ne) {
         const d = dist(p.x, p.y, ne.x, ne.y);
-        // armor rhythm: with armor down, disengage for ~3.6s so it regenerates
-        // (armor = 3 free hits in this game; lastHit > 3 starts the regen)
-        const retreat = (p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0);
+        const foesN = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length;
+        const nowT = G.time || 0;
+        let st = A.opts.fightSM === false ? 'LEGACY' : (A._fightState || 'KITE');
+        const wantRetreat = (p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0);
+        if (wantRetreat) { st = 'RETREAT'; A._stateHold = nowT + .6; }
+        else if (st === 'RETREAT' && nowT < (A._stateHold || 0)) { /* hold the retreat a beat */ }
+        else if (st === 'RETREAT') { st = foesN <= 3 ? 'FOCUS' : 'KITE'; A._stateHold = nowT + .8; }
+        else if (st === 'KITE' && foesN <= 3 && p.armor >= 1) { st = 'FOCUS'; A._stateHold = nowT + .8; }
+        else if (st === 'FOCUS' && nowT > (A._stateHold || 0) && (foesN > 4 || p.armor <= 0)) { st = 'KITE'; A._stateHold = nowT + .8; }
+        A._fightState = st;
+        A.status.mode = st;
+        let retreat, focus;
+        if (st === 'LEGACY') {                    // the old per-frame rule (A/B baseline)
+          retreat = (p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0);
+          focus = false;
+        } else { retreat = st === 'RETREAT'; focus = st === 'FOCUS'; }
         const bs = hard() ? 1.2 : 1;                    // harder difficulties keep more distance
-        const band = (retreat ? [160, 240] : melee ? [30, 52] : [80, 150]).map((v) => Math.round(v * bs));
+        const band = (retreat ? [170, 250]
+          : focus ? (melee ? [26, 46] : [40, 90])
+            : (melee ? [30, 52] : [90, 150])).map((v) => Math.round(v * bs));
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
@@ -1069,7 +1092,7 @@
           if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
           mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
         }
-        wantFire = !!neF && d < (melee ? 90 : 450);   // only shoot what we can actually hit
+        wantFire = !!neF && !retreat && d < (melee ? 90 : 450);   // 撤退时不输出
       }
       // doorway funnel: on hard difficulties, fight from the room's door —
       // enemies arrive one by one from a narrow arc instead of surrounding us.
