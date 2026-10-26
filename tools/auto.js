@@ -43,6 +43,8 @@
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
       invadeLvStyle: 'dps',                                   // invade: 'dps' | 'tank' upgrade order
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
+      invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
+      invadeSets: true,                                      // invade: prefer weapons that complete a set
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -826,15 +828,53 @@
           if (dup >= 0) { try { ivCombine(i); A.status.note = '入侵：合成 ' + s0.id + ' → t' + (s0.t + 1); return true; } catch (e) { } }
         }
       }
+      // ---- 槽位满时卖弱换强 ------------------------------------------------
+      // ivBuy 在 6 槽且「非同阶可升」时直接拒绝（ivFlash('iv_full')），于是
+      // 满了以后成长完全停滞。这里在买之前腾位：卖掉当前最弱的一件武器，
+      // 但只在报价里确实有更强的武器时才卖（避免白卖）。
+      const wl = iv.w || [];
+      if (A.opts.invadeSell !== false && wl.length >= 6) {
+        const offers = iv.offers || [];
+        let bestOfferT = -1, bestOfferId = null;
+        for (const o of offers) {
+          if (!o || o.k !== 'w') continue;
+          const t = o.t | 0;
+          if (t > bestOfferT) { bestOfferT = t; bestOfferId = o.id; }
+        }
+        if (bestOfferT >= 0) {
+          // weakest = lowest tier, tie-break by fewest duplicates (can't combine)
+          let wi = -1, wt = 99, wdup = 99;
+          for (let i = 0; i < wl.length; i++) {
+            const s0 = wl[i]; if (!s0) continue;
+            const dup = wl.filter((q) => q && q.id === s0.id && q.t === s0.t).length;
+            const t = s0.t | 0;
+            if (t < wt || (t === wt && dup < wdup)) { wi = i; wt = t; wdup = dup; }
+          }
+          if (wi >= 0 && wt < bestOfferT && typeof ivSell === 'function') {
+            try { ivSell(wi); A.status.note = '入侵：卖弱换强 (t' + wt + '→可买t' + bestOfferT + ')'; return true; } catch (e) { }
+          }
+        }
+      }
       // buy affordable offers, most useful first, then start the next wave
       if (A.opts.invadeShop !== false) {
         const offers = iv.offers || [];
         const priceOf = (o) => { try { return ivPrice(o); } catch (e) { return 1e9; } };
         // purchase priority is switchable for A/B (A.opts.invadeShopStyle)
-        const style = A.opts.invadeShopStyle || 'dps';
+        const style = A.opts.invadeShopStyle || 'weapon';
+        // set completion: >=2 pieces of one set grants a real stat bonus
+        // (invade-effects.js), so a weapon that completes a set we already hold
+        // one of is worth extra.
+        const setOf = (id) => { try { const w = IV_W[id]; return (w && Array.isArray(w.set)) ? w.set : []; } catch (e) { return []; } };
+        const counts = (() => { const c = {}; for (const s2 of (iv.w || [])) for (const k of setOf(s2.id)) c[k] = (c[k] || 0) + 1; return c; })();
+        const setBonus = (id) => {
+          if (A.opts.invadeSets === false) return 0;
+          let b = 0;
+          for (const k of setOf(id)) { const n = counts[k] || 0; if (n >= 1) b += 40 + Math.min(4, n) * 15; }
+          return b;
+        };
         const rank = (o) => {
           if (!o) return -1;
-          if (style === 'weapon') return o.k === 'w' ? 200 : 10;   // weapons only
+          if (style === 'weapon') return o.k === 'w' ? 200 + setBonus(o.id) : 10;   // weapons only
           if (o.k === 'w') return 100 + (o.t || 0) * 10;            // otherwise strongest weapon
           const id = o.id || '';
           if (/dmg|crit|aspd|atk|power/.test(id)) return 90;
