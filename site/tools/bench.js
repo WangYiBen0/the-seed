@@ -424,6 +424,7 @@
       kind: 'invade', at: Date.now(), seed, diff, role, startWave: wave, seconds, speed,
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1), waveReached: peakWave || (iv.wave | 0), wavePhase: iv.phase || '',
+      survived: +gameS.toFixed(1),
       kills: (g.kills | 0) - k0, hits: g.hits | 0,
       dmg: Math.round(TSW.metrics.dmgTotal - d0),
       weapons: (iv.w || []).map((w) => w.id + ':t' + w.t),
@@ -439,6 +440,66 @@
     return r;
   }
 
+  // ---------------- paired A/B (同一会话内交错，配对差) ----------------
+  // The game computes dt from real elapsed time (game.js:693), so绝对时长不可
+  // 复现。唯一诚实做法：在同一浏览器会话里交错跑 A/B/A/B…，然后看**配对差**。
+  // optA / optB 是本模块认识的选项覆盖，例如 { policy: 'rounded' } 与
+  // { onLowKillsDps: true }（后者由 auto.js 的 A.opts 读取）。
+  async function runAB({ rounds = 5, abKind = null, kind = null, base = {}, optA = {}, optB = {},
+    seconds = 60, speed = 8, seed = null, diff = 'despair', mods = null, goalDepth = 1, timeoutS = 200, metric = null } = {}) {
+    const K = abKind || kind || 'fullrun';        // inner scenario
+    const metricKey = metric || (K === 'invade' ? 'survived' : 'gameT');
+    const A = Object.assign({}, base, optA), B = Object.assign({}, base, optB);
+    const pairs = [];
+    const exec = async (o) => {
+      // apply autopilot option overrides, remember originals
+      const saved = {};
+      for (const [k, val] of Object.entries(o.autoOpts || {})) {
+        if (k in (TSW.auto.opts || {})) { saved[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = val; }
+      }
+      let r;
+      try {
+        if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: base.wave || 9 }, o));
+        else r = await runFullRun(Object.assign({ speed, seed, policy: 'rounded', goalDepth, timeoutS, diff, mods }, o));
+      } finally { for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v; }
+      return r;
+    };
+    TSW.log('AB start: rounds=' + rounds + ' inner=' + K + ' diff=' + diff);
+    for (let i = 0; i < rounds; i++) {
+      TSW.log('AB round ' + (i + 1) + ' A...');
+      const a = await exec(A);                       // A first
+      TSW.log('AB round ' + (i + 1) + ' B...');
+      const b = await exec(B);                       // then B — same session, adjacent in time
+      const ka = (a && a[metricKey]) || 0;
+      const kb = (b && b[metricKey]) || 0;
+      const kk = 'kills';
+      pairs.push({ i: i + 1, a: ka, b: kb, da: (a && a[kk]) || 0, db: (b && b[kk]) || 0, d: +(kb - ka).toFixed(1), kd: (((b && b[kk]) || 0) - ((a && a[kk]) || 0)) });
+      TSW.log('AB pair ' + (i + 1) + ': ' + ka + ' vs ' + kb + ' (delta ' + (kb - ka) + ')');
+    }
+    const ds = pairs.map((p) => p.d);
+    const ks = pairs.map((p) => p.kd);
+    const mean = (v) => v.reduce((x, y) => x + y, 0) / (v.length || 1);
+    const sd = (v) => { const m = mean(v); return Math.sqrt(v.reduce((x, y) => x + (y - m) ** 2, 0) / Math.max(1, v.length - 1)); };
+    const md = mean(ds), sdd = sd(ds);
+    const sem = sdd / Math.sqrt(ds.length || 1);
+    // paired t (two-sided, df = n-1) — report a rough 95% interval
+    const t = ds.length > 1 ? md / (sem || 1) : 0;
+    return {
+      kind: 'ab', at: Date.now(), inner: K, metric: metricKey,
+      rounds: ds.length, seconds, speed, diff, mods, optA, optB,
+      aMean: +mean(pairs.map((p) => p.a)).toFixed(1), bMean: +mean(pairs.map((p) => p.b)).toFixed(1),
+      deltaMean: +md.toFixed(1), deltaSd: +sdd.toFixed(1), sem: +sem.toFixed(1),
+      killDeltaMean: +mean(ks).toFixed(1),
+      ci95: [+(md - 1.96 * sem).toFixed(1), +(md + 1.96 * sem).toFixed(1)],
+      t: +t.toFixed(2),
+      verdict: ds.length < 3 ? '样本太少（<3 对）'
+        : (sdd === 0 ? (md === 0 ? '完全无差异（指标无分辨率）' : (md > 0 ? 'B 更好（无方差）' : 'A 更好（无方差）'))
+          : (Math.abs(md) < 1.96 * sem ? '无显著差异' : (md > 0 ? 'B 更好' : 'A 更好'))),
+      pairs,
+      ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
+    };
+  }
+
   B.run = async function (kind, opts = {}) {
     if (B.running) { TSW.err('bench already running'); return null; }
     await TSW.whenGame();
@@ -451,6 +512,7 @@
       else if (kind === 'probe') r = await runProbe(opts);
       else if (kind === 'dodge') r = await runDodge(opts);
       else if (kind === 'invade') r = await runInvade(opts);
+      else if (kind === 'ab') r = await runAB(opts);
       else throw new Error('unknown kind ' + kind);
     } catch (e) { TSW.err('bench', e); B.running = null; TSW.bus.emit('bench'); return { kind: 'error', error: String(e && e.stack || e).slice(0, 500) }; }
     B.running = null;

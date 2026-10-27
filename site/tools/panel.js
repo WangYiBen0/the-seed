@@ -424,6 +424,10 @@
       engine: q.get('engine') || 'v2',
       mods: q.get('mods') ? q.get('mods').split(',').map((x) => x.trim()).filter(Boolean) : null,
       role: q.get('role') || undefined, wave: q.get('wave') ? +q.get('wave') : undefined,
+      rounds: q.get('rounds') ? +q.get('rounds') : 5,
+      abKind: q.get('abKind') || 'fullrun',
+      optA: q.get('optA') ? JSON.parse(q.get('optA')) : {},
+      optB: q.get('optB') ? JSON.parse(q.get('optB')) : {},
     };
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
@@ -437,6 +441,7 @@
         else if (kind === 'probe') emit(await TSW.bench.run('probe', opts));
         else if (kind === 'dodge') emit(await TSW.bench.run('dodge', opts));
         else if (kind === 'invade') emit(await TSW.bench.run('invade', opts));
+        else if (kind === 'ab') emit(await TSW.bench.run('ab', opts));
         else if (kind === 'explore') {
           const n = +(q.get('results') || 4);
           TSW.explore.start({ policies: [opts.policy], seeds: Array.from({ length: n }, (_, i) => 101 + i * 17), speed: opts.speed, goalDepth: opts.goalDepth, timeoutS: opts.timeoutS });

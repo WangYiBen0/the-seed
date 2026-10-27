@@ -67,7 +67,8 @@ async function main() {
   if (args.smoke) { /* just load */ }
   else {
     q.set('autotest', args.kind || 'throughput');
-    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff, mods: args.mods, engine: args.engine, role: args.role, wave: args.wave })) if (v != null) q.set(k, v);
+    if (args.trace) q.set('trace', '1');
+    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff, mods: args.mods, engine: args.engine, role: args.role, wave: args.wave, rounds: args.rounds, optA: args.optA, optB: args.optB, abKind: args['ab-kind'] ?? args.abKind })) if (v != null) q.set(k, v);
   }
   const url = `http://127.0.0.1:${port}/` + (q.toString() ? '?' + q.toString() : '');
   const shot = args.screenshot ? resolve(String(args.screenshot)) : null;
@@ -83,7 +84,13 @@ async function main() {
   chromeArgs.push(url);
 
   console.error(`[bench] ${chrome} ${q.get('autotest') || 'smoke'} → ${url}`);
-  const hardTimeout = (args.smoke ? 40 : (+args.timeout || 900) + 60) * 1000;
+  // A/B runs `rounds` pairs in ONE session; each pair is 2 runs, so the hard
+  // timeout must scale with the work or the whole result is thrown away.
+  const rounds = +(args.rounds || 1);
+  const perRun = args.kind === 'ab' ? (+args.timeout || 200) : (+args.timeout || 900);
+  // one pair = 2 runs, and each run costs ~timeout + start/measure overhead
+  const work = args.kind === 'ab' ? rounds * 2 * perRun : perRun;
+  const hardTimeout = (args.smoke ? 40 : work + 150) * 1000;
   const child = spawn(chrome, chromeArgs, {
     stdio: ['ignore', 'ignore', 'pipe'],
     env: { ...process.env, HOME: profile, XDG_CACHE_HOME: join(profile, 'cache'), XDG_CONFIG_HOME: join(profile, 'config') },

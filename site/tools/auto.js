@@ -37,6 +37,9 @@
       weaponSwap: TSW.settings.get('autoWeaponSwap', true),// swap to the sidearm during a reload
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
+      navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
+      invadeCircle: true,                                    // invade: circulate instead of straight backoff
+      invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -402,15 +405,23 @@
   function pickDir(p, wx, wy) {
     const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
     const RX = [18, 42, 70], RW = [2.0, 1.0, .5];
+    // A direction is only truly unusable when the FIRST ring is inside geometry.
+    // Everything else is a soft penalty — the old code returned -1e9 for *any*
+    // blocked sample, so when the bot stood in a corner every candidate scored
+    // -1e9, `bestA` fell back to 0 (due east) and it pressed into the wall and
+    // never moved (measured: 9s frozen, seed 91).
+    let blockedAll = true;
     const evalDir = (a) => {
       const dx = Math.cos(a), dy = Math.sin(a);
-      let s = 0, hit = false;
+      const nx0 = p.x + dx * RX[0], ny0 = p.y + dy * RX[0];
+      if (collides(nx0, ny0, p.r, false)) return -1e9;      // really cannot step
+      blockedAll = false;
+      let s = 0;
       for (let k = 0; k < 3; k++) {
         const nx = p.x + dx * RX[k], ny = p.y + dy * RX[k];
-        if (collides(nx, ny, p.r, false)) { if (k === 0) { hit = true; break; } s -= 4 * RW[k]; continue; }
+        if (collides(nx, ny, p.r, false)) { s -= 4 * RW[k]; continue; }
         s -= 1.8 * RW[k] * spotDanger(nx, ny, p);
       }
-      if (hit) return -1e9;
       if (wl > .1) s += 2.2 * (dx * wx + dy * wy) / wl;
       s += .18 * (dx * ld[0] + dy * ld[1]);          // anti-jitter
       s += 1.15 * Math.min(1.6, laneClear(p, dx, dy) / 26);
@@ -421,6 +432,20 @@
     for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2, v = evalDir(a); if (v > bestS) { bestS = v; bestA = a; } }
     const hstep = Math.PI / N / 2;
     for (const a of [bestA - hstep, bestA + hstep]) { const v = evalDir(a); if (v > bestS) { bestS = v; bestA = a; } }
+    // Absolute fallback: if the first ring is blocked in every one of the 24
+    // directions we are wedged.  Press the direction with the most open space
+    // (probe out to 4 rings) instead of standing still.
+    if (blockedAll) {
+      let fbA = 0, fbFree = -1;
+      for (let i = 0; i < N; i++) {
+        const a = i / N * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+        let free = 0;
+        for (let k = 1; k <= 4; k++) { if (collides(p.x + dx * 10 * k, p.y + dy * 10 * k, p.r, false)) break; free++; }
+        if (free > fbFree) { fbFree = free; fbA = a; }
+      }
+      bestA = fbA;
+      A.metrics.navStall = (A.metrics.navStall | 0) + 1;
+    }
     const best = [Math.cos(bestA), Math.sin(bestA)];
     A._lastDir = best;
     return best;
@@ -636,6 +661,9 @@
       return;
     }
 
+    // 入侵的三个波间界面（crate/lv/shop）不是普通 state，必须主动驱动
+    if ((G.state === 'ivcrate' || G.state === 'ivlv' || G.state === 'ivshop') && driveInvadeUI(G, tap)) return;
+
     switch (G.state) {
       case 'play': return drivePlay(G, p, tap);
       case 'cards': return A.opts.autoCards && driveCards(G, tap);
@@ -695,7 +723,119 @@
     if (best >= 0) tap('Digit' + (best + 1));
   }
 
+  // ---------------- 入侵抵抗（Brotato 式竞技场）-------------------------------
+  // 没有房间/门/交互物，只有一波一波的敌人和计时器。突入探索的那套
+  // (房间图/门框/目标) 在这里全部失效——实测挂机会在无目标状态下游走。
+  function driveInvade(G, p, tap) {
+    const iv = G.iv || {};
+    const W = (typeof WORLD !== 'undefined' && WORLD) ? WORLD : null;
+    if (!W || !W.w) { A.status.note = '入侵：等待场地…'; return; }
+    let mx = 0, my = 0;
+    const foes = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0);
+    // 1) shoot: invade fires automatically, we only aim (the game aims via Input)
+    let tgt = null, bd = 1e9;
+    for (const e of foes) { const d = dist(p.x, p.y, e.x, e.y); if (d < bd) { bd = d; tgt = e; } }
+    if (tgt) { Input.mx = clampM(tgt.x - G.cam.x, GW()); Input.my = clampM(tgt.y - G.cam.y, GH()); }
+    // 2) kite: the arena is a walled box, so "back off" alone walks into a corner
+    //    and dies.  Instead we circulate: pick the tangential direction (clockwise
+    //    or counter-clockwise, committed for the whole wave) and add a radial
+    //    correction that keeps us in the firing band.  That keeps a ring of space
+    //    between the swarm and the wall.
+    if (tgt) {
+      const ux = (tgt.x - p.x) / (bd || 1), uy = (tgt.y - p.y) / (bd || 1);
+      const band = iv.wave % 5 === 0 ? [80, 150] : [60, 120];      // boss waves: keep further
+      if (A._ivWave !== iv.wave) { A._ivWave = iv.wave; A._ivSpin = Math.random() < .5 ? 1 : -1; }
+      if (A.opts.invadeCircle === false) {            // A/B: plain backoff/approach
+        if (bd < band[0]) { mx = -ux; my = -uy; A.status.note = '入侵：拉开距离'; }
+        else if (bd > band[1]) { mx = ux; my = uy; A.status.note = '入侵：接近'; }
+        else { mx = -uy * A._ivSpin * .6; my = ux * A._ivSpin * .6; A.status.note = '入侵：绕行'; }
+        moveKeys(mx, my); [mx, my] = pickDir(p, mx, my);
+        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.6) {
+          const dd0 = dashDir(p, [mx, my]);
+          if (dd0) { tap('Space'); A.metrics.dash++; }
+        }
+        moveKeys(mx, my); A.status.target = 'invade'; return;
+      }
+      const tx = -uy * A._ivSpin, ty = ux * A._ivSpin;           // tangential (circle)
+      if (bd < band[0]) { mx = tx * .8 - ux * 1.2; my = ty * .8 - uy * 1.2; A.status.note = '入侵：绕圈脱离'; }
+      else if (bd > band[1]) { mx = tx * .5 + ux * .9; my = ty * .5 + uy * .9; A.status.note = '入侵：绕圈接近'; }
+      else { mx = tx; my = ty; A.status.note = '入侵：绕圈'; }
+      // wall repulsion: if the tangential path points into a wall, flip the spin
+      const probeX = p.x + mx * 40, probeY = p.y + my * 40;
+      if (typeof collides === 'function' && collides(probeX, probeY, p.r, false)) {
+        A._ivSpin = -A._ivSpin;
+        mx = -tx; my = -ty;
+        A.status.note = '入侵：反向绕圈';
+      }
+    } else if (iv.phase === 'fight') {
+      // nothing to shoot: orbit the arena (never idle in the middle of the box)
+      const cx = W.w * 8, cy = W.h * 8;
+      const dx = p.x - cx, dy = p.y - cy, l = Math.hypot(dx, dy) || 1;
+      if (A._ivWave !== iv.wave) { A._ivWave = iv.wave; A._ivSpin = Math.random() < .5 ? 1 : -1; }
+      mx = (-dy / l) * A._ivSpin; my = (dx / l) * A._ivSpin;
+      if (l < 60) { mx += dx / l; my += dy / l; }                 // move out from the centre
+      A.status.note = '入侵：绕场等刷怪';
+    }
+    [mx, my] = pickDir(p, mx, my);
+    // dash away when the local threat spikes
+    if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.6) {
+      const dd = dashDir(p, [mx, my]);
+      if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
+    }
+    moveKeys(mx, my);
+    A.status.target = 'invade';
+  }
+
+  // 入侵波间：补给箱 → 升级 → 商店 → 下一波。挂机原来完全不认识这三个界面，
+  // 所以永远停在商店/升级里（或被时间耗尽）。游戏自身按钮都带合法性与付款
+  // 检查（ivBuy 内部校验武器槽/物品上限/ivPay），因此按优先级点按钮是安全的。
+  function driveInvadeUI(G, tap) {
+    const iv = G.iv; if (!iv) return false;
+    const hits = (typeof IVU !== 'undefined' && IVU && IVU.hits) ? IVU.hits : [];
+    const call = (h) => { try { if (h && typeof h.f === 'function') { h.f(); return true; } } catch (e) { } return false; };
+    if (G.state === 'ivcrate') { tap('Enter'); A.status.note = '入侵：领补给箱'; return true; }
+    if (G.state === 'ivlv') {
+      // pick the upgrade that best matches the goal build: damage first, then hp
+      const opts = iv.lvOpts || [];
+      const pref = ['dmg', 'aspd', 'crit', 'range', 'hp', 'speed', 'eng', 'elem', 'melee', 'ranged', 'harvest', 'luck', 'armor', 'dodge', 'regen'];
+      let best = null, bw = -1e9;
+      for (const o of opts) { const w = pref.length - (pref.indexOf(o.id) >= 0 ? pref.indexOf(o.id) : pref.length); if (w > bw) { bw = w; best = o; } }
+      if (best && typeof ivLvPick === 'function') { ivLvPick(best); A.status.note = '入侵：升级 ' + best.id; return true; }
+      tap('Enter'); A.status.note = '入侵：升级'; return true;
+    }
+    if (G.state === 'ivshop') {
+      // buy affordable offers, most useful first, then start the next wave
+      if (A.opts.invadeShop !== false) {
+        const offers = iv.offers || [];
+        const priceOf = (o) => { try { return ivPrice(o); } catch (e) { return 1e9; } };
+        const rank = (o) => {
+          if (!o) return -1;
+          if (o.k === 'w') return 100 + (o.t || 0) * 10;         // weapons: strongest first
+          const id = o.id || '';
+          if (/dmg|crit|aspd|atk/.test(id)) return 90;
+          if (/hp|armor|regen|life/.test(id)) return 70;
+          if (/speed|dodge/.test(id)) return 60;
+          return 40;
+        };
+        let bi = -1, bs = -1;
+        for (let i = 0; i < offers.length; i++) { const o = offers[i]; if (!o) continue; if (priceOf(o) > (G.ink | 0)) continue; const s2 = rank(o); if (s2 > bs) { bs = s2; bi = i; } }
+        if (bi >= 0 && typeof ivBuy === 'function') { ivBuy(bi); A.status.note = '入侵：购买 #' + bi; return true; }
+      }
+      if (typeof ivNextWave === 'function') { ivNextWave(); A.status.note = '入侵：开始第 ' + ((iv.wave | 0) + 1) + ' 波'; return true; }
+      return false;
+    }
+    return false;
+  }
+
   function drivePlay(G, p, tap) {
+    // invade runs its own arena logic (no rooms/doors/interactables at all)
+    if (G.mode === 'invade') { driveInvade(G, p, tap); return; }
+    // no floor yet: do nothing but keep the status honest (a stale objective here
+    // used to strand the autopilot in an endless "walk to X" loop)
+    if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) {
+      A.status.note = '等待地形生成…'; A.status.target = null;
+      return;
+    }
     const w = WEAPONS[p.weapons[p.wi]], melee = isMelee(w.id);
     const active = WORLD.rooms.find((r) => r.active);
     const foes = G.enemies.filter((e) => !e.dead && e.spawnT <= 0);
@@ -773,6 +913,10 @@
         if (anyFoe) {
           A._hunt = (A._hunt || 0) + 1;
           if (A._hunt > 30) {                       // ~0.5s of no shot: commit to hunting
+            // Straight chase: keeps aim/DPS live.  (A BFS "walk to a shootable
+            // tile" variant was measured over 3 seeds: 284s/54.7 kills vs
+            // 323s/52.7 straight — inside the +-30% run-to-run noise, so it was
+            // not adopted.  See docs/benchmark.md §10.)
             const hx = anyFoe.x - p.x, hy = anyFoe.y - p.y, hl = Math.hypot(hx, hy) || 1;
             mx = hx / hl; my = hy / hl;
             A.status.note = '清房：追击漏网之敌';
@@ -861,6 +1005,46 @@
       if (A.opts.skill && p.skill && !p.skillOn && p.skillCd <= 0 && (active || G.trial || near) && !G.prompt) tap('KeyE');
     }
 
+    // debug mirror: what the bot *thinks* the world looks like this tick
+    try {
+      A.dbg = {
+        t: G.time | 0,
+        world: (typeof WORLD !== 'undefined' && WORLD) ? (WORLD.w + 'x' + WORLD.h + ' rooms=' + (WORLD.rooms || []).length) : 'NO_WORLD',
+        active: !!(active && active.id !== undefined), trial: !!G.trial, near: near | 0,
+        state: G.state, obj: A.status.target, note: A.status.note,
+        inter: (G.inter || []).length,
+        px: Math.round(p.x), py: Math.round(p.y),
+        vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
+        wp: A._lastWp ? [Math.round(A._lastWp[0]), Math.round(A._lastWp[1])] : null,
+      };
+      // trace mode: with ?trace=1 print the mirror so headless runs can see it
+      if (TSW.trace && (G.time | 0) % 3 === 0 && A._dbgT !== (G.time | 0)) { A._dbgT = G.time | 0; TSW.log('DBG ' + JSON.stringify(A.dbg)); }
+    } catch (e) { A.dbg = { err: String(e).slice(0, 80) }; }
+
+    // ---- 导航硬兜底 ----------------------------------------------------------
+    // Measured failure (seed 91): the bot locked a far objective and stood still
+    // for 90+ game-seconds with a valid waypoint,因为 pickDir 在该点找不到任何
+    // 得分 > 0 的方向（威胁场 + 墙惩罚同时压制）。 任何「零位移」都必须被打破。
+    if (A.opts.navFallback && (A.mode === 'full') && !active && !G.trial) {
+      const moved = (A._mvRef && Math.hypot(p.x - A._mvRef[0], p.y - A._mvRef[1]));
+      if (!A._mvRef || !isFinite(moved) || moved > 6) { A._mvRef = [p.x, p.y]; A._mvT = G.time; }
+      else if (G.time - (A._mvT || 0) > 2.5) {
+        A._mvT = G.time;
+        // force a movement burst in a committed random direction (pit/void safe)
+        let ang2 = Math.random() * Math.PI * 2, okDir = null;
+        for (let k = 0; k < 8; k++) {
+          const a2 = ang2 + k * Math.PI / 4, dx2 = Math.cos(a2), dy2 = Math.sin(a2);
+          if (typeof dashSafe === 'function' ? dashSafe(p, dx2, dy2) : true) { okDir = [dx2, dy2]; break; }
+        }
+        if (okDir) {
+          A._forceDir = okDir; A._forceUntil = G.time + 1.2;
+          A.metrics.navStall = (A.metrics.navStall | 0) + 1;
+          A.status.note = '导航兜底：强制移动';
+        }
+      }
+      if (A._forceUntil && G.time < A._forceUntil && A._forceDir) { mx = A._forceDir[0]; my = A._forceDir[1]; }
+    }
+
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
       const tgt = pickObjective(G, p);
@@ -940,6 +1124,10 @@
 
   // choose the next room/point to walk to
   function pickObjective(G, p) {
+    // The floor may not exist yet (right after launch, or a failed generation).
+    // Without this guard the bot chases interactables that have no room, and the
+    // run sits still: measured 80+ game-seconds with rooms:0 and kills:0.
+    if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) return null;
     const rooms = WORLD.rooms;
     // 1) loose pickups: prisms / keys (skip ones we failed to reach recently)
     if (A.opts.arsenal) for (const it of G.inter) if (it.kind === 'arsrack' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
