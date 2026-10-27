@@ -58,7 +58,25 @@ async function buildWanted() {
   return wanted;
 }
 
+// Upstream static base. The public endpoint
+//   https://www.dzmm.ai/api/gamefy/<characterId>
+// answers {"gameId": ..., "publishedAt": ...} without a login, so these two
+// env vars are all that is needed to rebuild the asset base:
+//   DZMM_GAME_ID       <- JSON "gameId"
+//   DZMM_PUBLISHED_AT  <- JSON "publishedAt"
+// static root = https://www.dzmm.ai/api/gamefy/static/<gameId>/__v<publishedAt>/
+function baseFromEnv() {
+  const gid = opt("game-id", process.env.DZMM_GAME_ID);
+  const pub = opt("published-at", process.env.DZMM_PUBLISHED_AT);
+  if (!gid && !pub) return null;
+  if (!gid || !pub) { console.error("[source] need BOTH DZMM_GAME_ID and DZMM_PUBLISHED_AT"); process.exit(1); }
+  const base = `https://www.dzmm.ai/api/gamefy/static/${gid}/__v${pub}/`;
+  console.log("[source] base from DZMM_GAME_ID / DZMM_PUBLISHED_AT:", base);
+  return base;
+}
+
 async function detectBase() {
+  const envBase = baseFromEnv(); if (envBase) return envBase;
   const b = opt('base', process.env.UPSTREAM_BASE);
   if (b) return b.endsWith('/') ? b : b + '/';
   const saveDir = join(ROOT, '[TheSeed]');

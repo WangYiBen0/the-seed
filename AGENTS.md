@@ -78,7 +78,16 @@ nix flake check             # 含 pre-commit 检查
 # 1) 用户重新「另存为」覆盖 [TheSeed]/ 后：
 nix run .#sync                 # 输出 synced: N new/changed, M unchanged; 校验脚本完整性
 grep -oaE "GAME_V = '[^']+'" site/js/platform.js   # 记下新版本号
-nix run .#source               # 资源 base 会轮转，重抓缺失项（通常仍是 57/57）
+
+# 2) 资源 base 会轮转。把版本信息喂给抓取脚本（两个变量都必填）：
+DZMM_GAME_ID=90e4b323-9859-482f-9eb0-7cba6f44a51b \
+DZMM_PUBLISHED_AT=1792749394892 \
+  nix run .#source             # 拼出 static/<gameId>/__v<publishedAt>/ 后重抓（通常仍是 57/57）
+
+# 这两个值来自 https://www.dzmm.ai/api/gamefy/<characterId> 的 JSON
+#   {"gameId": "...", "publishedAt": 1792749394892, ...}
+# 注意：该端点**需要登录**（匿名请求返回 {"error":"请先登录"}），
+# 在浏览器已登录会话里打开即可看到；拼出来的 static/ 目录本身是**公开**的。
 # 2) 审计新增脚本（新 API / 新资源族 / 新交互物 kind）
 # 3) 冒烟 + 跑一局，再提交部署
 ```
@@ -192,6 +201,42 @@ grep -c "<新符号>" site/tools/auto.js     # 必须 > 0，否则补丁根本�
 
 同理：**A/B 必须同批次交错**。批次之间基线会漂移（同一默认配置实测得到
 2/8、3/8、4/8、0/8），跨批次比较得出的“改善”基本是假的。
+
+**提交信息必须是 Conventional Commits**（用户明确要求，违反要重写历史）：
+
+```
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- `type` 只允许：`feat` `fix` `perf` `refactor` `docs` `test` `build` `ci` `chore` `revert`；
+- `scope` 建议：`auto` `bench` `panel` `hud` `core` `invade` `explore` `deploy` `sync` `flake`；
+- `subject` 用**祈使句、小写开头、不加句号**，一句话说清「改了什么」，不要写实验过程；
+- **不要把测量数据塞进 subject**。结论、对照、种子数、CI 区间写进 `body` 或
+  `site/docs/benchmark.md`；
+- 琐碎/同类的改动**合并成一个提交**，不要一改动一提交刷屏。
+
+坏例子（以前真实写过，禁止重复）：
+
+```
+docs: the real bottleneck is rooms cleared — all three over-clearing seeds cleared 7
+rooms while failures cleared 4 or 0; refines the serum correlation into the causal
+chain rooms->prisms->serums->damage, and flags the 0-clear runs (seed 31: 9 kills, 158s)
+```
+
+好例子：
+
+```
+fix(explore): abandon objectives that never complete
+
+Forge rooms were re-selected every tick and pinned whole runs. Add a give-up
+timer and a general safety net for any objective.
+
+Measured: pass-floor 3/12 -> 5/12 on 12 fixed seeds.
+```
 
 **验证部署（缺一不可）**：
 

@@ -39,6 +39,9 @@
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
+      forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
+      goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
+      wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -244,13 +247,33 @@
   // only looked at pits, which is why we happily dashed into blades and acid.
   function dashSafe(p, dx, dy) {
     const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
-    for (let d = 10; d <= 56; d += 8) {
+    // Dash physics (game.js:133-136): dashT=.16s at 330px/s ≈ 53px, and it sets
+    // p.fly=true so PITS STOP BLOCKING during the dash — the player really does
+    // fly over them.  A dash that lands on a pit costs a hit, so scan further and
+    // also refuse a landing that touches void/wall (we'd grind against it).
+    const DASH_LEN = 56;
+    let pit = -1;
+    for (let d = 8; d <= DASH_LEN + 8; d += 6) {
       const t = tileAtPx(p.x + dx * d, p.y + dy * d);
-      if (t === TL.PIT) {
-        let land = -1;
-        for (let e = d + 8; e <= 62; e += 8) { const t3 = tileAtPx(p.x + dx * e, p.y + dy * e); if (t3 !== TL.PIT && t3 !== TL.VOID) { land = e; break; } }
-        if (land < 0 || land > 56) return false;
+      if (t === TL.VOID || t === TL.WALL) return false;      // would eat the wall
+      if (t === TL.PIT && pit < 0 && d <= DASH_LEN) pit = d; // flies over it…
+    }
+    if (pit > 0) {
+      // …but the LANDING must be solid ground within dash range
+      let land = -1;
+      for (let e = DASH_LEN; e >= pit; e -= 6) {
+        const t3 = tileAtPx(p.x + dx * e, p.y + dy * e);
+        if (t3 !== TL.PIT && t3 !== TL.VOID && t3 !== TL.WALL) { land = e; break; }
       }
+      if (land < 0) return false;
+      if (collides(p.x + (dx * land), p.y + (dy * land), p.r, false)) return false;
+    }
+    // never dash INTO a death-fight body: it deals contact damage for 2s and
+    // cannot be killed, so the landing spot itself has to be clear of them.
+    if (G.enemies) for (const e of G.enemies) {
+      if (e.dead || !(e.deathFightLeft > 0) || e.spawnT > 0) continue;
+      const ex = p.x + dx * DASH_LEN, ey = p.y + dy * DASH_LEN;
+      if (Math.hypot(ex - e.x, ey - e.y) < (e.r || 6) + p.r + 14) return false;
     }
     return true;
   }
@@ -386,9 +409,13 @@
     // hazard: never aim at it, but push away from it.
     if (G.enemies) for (const e of G.enemies) {
       if (e.dead || !(e.deathFightLeft > 0) || e.spawnT > 0) continue;
-      const rr = (e.r || 6) + p.r + 10;
+      // A death-fight body is unkillable for 2s and deals contact damage the whole
+      // time, so its danger radius must be much wider than its sprite: reaching
+      // it at all is a guaranteed hit.  (Was r+10 ≈ 20px, which the bot happily
+      // walked into while chasing something behind it.)
+      const rr = (e.r || 6) + p.r + 34;
       const dd = Math.hypot(x - e.x, y - e.y);
-      if (dd < rr) d += 2.2 * (1 - dd / rr) + .9;
+      if (dd < rr) d += 3.4 * (1 - dd / rr) + 1.6;
     }
     // gunners locking a shot: stay off the firing line before the bullet exists
     if (G.enemies) for (const e of G.enemies) {
@@ -433,7 +460,20 @@
   // choose the walk direction: alignment with "want", walls block, threats repel.
   // 24 candidate angles, three sampling radii (the near ring dominates), then a
   // half-step refinement around the winner.
+  // true when (x,y) is closer than `margin` px to a wall, door, pillar or pit
+  function tooCloseToWallOrPit(x, y, r, margin) {
+    if (collides(x, y, r, false)) return true;
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2;
+      if (collides(x + Math.cos(a) * margin, y + Math.sin(a) * margin, r, false)) return true;
+    }
+    return false;
+  }
+
   function pickDir(p, wx, wy) {
+    // local "openness" gradient: average of 8 rays tells us which way leads away
+    // from nearby walls.  Recomputed once per tick (cheap: 8 collides calls).
+
     const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
     const RX = [18, 42, 70], RW = [2.0, 1.0, .5];
     // A direction is only truly unusable when the FIRST ring is inside geometry.
@@ -453,6 +493,13 @@
         if (collides(nx, ny, p.r, false)) { s -= 4 * RW[k]; continue; }
         s -= 1.8 * RW[k] * spotDanger(nx, ny, p);
       }
+      // ---- wall / pit proximity: fixed penalty, no "moving away" reward ------
+      // If stepping this way puts us within `wallMargin` px of a wall, door or pit,
+      // the direction costs a FLAT amount.  There is deliberately no gradient bonus
+      // for heading into open space: that made the bot drift around for no reason
+      // instead of just refusing to hug walls.
+      const margin = A.opts.wallMargin === undefined ? 12 : A.opts.wallMargin;
+      if (tooCloseToWallOrPit(p.x + dx * margin, p.y + dy * margin, p.r, margin)) s -= 2.5;
       if (wl > .1) s += 2.2 * (dx * wx + dy * wy) / wl;
       s += .18 * (dx * ld[0] + dy * ld[1]);          // anti-jitter
       s += 1.15 * Math.min(1.6, laneClear(p, dx, dy) / 26);
@@ -1233,8 +1280,39 @@
       if (A.opts.partner && G.ptn && (G.ptn.cd || 0) <= 0 && !(G.ptn.act && G.ptn.act.t < G.ptn.act.dur) && !G.prompt) {
         tap('KeyF'); A.status.note = '搭档技能 ' + (G.ptn.id || '');
       }
-      // cast the skill chip whenever it is up (E with no prompt casts)
-      if (A.opts.skill && p.skill && !p.skillOn && p.skillCd <= 0 && (active || G.trial || near) && !G.prompt) tap('KeyE');
+      // ---- per-skill policy ---------------------------------------------
+      // All three chips are 5s buff / 25s cooldown, and limit/dash are `manual`
+      // (press E again to end early).  Firing on cooldown wastes them: the point
+      // is to have the buff ACTIVE during danger, not during empty corridors.
+      if (A.opts.skill && p.skill && !G.prompt) {
+        const foesNow = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0 && e.deathFightLeft <= 0).length;
+        const closeFoes = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0 && e.deathFightLeft <= 0
+          && Math.hypot(e.x - p.x, e.y - p.y) < 150).length;
+        let want = false;
+        if (p.skill === 'limit') {
+          // 0.2x slow on everything but us: strongest when a crowd is on top of us
+          want = closeFoes >= 4 || p.hp <= 2;
+        } else if (p.skill === 'dash') {
+          // 3 shields + speed: save it for when we are about to be hit, i.e.
+          // armour already broken (then any hit costs real hp)
+          want = p.armor <= 0 || p.hp <= 2 || (spotDanger(p.x, p.y, p) >= 2.6);
+        } else if (p.skill === 'risk') {
+          // fatal damage leaves 1hp: use it when we are in real danger, not on cd
+          want = p.hp <= 2 || spotDanger(p.x, p.y, p) >= 2.2 || closeFoes >= 3;
+        } else {
+          want = foesNow > 0;
+        }
+        // hold the buff while the threat is still live; end it early when the
+        // room went quiet so the cooldown starts sooner
+        if (p.skillOn) {
+          const stillNeeded = p.skill === 'limit' ? (closeFoes >= 2 || p.hp <= 2)
+            : p.skill === 'dash' ? (p.armor <= 1 || spotDanger(p.x, p.y, p) >= 1.6)
+              : (p.hp <= 3 || spotDanger(p.x, p.y, p) >= 1.6);
+          if (!stillNeeded && p.skillT > 1.2) tap('KeyE');       // manual skills: end early
+        } else if (want && p.skillCd <= 0 && (active || G.trial || near)) {
+          tap('KeyE');
+        }
+      }
     }
 
     // debug mirror: what the bot *thinks* the world looks like this tick
@@ -1246,6 +1324,9 @@
         state: G.state, obj: A.status.target, note: A.status.note,
         inter: (G.inter || []).length,
         orbs: (G.floorOrbs | 0) + '/' + (G.bonusOrbs | 0),
+        floorN: G.floor | 0,
+        roomsN: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.length : -1,
+        clearedN: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => r.cleared).length : -1,
         prisms: (G.inter || []).filter((i) => i.kind === 'prism').length,
         shardN: Object.keys((G.p && G.p.shards) || {}).length,
         px: Math.round(p.x), py: Math.round(p.y),
@@ -1282,7 +1363,23 @@
 
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
-      const tgt = pickObjective(G, p);
+      let tgt = pickObjective(G, p);
+      // ---- 通用目标放弃 ---------------------------------------------------
+      // Any objective the bot keeps re-choosing but never completes pins the whole
+      // run (measured: forge for 960s with 10/11 rooms already cleared).  The forge
+      // case got its own timeout; this is the general net for shrine/treasure/camp/
+      // boss/… so a single unreachable special can never freeze a run again.
+      if (tgt) {
+        const gk = tgt.label + '|' + (tgt.room ? (tgt.room.cx + ':' + tgt.room.cy) : (tgt.pt || []).join(','));
+        if (A._goalKey !== gk) { A._goalKey = gk; A._goalSince = G.time; }
+        else if (G.time - (A._goalSince || 0) > (A.opts.goalGiveUp || 40)) {
+          benchFor(tgt.room || tgt.pt, 90);
+          A._goalSince = G.time; A._goalKey = null;
+          A.status.note = '放弃目标 ' + tgt.label + ' 90s';
+          A.metrics.navStall = (A.metrics.navStall | 0) + 1;
+          tgt = pickObjective(G, p);      // re-pick immediately, now without that one
+        }
+      }
       if (tgt) {
         const path = navPath(G, p, tgt.room ? tgt.room.id : null);
         let wp = tgt.pt;
@@ -1407,6 +1504,17 @@
       const forgeMode = A.opts.forgeMode || 'held';
       for (const r of rooms) {
         if (r.type !== 'forge' || unreachable(r)) continue;
+        // A forge we keep committing to but never complete (e.g. the ink never
+        // reaches the price, or the room is sealed) used to hold the bot forever:
+        // measured seed 7 sat on obj=forge from t=240 to t=1200 with 10/11 rooms
+        // already cleared.  Bench it after a while so the run keeps moving.
+        A._forgeT = A._forgeT || {};
+        const fid = r.cx + ':' + r.cy;
+        if (A._forgeGoal !== fid) { A._forgeGoal = fid; A._forgeSince = G.time; }
+        else if (G.time - (A._forgeSince || 0) > (A.opts.forgeGiveUp || 25)) {
+          benchFor(r, 120); A._forgeSince = G.time; A.status.note = '放弃锻造 120s';
+          continue;
+        }
         // 'held'  = current weapon (default)
         // 'main'  = the weapon we actually shoot most (highest wScore), even if a
         //           weaker sidearm is the one currently drawn
