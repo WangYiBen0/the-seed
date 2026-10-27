@@ -99,6 +99,7 @@
   bSeedClear.onclick = () => { TSW.rng.clear(); note('RNG 恢复随机'); };
   const updSpeed = () => { speedVal.textContent = `速度 ×${TSW.speed.get()} （热键 - / ＝）`; };
   TSW.bus.on('speed', updSpeed); updSpeed();
+  TSW.bus.on('auto', () => { modeSel.value = TSW.auto.mode; polSel.value = TSW.auto.policy; });
   [b1, b2, b4, b8, b16].forEach((b) => { const v = +b.textContent.slice(0, -1); b.onclick = () => TSW.speed.set(v); });
   bSlow.onclick = () => TSW.speed.nudge(-1); bFast.onclick = () => TSW.speed.nudge(1);
 

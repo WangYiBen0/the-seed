@@ -226,7 +226,7 @@ function drawGirlEquip(id, d, I, c, x, y, w) {
 const ANN = { open: false, t: 0, top: 0, drag: null, hit: null };
 // this notice's gift: 20 embers for everyone, once (gp.gifts), handed over when the notice is closed
 const ANN_GIFT = { id: 'v127', n: 20, on: false };   // the v127 gift is over; set on: true (and a new id) to hand out another
-const ANN_ID = 'n139';                                 // a new id shows the notice again to players who chose not to see it
+const ANN_ID = 'n147';                                 // a new id shows the notice again to players who chose not to see it
 Object.assign(STR, { ann_gift: ['UPDATE GIFT: {0} EMBERS (GIVEN WHEN YOU CLOSE THIS NOTICE)', '更新補償：{0} 火種（關閉公告時發放）', 'アップデート補償：火種{0}（閉じると受け取り）', '更新补偿：{0} 火种（关闭公告时发放）'],
   ann_got: ['UPDATE GIFT: {0} EMBERS RECEIVED', '更新補償：已領取 {0} 火種', 'アップデート補償：火種{0}受け取り済み', '更新补偿：已领取 {0} 火种'],
   ann_claim: ['CLAIM {0}', '領取 {0} 火種', '{0}受け取る', '领取 {0} 火种'], ann_toast: ['+{0} EMBERS: UPDATE GIFT', '+{0} 火種：更新補償', '+{0} 火種：アップデート補償', '+{0} 火种：更新补偿'] });
@@ -235,18 +235,9 @@ function annClaim() { if (annGot()) return; const gp = gpLoad(); gp.gifts = gp.g
   NET.toast = { txt: L('ann_toast', ANN_GIFT.n), c: TH.gold, t: 0 }; AU.play('chipGet'); }
 // the notice is laid out in parts: a lead paragraph, sections with a heading, and update items (a coloured mark, a white title, grey details)
 const ANN_DOC = [
-  { k: 'p', s: IZ('Welcome to TheSeed. This is still a test version: expect problems and broken numbers. The developer is watching how it plays and will keep adjusting.', '欢迎游玩 TheSeed。目前这还是一个测试版本，可能存在诸多问题与数值崩坏，开发者将持续关注预期表现并作出调整。') },
-  { k: 'h', s: IZ('BUG REPORTS', 'Bug 反馈') },
-  { k: 'p', s: IZ('Message the developer on the platform with a clear description of the bug. Once it is confirmed you receive a limited title:', '可在平台内私聊开发者，提供明确的 bug 现象。经检验无误后，你可获得限定称号：') },
-  { k: 'title', id: 't_tester', s: IZ('GOLD-WHITE GRADIENT', '金白色渐变') },
   { k: 'h', s: IZ('IN THIS UPDATE', '本次更新') },
-  { k: 'i', c: () => '#8ed872', t: IZ('Daily tasks', '每日任务'), s: IZ('Two tasks each day on the main menu: clear 突入探索 once (+3 embers) and clear 入侵抵抗 once (+3 embers), any difficulty.', '主界面新增每日任务，每天两项：通关一次突入探索 +3 火种、通关一次入侵抵抗 +3 火种，难度不限。') },
-  { k: 'i', c: () => C.red, t: IZ('入侵抵抗: endless mode', '入侵抵抗无尽模式'), s: IZ('After holding wave 20 you may settle or go on into endless mode, balanced after Brotato: foes grow stronger every wave, both bosses every 10 waves. Falling in endless still counts as a win. Endless runs have their own leaderboard.', '守住第 20 波后可选择结算或进入无尽。无尽数值参照土豆兄弟：敌人每波持续变强，每 10 波同时出现两个首领；在无尽中倒下也算胜利。新增"入侵抵抗 - 无尽"排行榜。') },
-  { k: 'i', c: () => '#9fd8c8', t: IZ('New room: the broken lab', '新房间：破碎的实验室'), s: IZ('A test tube of experimental serum on a cracked bench. Each of the three serums has a drawback for 3 fights, then a permanent gift for the run.', '试验台上放着一支实验血清（α / β / Ω 随机其一）：接下来 3 次战斗有副作用，之后本局永久获得强化。') },
-  { k: 'i', c: () => '#a4cfe0', t: IZ('Dialysis reworked', '透析机改版'), s: IZ('Free: remove one serum or clear one curse for 1 maximum armor; what goes never comes back this run. Machines now stand on floors 5, 15, 45 and 75.', '免费去除一个血清或清除一个诅咒，代价为护甲上限 -1，被清除的本局不再出现。透析机只出现在第 5、15、45、75 层。') },
-  { k: 'i', c: () => TH.gold, t: IZ('Overclock! chip', 'Overclock! 技能芯片'), s: IZ('5 s: you take double damage, but every hit crits, crit damage +100%, attack speed +50%. Cannot be ended early; cooldown 30 s. It joins everyone’s chip pools once the event goal is reached.', '开启后 5 秒内：自身受到双倍伤害，但攻击必定暴击，暴击伤害 +100%，攻击速度 +50%；不可手动关闭，冷却 30 秒。活动目标达成后自动进入所有人的芯片池。') },
-  { k: 'i', c: () => '#bd9cdb', t: IZ('Despair modifiers', '绝境修饰符'), s: IZ('A new selection screen and a tidier button on the despair card. Rage now applies only 20% of its speed-up to bosses.', '修饰符选择界面与绝境出击按钮重新排版；激怒对首领只生效 20%。') },
-  { k: 'i', c: () => TH.ember, t: IZ('Event window', '活动窗口'), s: IZ('Once the event goal is reached, players who have claimed the reward no longer see the event window.', '活动目标达成后，已领取奖励的玩家不再显示活动窗口。') },
+  { k: 'i', c: () => '#c89aff', t: IZ('Experimental serum Ω', '实验血清Ω调整'), s: IZ('Its drawback is now: for the next 3 fights armor regenerates at half speed (it used to forbid dashing). After that, maximum armor +1 for the run, as before.', '副作用改为：接下来 3 次战斗内护甲回复效率减半（原为无法冲刺）。3 次战斗后护甲上限永久 +1，与之前相同。') },
+  { k: 'i', c: () => TH.gold, t: IZ('Getting the Overclock! chip', 'Overclock! 技能芯片获取方式'), s: IZ('The last event was not completed, so Overclock! is now sold in the black market supplies for 10 embers. Once bought it appears in the chip choices of every run.', '上次限时活动未完成，Overclock! 技能芯片现已在黑市补给道具中出售，价格 10 火种。购买后会进入局内的芯片池。') },
 ];
 function annRows(w) { const lh = lineH(), out = [];
   for (const d of ANN_DOC) {

@@ -1,4 +1,5 @@
 achieve.js
+arsenal.js
 audio.js
 balance.js
 boss.js
