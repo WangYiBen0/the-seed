@@ -530,9 +530,14 @@
     const exec = async (o) => {
       // apply autopilot option overrides, remember originals
       const saved = {};
+      const unknown = [];
       for (const [k, val] of Object.entries(o.autoOpts || {})) {
         if (k in (TSW.auto.opts || {})) { saved[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = val; }
+        else unknown.push(k);
       }
+      // A typo (or a patch that never landed) would otherwise silently run the
+      // SAME code on both arms and produce a plausible-looking fake difference.
+      if (unknown.length) TSW.err('AB: unknown autoOpts ignored → ' + unknown.join(', '));
       let r;
       try {
         if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 9) }, o));
