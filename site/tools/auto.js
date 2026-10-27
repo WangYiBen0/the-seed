@@ -45,8 +45,12 @@
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set
+      invadeDupStyle: 'normal',                              // invade: 'normal' | 'strong' duplicate-weapon priority
+      invadeReroll: true,                                    // invade: reroll the shop when it has no weapon
+      invadeRerollCap: 3,                                    // max rerolls per wave
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
+      forgeMode: 'held',                                     // explore: 'held' | 'any' (upgrade any equipped weapon)
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -891,6 +895,23 @@
           }
         }
       }
+      // ---- 缺武器就 reroll 刷出武器 ----------------------------------------
+      // 「钱买武器」是唯一被验证有效的杠杆（+94s / 1.94×）。如果这一屏报价里
+      // 完全没有武器，且还付得起重掷，就重掷直到出现武器（ivReroll 自带付款与
+      // freeRolls 检查）。有上限，避免把钱全烧在刷新上。
+      if (A.opts.invadeReroll && typeof ivReroll === 'function') {
+        const offers = iv.offers || [];
+        const hasWeapon = offers.some((o) => o && o.k === 'w');
+        const rollCap = A.opts.invadeRerollCap || 3;
+        A._rollN = A._rollN || {};
+        const wk = (iv.wave | 0);
+        if (A._rollWave !== wk) { A._rollWave = wk; A._rollN[wk] = 0; }
+        if (!hasWeapon && (A._rollN[wk] | 0) < rollCap) {
+          const before = iv.rr | 0;
+          try { ivReroll(); } catch (e) { }
+          if ((iv.rr | 0) !== before) { A._rollN[wk] = (A._rollN[wk] | 0) + 1; A.status.note = '入侵：reroll 刷武器 (' + A._rollN[wk] + ')'; return true; }
+        }
+      }
       // buy affordable offers, most useful first, then start the next wave
       if (A.opts.invadeShop !== false) {
         const offers = iv.offers || [];
@@ -917,7 +938,10 @@
         // duplicate of something we own at the same tier => buying it enables a
         // COMBINE (+1 tier, multiplicative damage), which is worth more than a
         // same-DPS stranger.
-        const dupBonus = (id, t) => ((iv.w || []).some((q) => q && q.id === id && (q.t | 0) === (t | 0)) ? 120 : 0);
+        // Buying a duplicate enables a COMBINE (+1 tier = multiplicative damage).
+        // Weight is switchable: 'strong' prioritises combines over raw DPS.
+        const dupW = A.opts.invadeDupStyle === 'strong' ? 400 : 120;
+        const dupBonus = (id, t) => ((iv.w || []).some((q) => q && q.id === id && (q.t | 0) === (t | 0)) ? dupW : 0);
         const setBonus = (id) => {
           if (A.opts.invadeSets === false) return 0;
           let b = 0;
@@ -1194,7 +1218,7 @@
           A.status.note = '导航兜底：强制移动';
         }
       }
-      if (A._forceUntil && G.time < A._forceUntil && A._forceDir) { mx = A._forceDir[0]; my = A._forceDir[1]; }
+      A._forceActive = (A._forceUntil && G.time < A._forceUntil) ? A._forceDir : null;
     }
 
     // ---------- navigation (no active fight) ----------
@@ -1269,6 +1293,8 @@
       }
     } else { lastPos = { x: p.x, y: p.y, t: G.time }; wiggle.n = 0; }
 
+    // the hard nav fallback must win over whatever pickDir decided this tick
+    if (A._forceActive) { mx = A._forceActive[0]; my = A._forceActive[1]; }
     moveKeys(mx, my);
     A._dbg = [mx, my];
     Input.down = !!wantFire && A.mode !== 'off' && !A.opts.noFire;
@@ -1304,11 +1330,20 @@
       const d = dist(p.x, p.y, it.x, it.y); if (d < bwd) { bwd = d; bw = it; }
     }
     if (bw) return { pt: [bw.x, bw.y], label: bw.kind, room: roomAt(bw.x, bw.y) };
-    // 1c) forge when the current weapon can still be upgraded and we can pay
-    for (const r of rooms) {
-      if (r.type !== 'forge' || unreachable(r)) continue;
-      const cur = p.weapons[p.wi], lv = p.wlv[cur] || 0;
-      if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+    // 1c) forge: 武器是唯一的伤害**基数**（入侵侧实测结论），锻造把墨水变成
+    // 武器等级（+25%/级，乘在基数上），应当尽早做而不是排在所有战斗房之后。
+    // 'any' 模式检查**所有已装备武器**（原来只看手持，绝境里手持常是初始钉枪，
+    // 条件经常不满足 → 等于从未用过锻造）。
+    {
+      const forgeMode = A.opts.forgeMode || 'held';
+      for (const r of rooms) {
+        if (r.type !== 'forge' || unreachable(r)) continue;
+        const ids = forgeMode === 'any' ? (p.weapons || []) : [p.weapons[p.wi]];
+        for (const id of ids) {
+          const lv = (p.wlv && p.wlv[id]) || 0;
+          if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+        }
+      }
     }
     // ---- 资源优先 vs 直接清房（A/B 开关 A.opts.exploreOrder）-----------------
     // 绝境里 输出/补给 往往比多打一个房间更值：先去商店/锻造/神龛/宝箱，

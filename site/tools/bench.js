@@ -276,7 +276,14 @@
     catch (e) { TSW.err('probe resume', e); }
     // wait for the resumed floor to be live
     const t0 = performance.now();
-    while (performance.now() - t0 < 15000) { const g = window.__achroma.G; if (g && g.p && (g.state === 'play' || g.state === 'dead')) break; await new Promise((r) => setTimeout(r, 120)); }
+    // the floor may not be built yet after resumeRun(); the game itself then
+    // throws every frame on WORLD.spikeT (game.js:608) and nothing progresses
+    while (performance.now() - t0 < 15000) {
+      const g = window.__achroma.G;
+      const wOk = (typeof WORLD !== 'undefined') && WORLD && Array.isArray(WORLD.rooms) && WORLD.tiles;
+      if (g && g.p && wOk && (g.state === 'play' || g.state === 'dead')) break;
+      await new Promise((r) => setTimeout(r, 120));
+    }
     TSW.auto.setMode('full');
     const g1 = window.__achroma.G;
     const runT0 = g1.runT || 0, k0 = g1.kills | 0, d0 = M.dmgTotal;
@@ -340,7 +347,14 @@
     try { STORE.setItem('achroma_run', JSON.stringify(save)); resumeRun(); }
     catch (e) { TSW.err('dodge resume', e); }
     const t0 = performance.now();
-    while (performance.now() - t0 < 15000) { const g = window.__achroma.G; if (g && g.p && (g.state === 'play' || g.state === 'dead')) break; await new Promise((r) => setTimeout(r, 120)); }
+    // the floor may not be built yet after resumeRun(); the game itself then
+    // throws every frame on WORLD.spikeT (game.js:608) and nothing progresses
+    while (performance.now() - t0 < 15000) {
+      const g = window.__achroma.G;
+      const wOk = (typeof WORLD !== 'undefined') && WORLD && Array.isArray(WORLD.rooms) && WORLD.tiles;
+      if (g && g.p && wOk && (g.state === 'play' || g.state === 'dead')) break;
+      await new Promise((r) => setTimeout(r, 120));
+    }
     TSW.auto.setMode('full');
     const g1 = window.__achroma.G;
     const runT0 = g1.runT || 0, h0 = g1.hits | 0;
