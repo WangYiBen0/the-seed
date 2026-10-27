@@ -141,7 +141,7 @@
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
       end: res.end, wall: +res.wall.toFixed(1),
       gameT: +g.runT.toFixed(0), floor: g.floor, depth: g.endless | 0,
-      kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal),
+      kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
       weapons: (g.p ? g.p.weapons : []).slice(), shards: Object.assign({}, g.p ? g.p.shards : {}),
       syn: Object.keys(SYN || {}).length,
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',

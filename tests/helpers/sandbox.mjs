@@ -10,11 +10,11 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AUTO_SRC = readFileSync(join(ROOT, 'site', 'tools', 'auto.js'), 'utf8');
 
-export function makeWorld({ walls = [], pits = [], w = 20, h = 14 } = {}) {
+export function makeWorld({ walls = [], pits = [], traps = [], pools = [], w = 20, h = 14 } = {}) {
   const tiles = new Uint8Array(w * h).fill(1);            // 1 = FLOOR
   for (const [x, y] of walls) tiles[y * w + x] = 2;       // 2 = WALL
   for (const [x, y] of pits) tiles[y * w + x] = 3;        // 3 = PIT
-  return { w, h, tiles };
+  return { w, h, tiles, traps, pools };
 }
 
 export function loadAuto({ bullets = [], enemies = [], mechs = [], zones = [], world = makeWorld(), diff = 'classic' } = {}) {
@@ -55,7 +55,8 @@ export function loadAuto({ bullets = [], enemies = [], mechs = [], zones = [], w
       return false;
     },
     diffV: (k) => (k === 'mhp' ? (G.diff === 'despair' ? 2 : 1) : 1),
-    hasCurse: () => false, usesAmmo: () => false, magSize: () => 10, ammoOf: () => ({ n: 10, rl: 0 }),
+    hasCurse: (id) => ctx.curses.has(id), curses: new Set(),
+    usesAmmo: () => false, magSize: () => 10, ammoOf: () => ({ n: 10, rl: 0 }),
     wCap: () => 2, wScore: () => 1, sname: (s) => s && s.id, synergyHint: () => null,
     Input: { keys: {}, prev: {}, mx: 0, my: 0, down: false, clicked: false, wheel: 0 },
     restartRun: () => { }, spawnEnemy: () => { }, killEnemy: () => { }, gainInk: () => 0, hurtPlayer: () => false,
@@ -63,6 +64,7 @@ export function loadAuto({ bullets = [], enemies = [], mechs = [], zones = [], w
     SKILLS: {}, installChip: () => { }, recomputeStats: () => { }, computeTints: () => { }, applyShard: () => { }, giveWeapon: () => { },
     svBtns: () => [{ x: 0, y: 0, w: 1, h: 1 }, { x: 0, y: 0, w: 1, h: 1 }], svData: () => ({ ban: 0, skip: 0 }), cardRect: () => ({ x: 0, y: 0 }),
     notify: () => { }, AU: { play: () => { } }, L: (k) => String(k),
+    LABQ: null, OVL: { open: false }, nameEdConfirm: () => { },
   };
   // auto.js reads the game through bare identifiers (script-level bindings in the
   // real page), so the sandbox must expose them as top-level names too.
@@ -74,8 +76,8 @@ export function loadAuto({ bullets = [], enemies = [], mechs = [], zones = [], w
   const marker = "  TSW.log('auto module ready');";
   if (!AUTO_SRC.includes(marker)) throw new Error('auto.js export marker not found');
   const patched = AUTO_SRC.replace(marker,
-    '  TSW.__test = { laneClear, pickDir, pickDirSimple, dashSafe, gridPath, mechDanger, spotDanger, nearestEnemy, clampM, GW, drivePicker, A };\n' + marker);
+    '  TSW.__test = { laneClear, pickDir, pickDirSimple, dashSafe, gridPath, mechDanger, spotDanger, hazardAt, nearestEnemy, clampM, GW, drivePicker, nextWaypoint, moveKeys, setKeys, tremorAngle, reverseOn, manualHold, A, Input };\n' + marker);
   const fn = new Function(...Object.keys(sandbox), patched + '\n//# sourceURL=auto.js');
   fn(...Object.values(sandbox));
-  return { TSW, G, ctx, world, api: TSW.__test };
+  return { TSW, G, ctx, world, api: TSW.__test, Input: ctx.Input };
 }

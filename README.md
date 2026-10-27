@@ -1,5 +1,7 @@
 # [TheSeed] 非官方离线镜像（ unofficial offline mirror）
 
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+
 > **声明 / Disclaimer**
 > 游戏《[TheSeed]》（内部代号 EMBER / ACHROMA）的**著作权归原作者所有**，
 > 游戏发布于 [dzmm.ai](https://www.dzmm.ai) 平台，官网页面：
@@ -18,7 +20,7 @@
 | 组件 | 说明 |
 |---|---|
 | `dzmm-shim.js` | 在 `localStorage` 上模拟 dzmm 平台 SDK（`dzmm.kv/*` 等），游戏照常读写存档、AI/排行榜按平台外状态优雅降级 |
-| `tools/*` | 工坊：倍速（×0.25–×16）、操作宏（录制/回放/循环/导入导出）、自动挂机、可视化测评 HUD、宏+倍速基准、无尽流派测评 |
+| `tools/*` | 工坊：倍速（×0.25–×16）、操作宏（录制/回放/循环/导入导出）、自动挂机（含细项开关：开箱/治疗泉/实验血清/军械库/捡武器/捡芯片/棱镜钥匙/玩家接管）、可视化测评 HUD、宏+倍速基准、躲弹幕测评、无尽流派测评 |
 | `docs/*` | 无尽挂机流派指南（源码机制分析）、benchmark 方法与数据 |
 
 游戏本体、玩法、美术、文本均属原作者；本仓库新增的只有
@@ -57,6 +59,31 @@ nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed
 
 > `.#bench` 需要环境里有 chromium（NixOS 通常已预装；没有就先 `nix develop`，
 > shell 里也提供了 `seed-bench` / `seed-serve` / `seed-sync` 三个命令）。
+
+## 在原版游戏里用这些工具（注入）
+
+不想装镜像、只想在官方页面用工具时，把下面这段粘到控制台（F12）即可，
+不修改官方任何代码：
+
+```js
+(()=>{const B='https://wangyiben0.github.io/the-seed/tools/',F=['core','macro','auto','hud','bench','explore','cheats','panel'];if(window.__TSW)return console.warn('[TSW] 已注入');(async()=>{const bad=[];for(const n of F){await new Promise(r=>{const s=document.createElement('script');s.src=B+n+'.js?v='+Date.now();s.onload=r;s.onerror=()=>{bad.push(n);r()};document.head.appendChild(s)})}console.log(bad.length?'[TSW] 失败: '+bad:'[TSW] 注入成功 · F8 工坊 / F9 HUD / F10 指令台')})()})();
+```
+
+F8 工坊 / F9 HUD / F10 指令台；脚本原件见 [site/inject.js](site/inject.js)，
+细节与风险见 [site/docs/inject.md](site/docs/inject.md)。
+**注意**：官方页上的指令台/作弊/存档操作会写入你在 dzmm 的真实存档，想安全实验请用镜像页。
+
+## 提交钩子（git-hooks.nix）
+
+`flake.nix` 里接了 [git-hooks.nix](https://github.com/cachix/git-hooks.nix)：
+
+- 在 `nix develop` 里工作时会自动安装 pre-commit 钩子；
+- 钩子只处理**我们自己写的文件**，`site/js/**`（上游逐字节同步）与 `[TheSeed]/**`
+  （原版页面存档）通过 `excludes` 明确排除；
+- 两道闸门：`seed-fmt`（行尾空白/CRLF/空行/末尾换行，格式化后自动重新暂存）
+  与 `seed-syntax`（`node --check`，写坏就拒绝提交）；
+- 钩子需要可写的缓存：devShell 已设 `PRE_COMMIT_HOME=$PWD/.tmp/pre-commit`，
+  所以请**在 `nix develop` 里提交**（沙箱里 `~/.cache` 只读）。
 
 ## 测试
 

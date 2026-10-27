@@ -22,13 +22,23 @@
       dash: TSW.settings.get('autoDash', true),
       noFire: false,                                       // dodge-bench stress mode: never shoot
       dodgeEngine: TSW.settings.get('dodgeEngine', 'v2'),  // v2 | simple (A/B)
+      // ---- fine-grained "wire it up" switches (panel: 挂机 → 细项) ----
+      chest: TSW.settings.get('autoChest', true),          // open chests
+      labSerum: TSW.settings.get('autoLabSerum', true),    // inject the experimental serum in the lab
+      fount: TSW.settings.get('autoFount', true),          // drink from healing founts
+      weaponPick: TSW.settings.get('autoWeaponPick', true),// walk to floor weapons / take better ones
+      chipPick: TSW.settings.get('autoChipPick', true),    // pick skill chips
+      pickups: TSW.settings.get('autoPickups', true),      // prisms & keys
+      arsenal: TSW.settings.get('autoArsenal', true),      // visit the armory rack
+      dialysis: TSW.settings.get('autoDialysis', true),    // use the dialysis machine to purge a curse
+      manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
-    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0 },
+    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0 },
     status: { note: '', target: null },
   };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
-  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; };
+  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
   A.setPolicy = (p) => { A.policy = p; TSW.settings.set('autoPolicy', p); TSW.bus.emit('auto'); };
 
@@ -128,7 +138,11 @@
   function gridPath(p, tx, ty) {
     if (typeof WORLD === 'undefined' || !WORLD || !WORLD.tiles || typeof TL === 'undefined') return null;
     const Wd = WORLD.w, Ht = WORLD.h, tiles = WORLD.tiles;
-    const okT = (gx, gy) => { if (gx < 0 || gy < 0 || gx >= Wd || gy >= Ht) return false; const t = tiles[gy * Wd + gx]; return t === TL.FLOOR || t === TL.SLUDGE; };
+    const walkable = (gx, gy) => { if (gx < 0 || gy < 0 || gx >= Wd || gy >= Ht) return false; const t = tiles[gy * Wd + gx]; return t === TL.FLOOR || t === TL.SLUDGE; };
+    // prefer routes that do not cross a live hazard; fall back to plain walkable
+    // tiles when the only way through is past a blade/flame/pool.
+    const hazardFree = (gx, gy) => hazardAt(gx * 16 + 8, gy * 16 + 8, 10, .3) < .9;
+    const okT = (gx, gy) => walkable(gx, gy) && (A._plainPath === true || hazardFree(gx, gy));
     const sx = Math.floor(p.x / 16), sy = Math.floor(p.y / 16);
     const gx2 = Math.floor(tx / 16), gy2 = Math.floor(ty / 16);
     if (!okT(sx, sy) || !okT(gx2, gy2)) return null;
@@ -147,6 +161,10 @@
         if (prev.has(ni)) continue;
         prev.set(ni, cur); q.push(ni);
       }
+    }
+    if (!prev.has(goal) && A._plainPath !== true) {           // one retry that ignores hazards
+      A._plainPath = true;
+      try { return gridPath(p, tx, ty); } finally { A._plainPath = false; }
     }
     if (!prev.has(goal)) return null;
     const path = []; let cur = goal;
@@ -183,6 +201,63 @@
     if (m.t >= warn) return 0;                        // already resolved
     return 1 + 2.5 * Math.max(0, Math.min(1, 1 - (warn - m.t) / .6)); // about to fire = worst
   }
+  // ---- in-room hazards: rotating blades, flame pillars, poison pools ----------
+  // blade: two arms, length R, angle a, angular speed va — the segment sweeps, so
+  // we score the CURRENT and a short LOOK-AHEAD of each arm.
+  // flame: a corridor along angle a; state 0 idle / 1 warning / 2 firing.
+  // pool: a circle; it ticks damage every .5s.
+  function segDist2(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l2));
+    return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
+  }
+  const HAZ_PAD = 5;                       // body radius allowance
+  function hazardAt(x, y, pad = HAZ_PAD, look = .45) {
+    const Wd = (typeof WORLD !== 'undefined' && WORLD) || null; if (!Wd) return 0;
+    const G = typeof __achroma !== 'undefined' && __achroma ? __achroma.G : null;
+    const t0 = G ? (G.time || 0) : 0;
+    let d = 0;
+    for (const t of Wd.traps || []) {
+      if (t.kind === 'blade') {
+        const RR = t.R || 30;
+        // sweep the two arms over the look-ahead window
+        for (let k = 0; k < 2; k++) {
+          for (let w = 0; w <= look; w += look / 3) {
+            const a = (t.a || 0) + (t.va || 0) * w + k * Math.PI;
+            const ex = t.x + Math.cos(a) * RR, ey = t.y + Math.sin(a) * RR;
+            const dd = segDist2(x, y, t.x, t.y, ex, ey);
+            const hit = 3 + pad + (w > 0 ? 3 : 0);        // the future is slightly cheaper
+            if (dd < hit) d = Math.max(d, 2.6 * (1 - dd / hit) + 1.1);
+          }
+        }
+        // inside the swept disc is risky but not forbidden: a room with a blade
+        // centre still has to be fought, so this is only a soft nudge.
+        const dc = Math.hypot(x - t.x, y - t.y);
+        if (dc < RR + 3 + pad) d = Math.max(d, .45 * (1 - dc / (RR + 3 + pad)) + .12);
+      } else if (t.kind === 'flame') {
+        const per = t.per || 4, fire = t.fire || .8, warn = t.warn || .5, L = t.L || 40;
+        const ph = ((t.t || 0) + (.25)) % per;            // slight look-ahead bias
+        const st = ph < per - warn - fire ? 0 : ph < per - fire ? 1 : 2;
+        const L4 = t.L ? L * Math.min(1, Math.max(0, (ph - (per - fire)) * 6)) : L;
+        if (st >= 1) {
+          const len = st === 2 ? L4 : L;
+          for (let w = 0; w <= 1; w += .5) {
+            const a = (t.a || 0) + (t.va || 0) * w;
+            const ex = t.x + Math.cos(a) * len, ey = t.y + Math.sin(a) * len;
+            const dd = segDist2(x, y, t.x, t.y, ex, ey);
+            const hit = (st === 2 ? 8 : 6) + pad;
+            if (dd < hit) d = Math.max(d, (st === 2 ? 2.4 : 1.0) * (1 - dd / hit) + (st === 2 ? .9 : .25));
+          }
+        }
+      }
+    }
+    for (const q of Wd.pools || []) {
+      const rr = (q.r || 18) + pad - 2;
+      const dd = Math.hypot(x - q.x, y - q.y);
+      if (dd < rr) d = Math.max(d, 1.6 * (1 - dd / rr) + .6);
+    }
+    return d;
+  }
   function spotDanger(x, y, p) {
     const G = __achroma.G; let d = 0;
     const h = hard(), horizon = h ? .95 : .7, wMul = h ? 1.3 : 1;
@@ -202,9 +277,13 @@
       if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
     }
     for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
+    // in-room hazards (blades / flame pillars / poison pools)
+    { const hz = hazardAt(x, y, Math.max(4, p.r - 1)); if (hz) d += hz; }
     // pits: walking in hurts and teleports back — never path through them
     if (typeof TL !== 'undefined' && tileAtPx(x, y) === TL.PIT) d += 2.6;
-    if (typeof TL !== 'undefined' && typeof spikeState === 'function' && tileAtPx(x, y) === TL.SPIKE && spikeState() === 2) d += 1.4;
+    if (typeof TL !== 'undefined' && tileAtPx(x, y) === TL.SPIKE && typeof spikeState === 'function') {
+      const sv = spikeState(); if (sv === 2) d += 2.4; else if (sv === 1) d += .9;   // 2 = out, 1 = warning
+    }
     // gunners locking a shot: stay off the firing line before the bullet exists
     if (G.enemies) for (const e of G.enemies) {
       if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.st !== 'aim') continue;
@@ -306,10 +385,73 @@
     }
     return best;
   }
-  const moveKeys = (dx, dy) => {
-    Input.keys.KeyW = dy < -.3; Input.keys.KeyS = dy > .3; Input.keys.KeyA = dx < -.3; Input.keys.KeyD = dx > .3;
+  // ---- input rotation the game applies to our keys -------------------------
+  // The player vector is quantised to 8 directions from the keys, then the
+  // REVERSE mech flips it, then the TREMOR curse (hp<=3) rotates it by
+  // j = sin(t*2.1)*.32 + sin(t*5.3+1)*.16 (game.js:130).  We therefore choose the
+  // key combo whose *post-rotation* direction matches what we want.
+  const KEY8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  const angDiff2 = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
+  function tremorAngle() {
+    const G = typeof __achroma !== 'undefined' && __achroma && __achroma.G; if (!G || !G.p) return 0;
+    if (G.p.hp > 3 || typeof hasCurse !== 'function' || !hasCurse('tremor')) return 0;
+    const t = G.time || 0;
+    return Math.sin(t * 2.1) * .32 + Math.sin(t * 5.3 + 1) * .16;
+  }
+  function reverseOn() {
+    const G = typeof __achroma !== 'undefined' && __achroma && __achroma.G;
+    return !!(G && G.mechs && G.mechs.some((m) => m && m.type === 'reverse' && m.t > m.on));
+  }
+  A._own = { KeyW: false, KeyS: false, KeyA: false, KeyD: false };
+  const setKeys = (kw, ks, ka, kd) => {
+    Input.keys.KeyW = kw; Input.keys.KeyS = ks; Input.keys.KeyA = ka; Input.keys.KeyD = kd;
+    A._own.KeyW = kw; A._own.KeyS = ks; A._own.KeyA = ka; A._own.KeyD = kd;
   };
-  const stopMove = () => { Input.keys.KeyW = Input.keys.KeyS = Input.keys.KeyA = Input.keys.KeyD = false; };
+  const moveKeys = (dx, dy) => {
+    const l = Math.hypot(dx, dy); if (l < .06) { setKeys(false, false, false, false); return; }
+    let want = Math.atan2(dy, dx) - tremorAngle();     // undo the terror/tremor rotation
+    if (reverseOn()) want += Math.PI;                  // undo the reverse mech
+    let best = 0, bd = 9;
+    for (let i = 0; i < 8; i++) { const a = Math.atan2(KEY8[i][1], KEY8[i][0]); const d = Math.abs(angDiff2(a, want)); if (d < bd) { bd = d; best = i; } }
+    const c = KEY8[best];
+    setKeys(c[1] < 0, c[1] > 0, c[0] < 0, c[0] > 0);
+  };
+  const stopMove = () => setKeys(false, false, false, false);
+
+  // ---- tile-level travel: BFS nodes as the *primary* steering target --------
+  // The room graph only gets us to the right doorway; inside a room (pillars,
+  // corners, pits) greedy steering can orbit forever.  So for any leg longer
+  // than ~26px we follow real BFS nodes and let pickDir only do local avoidance.
+  const travel = { path: null, goal: null, i: 0, t: 0 };
+  function nextWaypoint(p, gx, gy) {
+    const now = (typeof __achroma !== 'undefined' && __achroma && __achroma.G ? __achroma.G.time : 0) || 0;
+    const stale = !travel.path || !travel.goal || now - travel.t > 1.4 ||
+      Math.hypot(travel.goal[0] - gx, travel.goal[1] - gy) > 24 || travel.i >= (travel.path ? travel.path.length : 0);
+    if (stale) {
+      const path = gridPath(p, gx, gy);
+      travel.path = (path && path.length) ? path : null;
+      travel.goal = [gx, gy]; travel.i = 0; travel.t = now;
+    }
+    if (!travel.path) return null;
+    // drop nodes we already cleared (reached, or now behind us)
+    while (travel.i < travel.path.length - 1) {
+      const n = travel.path[travel.i], nx = travel.path[travel.i + 1];
+      const d = Math.hypot(n[0] - p.x, n[1] - p.y);
+      const behind = ((nx[0] - p.x) * (n[0] - p.x) + (nx[1] - p.y) * (n[1] - p.y)) < 0;
+      if (d > 18 && !behind) break;
+      travel.i++; travel.adv = now;
+    }
+    // carrot: aim at the FURTHEST node within 64px, not the next tile.  Aiming
+    // 20px ahead makes pickDir's heading term meaningless and the bot stalls.
+    let pick = travel.path[travel.i], bestD = -1;
+    for (let k = travel.i; k < travel.path.length; k++) {
+      const n = travel.path[k];
+      const d = Math.hypot(n[0] - p.x, n[1] - p.y);
+      if (d > 64) break;
+      if (d > bestD) { bestD = d; pick = n; }
+    }
+    return pick;
+  }
 
   // ---------------- main per-tick driver ----------------
   let lastPos = { x: 0, y: 0, t: 0 };
@@ -367,6 +509,48 @@
     tap(down <= n - down ? 'KeyS' : 'KeyW');
   }
 
+  // which curse is worth paying 1 max armor to be rid of (higher = worse for us)
+  const CURSE_W = { night: 9, tremor: 8, surr: 6, wrath: 6, sloth: 5, lung: 5, drought: 4, reject: 4, seal: 3, slow: 3, disaster: 3, over: 2, greed: 2, hubris: 2, coward: 2, time: 2 };
+  // the dialysis machine (floors 5/15/45/75): free once, removes ONE serum or ONE
+  // curse for 1 max armor.  Removing a serum is a loss, so we only ever purge a
+  // curse — and only when we actually carry one.
+  function driveDialysis(G, tap) {
+    const D = (typeof DIA !== 'undefined') ? DIA : null;
+    if (!D) { tap('Escape'); return; }
+    const curses = (G.curses || []).slice();
+    const canPay = ((G.p && G.p.maxArmor) | 0) >= 1;
+    if (!D.mode) {                                        // the two-option menu: 0 serum, 1 curse
+      if (!A.opts.dialysis || !curses.length || !canPay) { tap('Escape'); A.status.note = '透析：不用'; return; }
+      if ((D.sel | 0) !== 1) { tap('KeyW'); A.status.note = '透析：选“诅咒”'; return; }
+      tap('Enter'); A.status.note = '透析：打开诅咒列表'; return;
+    }
+    const ids = (typeof diaIds === 'function' ? diaIds() : curses).slice();
+    if (!ids.length) { tap('Escape'); return; }
+    let best = 0, bw = -1;
+    for (let i = 0; i < ids.length; i++) { const w = CURSE_W[ids[i]] != null ? CURSE_W[ids[i]] : 2; if (w > bw) { bw = w; best = i; } }
+    const sel = D.sel | 0;
+    if (sel !== best) { tap(best > sel ? 'KeyD' : 'KeyA'); A.status.note = '透析：选 ' + ids[sel]; return; }
+    tap('Enter'); A.status.note = '透析：清除 ' + ids[best];
+  }
+  // the lab serum question: inject (sel 0) or walk away (sel 1).  Without this
+  // the modal freezes the run — it was a genuine soft-lock before.
+  function driveLabQ(G, tap) {
+    const q = (typeof LABQ !== 'undefined' && LABQ) || null;
+    if (!q) { tap('Escape'); return; }
+    const want = A.opts.labSerum ? 0 : 1;
+    const sel = q.sel | 0;
+    if (sel !== want) { tap(want === 0 ? 'KeyA' : 'KeyD'); A.status.note = '实验血清：选择' + (want ? '不注射' : '注射'); return; }
+    if ((q.t || 0) < .35) return;                       // the panel refuses input for .3s
+    tap('Enter');
+    A.status.note = want ? '实验血清：注射' : '实验血清：跳过';
+  }
+  // is the human driving?  (we never overwrite a key the player is holding)
+  function manualHold() {
+    if (!A.opts.manual) return false;
+    const k = Input.keys;
+    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD']) if (k[c] && !A._own[c]) return true;
+    return false;
+  }
   function drive(G) {
     const p = G.p;
     // edge-safe tap: the game detects key PRESSES (down && !prev-down).  Holding a
@@ -377,6 +561,14 @@
       if (A._tick - (A._tapGap[c] ?? -9) < 2) return;
       Input.keys[c] = true; A._taps[c] = 1; A._tapGap[c] = A._tick;
     };
+
+    // the player is steering: hands off movement/fire for a moment, but keep the
+    // HUD and status live.  Manual control wins over every mode.
+    if (manualHold()) {
+      A._manualUntil = (G.time || 0) + 1.2;
+      A.status.note = '手动接管中…';
+    }
+    if (A._manualUntil && (G.time || 0) < A._manualUntil) { A.status.note = '手动接管中…'; return; }
 
     // the canvas picker overlay (armory weapon rack, camp/market lists) REPLACES
     // update() while open — if we do not drive it the whole run soft-locks.
@@ -400,6 +592,8 @@
         if (typeof restartRun === 'function') { restartRun(); TSW.bus.emit('newRun'); A.status.note = ''; }
         return;
       }
+      case 'labq': return driveLabQ(G, tap);
+      case 'dialysis': return driveDialysis(G, tap);
       case 'pause': tap('Escape'); return;
       case 'build': tap('Tab'); return;
       case 'orbopen': case 'trans': case 'fusion': case 'launch': case 'menu': case 'intro': return;
@@ -468,11 +662,13 @@
     if (A.mode === 'full' && !active) {
       for (const it of G.inter) {
         const d = dist(p.x, p.y, it.x, it.y); if (d > 24) continue;
-        if (it.kind === 'fount' && !it.used && p.hp < p.maxHp - 1 && !hasCurse('drought') && G.ink >= it.cost) { A.status.note = '治疗'; tap('KeyE'); break; }
-        if (it.kind === 'chest' && !it.used) { A.status.note = '开箱'; tap('KeyE'); break; }
-        if (it.kind === 'arsrack' && !it.used) { A.status.note = '军械库：打开武器架'; tap('KeyE'); break; }
+        if (it.kind === 'fount' && A.opts.fount && !it.used && p.hp < p.maxHp - 1 && !hasCurse('drought') && G.ink >= it.cost) { A.status.note = '治疗'; tap('KeyE'); break; }
+        if (it.kind === 'chest' && A.opts.chest && !it.used) { A.status.note = '开箱'; tap('KeyE'); break; }
+        if (it.kind === 'arsrack' && A.opts.arsenal && !it.used) { A.status.note = '军械库：打开武器架'; tap('KeyE'); break; }
+        if (it.kind === 'labvial' && A.opts.labSerum && !it.used) { A.status.note = '实验血清：打开'; tap('KeyE'); break; }
+        if (it.kind === 'dialysis' && A.opts.dialysis && !it.used && (G.curses || []).length && ((p.maxArmor | 0) >= 1)) { A.status.note = '透析机：清诅咒'; tap('KeyE'); break; }
         if (it.kind === 'key' || it.kind === 'prism') break; // walk over
-        if (it.kind === 'chip') { if (!p.skill || it.id !== 'teleport') { tap('KeyE'); break; } continue; }
+        if (it.kind === 'chip') { if (A.opts.chipPick && (!p.skill || it.id !== 'teleport')) { tap('KeyE'); break; } continue; }
         if (it.kind === 'weapon') {
           const cur = wScore(w.id), nw = wScore(it.id);
           if (nw > cur + .5 || p.weapons.length < wCap()) {
@@ -575,7 +771,30 @@
         let wp = tgt.pt;
         if (path && path.length > 1) { const { doorOf } = graph(); const key = path[0] + ':' + path[1]; wp = doorOf[key] || tgt.pt; }
         if (wp) {
-          const dx = wp[0] - p.x, dy = wp[1] - p.y, dl = Math.hypot(dx, dy);
+          // Only path around real obstacles: when the straight line to the waypoint
+          // is clear we keep the old "aim at it" behaviour (which dodges better in
+          // open rooms), and use BFS nodes only when something blocks the line.
+          const clear = (typeof los === 'function') ? los(p.x, p.y, wp[0], wp[1])
+            : !collides(wp[0], wp[1], p.r, false);
+          const leg = (!clear && Math.hypot(wp[0] - p.x, wp[1] - p.y) > 26) ? nextWaypoint(p, wp[0], wp[1]) : null;
+          if (clear) travel.path = null;               // keep the BFS cache honest
+          const aim = leg || wp;
+          const dx = aim[0] - p.x, dy = aim[1] - p.y, dl = Math.hypot(dx, dy);
+          // route-progress detector.  Distance-to-goal is NOT a progress signal
+          // (walking around a wall increases it), so watch the BFS waypoint index:
+          // if it stops advancing we really are circling.
+          {
+            const st = navProg;
+            if (st.goal !== wp) { st.goal = wp; st.fails = 0; travel.path = null; st.t = G.time; }
+            if (travel.adv !== st.advSeen) { st.advSeen = travel.adv; st.t = G.time; st.fails = 0; }
+            else if (G.time - (st.t || 0) > 2.6) {
+              st.t = G.time; st.fails = (st.fails || 0) + 1;
+              travel.path = null;                      // force a fresh BFS
+              A.metrics.navReplan = (A.metrics.navReplan | 0) + 1;
+              if (st.fails >= 3) { benchFor(tgt.room || tgt.pt, 25); st.fails = 0; A.status.note = '绕圈：换目标'; A.metrics.navStall = (A.metrics.navStall | 0) + 1; }
+              else A.status.note = '绕圈：重算路径';
+            }
+          }
           // 破甲后在门口等甲回满再进下一个战斗房（HARD+ 是生死差）
           if (tgt.label === 'fight' && p.armor < p.maxArmor - 1 && p.lastHit > 1 && dl < 90) {
             mx = 0; my = 0; A.status.note = '等甲恢复 ' + p.armor + '/' + p.maxArmor;
@@ -625,12 +844,19 @@
   function pickObjective(G, p) {
     const rooms = WORLD.rooms;
     // 1) loose pickups: prisms / keys (skip ones we failed to reach recently)
-    for (const it of G.inter) if (it.kind === 'arsrack' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+    if (A.opts.arsenal) for (const it of G.inter) if (it.kind === 'arsrack' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
       return { pt: [it.x, it.y], label: '军械库', room: roomAt(it.x, it.y) };
-    for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
+    if (A.opts.dialysis && (G.curses || []).length && ((p.maxArmor | 0) >= 1))
+      for (const it of G.inter) if (it.kind === 'dialysis' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+        return { pt: [it.x, it.y], label: '透析机', room: roomAt(it.x, it.y) };
+    if (A.opts.labSerum) for (const it of G.inter) if (it.kind === 'labvial' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+      return { pt: [it.x, it.y], label: '实验血清', room: roomAt(it.x, it.y) };
+    if (A.opts.pickups) for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
     // 1b) weapon/chip drops on the floor worth walking to
     let bw = null, bwd = 1e9;
     for (const it of G.inter) {
+      if (it.kind === 'weapon' && !A.opts.weaponPick) continue;
+      if (it.kind === 'chip' && !A.opts.chipPick) continue;
       if (it.kind !== 'weapon' && it.kind !== 'chip') continue;
       if (unreachable(it) || unreachable(roomAt(it.x, it.y))) continue;
       const want = it.kind === 'chip' ? (!p.skill || it.id !== 'teleport')

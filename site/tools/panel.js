@@ -150,6 +150,13 @@
   row(sAuto).append(
     check('优先无尽传送门', () => ao.preferEndless, (v) => ao.preferEndless = v),
     check('购物/锻造', () => ao.shop, (v) => ao.shop = v));
+  // ---- 细项：逐项决定挂机要不要碰它们 ----
+  const setOpt = (k, sk) => check(k, () => ao[k], (v) => { ao[k] = v; TSW.settings.set(sk, v); });
+  row(sAuto).append(setOpt('自动开箱', 'autoChest'), setOpt('治疗泉', 'autoFount'));
+  row(sAuto).append(setOpt('实验血清（α/β/Ω）', 'autoLabSerum'), setOpt('军械库', 'autoArsenal'));
+  row(sAuto).append(setOpt('捡武器', 'autoWeaponPick'), setOpt('捡芯片', 'autoChipPick'));
+  row(sAuto).append(setOpt('棱镜/钥匙', 'autoPickups'), setOpt('玩家可手动接管', 'autoManual'));
+  row(sAuto).append(setOpt('透析机（花 1 护甲上限清诅咒）', 'autoDialysis'));
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------

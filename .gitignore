@@ -1,6 +1,14 @@
+# git-hooks.nix 在 nix develop 时生成的钩子配置（指向 nix store，不入库）
+.pre-commit-config.yaml
+
+# 构建/临时产物
 .tmp/
 result
-result/
-[TheSeed]/
 node_modules/
 *.log
+
+# 注意：这里**故意不**忽略 [TheSeed]/。
+#   * 它是镜像的来源（浏览器保存的原版页面 + 76 个脚本），属于可追溯性证据，必须进 git；
+#   * 早先写过一行 `[TheSeed]/`，但那是 gitignore 的**字符类**语法（匹配单个
+#     T/h/e/S/d 字符后接 "eed/"），并不是字面量目录名，所以它从来没生效过。
+#     真要忽略必须写成 `\[TheSeed\]/`，但那样会让镜像失去来源，故删除。

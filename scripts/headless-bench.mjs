@@ -125,6 +125,12 @@ async function main() {
 
   if (results.length) {
     for (const r of results) console.log(JSON.stringify(r));
+    if (results.length > 1) {
+      const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+      const sd = (a) => { const m = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / Math.max(1, a.length - 1)); };
+      const g = results.map((r) => r.gameT || 0), k = results.map((r) => r.kills || 0);
+      console.log(JSON.stringify({ kind: 'summary', runs: results.length, gameT: +mean(g).toFixed(1), gameTsd: +sd(g).toFixed(1), kills: +mean(k).toFixed(1), killsSd: +sd(k).toFixed(1) }));
+    }
     if (args.out) { await mkdir(dirname(resolve(String(args.out))), { recursive: true }); await writeFile(resolve(String(args.out)), results.map((r) => JSON.stringify(r)).join('\n') + '\n', { flag: 'a' }); }
   } else {
     console.error('[bench] no TSW_RESULT captured');
