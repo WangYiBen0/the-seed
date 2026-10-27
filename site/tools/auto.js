@@ -346,6 +346,16 @@
     if (typeof TL !== 'undefined' && tileAtPx(x, y) === TL.SPIKE && typeof spikeState === 'function') {
       const sv = spikeState(); if (sv === 2) d += 2.4; else if (sv === 1) d += .9;   // 2 = out, 1 = warning
     }
+    // death-fight (绝境「死斗」修饰符): a foe with deathFightLeft > 0 cannot be
+    // selected or shot, but it KEEPS dealing contact damage for 2s
+    // (enemies.js:115 has no deathFightLeft filter).  So treat it as a pure
+    // hazard: never aim at it, but push away from it.
+    if (G.enemies) for (const e of G.enemies) {
+      if (e.dead || !(e.deathFightLeft > 0) || e.spawnT > 0) continue;
+      const rr = (e.r || 6) + p.r + 10;
+      const dd = Math.hypot(x - e.x, y - e.y);
+      if (dd < rr) d += 2.2 * (1 - dd / rr) + .9;
+    }
     // gunners locking a shot: stay off the firing line before the bullet exists
     if (G.enemies) for (const e of G.enemies) {
       if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.st !== 'aim') continue;
@@ -757,6 +767,19 @@
       // aim at the closest foe WITH a clear shot (falls back to the closest so the
       // aim stays warm); firing is gated on that target actually existing
       const neF = nearestEnemy(p.x, p.y, 900, true);
+      // ---- 清房停滞：房间已激活但没有「能打到」的敌人 → 主动去找那一个漏网的 ----
+      if (active && !neF) {
+        const anyFoe = nearestEnemy(p.x, p.y, 2000, false);
+        if (anyFoe) {
+          A._hunt = (A._hunt || 0) + 1;
+          if (A._hunt > 30) {                       // ~0.5s of no shot: commit to hunting
+            const hx = anyFoe.x - p.x, hy = anyFoe.y - p.y, hl = Math.hypot(hx, hy) || 1;
+            mx = hx / hl; my = hy / hl;
+            A.status.note = '清房：追击漏网之敌';
+            A.status.target = 'hunt';
+          }
+        }
+      } else if (neF) A._hunt = 0;
       const aimT = neF || ne;
       if (aimT) { Input.mx = clampM(aimT.x - G.cam.x, GW()); Input.my = clampM(aimT.y - G.cam.y, GH()); }
       if (ne) {

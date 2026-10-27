@@ -37,6 +37,57 @@
     return { ticks, tps: ticks / wall, wall, gameS: (G().runT || 0) - runT0 };
   }
 
+  // 绝境五锁：修饰符不是 UI 状态，而是 sortie(i, ids) → PENDING_MODIFIERS →
+  // takeRunModifiers() 在 newRun 里取走。直接写 PENDING_MODIFIERS 就能让一局
+  // 带着任意修饰符开场（游戏自己的 cleanModifiers 仍会校验 diff==='despair'）。
+  // 绝境五锁（以及任意带修饰符的开局）：修饰符只认存档字段。
+  //   * modifiers.js 的 PENDING_MODIFIERS 是它自己作用域里的 let，bench 里赋值
+  //     只会遮蔽，改不到游戏；sortie() 又会进营地而不是直接开局。
+  //   * 所以这里构造一份最小存档（floor 0、diff despair、modifiers 五锁），
+  //     交给游戏自己的 loadSave()/cleanModifiers() 校验，然后 resumeRun()。
+  const MOD_IDS = ['rage', 'deathfight', 'bulwark', 'rot', 'cyst'];
+  // `whenGame()` resolves as soon as game.js is up, but scripts load in order and
+  // modifiers.js is #70 of 76 — newRun() calls takeRunModifiers(), so starting a
+  // modifier run before that file executes throws ReferenceError.
+  function scriptsReady() {
+    try {
+      return typeof takeRunModifiers === 'function' && typeof cleanModifiers === 'function'
+        && typeof resumeRun === 'function' && typeof newRun === 'function';
+    } catch (e) { return false; }
+  }
+  async function waitScripts(ms = 15000) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < ms) {
+      if (scriptsReady()) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return scriptsReady();
+  }
+  function startRunWith({ diff = 'classic', mods = null, policy = null } = {}) {
+    const d = (DIFF_BY && DIFF_BY[diff]) ? diff : (diff || 'classic');
+    SET.diff = d; saveSettings();
+    const useMods = Array.isArray(mods) && mods.length ? mods.slice() : null;
+    let resumed = false;
+    if (useMods) {
+      const save = {
+        v: 1, at: Date.now(), floor: 0, diff: d, modifiers: useMods,
+        hp: 5, maxHp: 5, armor: 3, maxArmor: 3, weapons: ['nail'], wi: 0, wlv: {},
+        shards: {}, skill: null, ink: 0, kills: 0, runT: 0, hits: 0, curses: [],
+        rid: 'r' + Date.now().toString(36),
+      };
+      try {
+        // STORE.setItem silently drops writes while STORE.locked is set (it is
+        // locked during platform flushes), so write through mem + dirty directly.
+        const txt = JSON.stringify(save);
+        STORE.mem['achroma_run'] = txt;
+        try { STORE.dirty.add('achroma_run'); } catch (e) { }
+        resumeRun(); resumed = true;
+        TSW.log('fiveLock: resumed with ' + useMods.join(',') + ' → G.modifiers=' + JSON.stringify((window.__achroma.G && __achroma.G.modifiers) || []));
+      } catch (e) { TSW.err('fiveLock resume', e); }
+    }
+    if (!resumed) { clearSave(); LAUNCH.fn = null; launchRun(); }
+  }
+
   // ensure we are inside a real run (benchmarking the menu measures almost nothing)
   function ensureInRun() {
     const g = window.__achroma.G;
@@ -90,7 +141,7 @@
     };
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic' } = {}) {
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
@@ -99,11 +150,23 @@
     TSW.speed.set(speed, true);
     const M = TSW.metrics;
     M.reset();
-    // start a fresh run (same entry the pause-menu restart uses)
-    SET.diff = diff; saveSettings(); clearSave();
-    LAUNCH.fn = null; launchRun();
+    // start a fresh run: either the game's own launchRun() or (with modifiers)
+    // a crafted save resumed through the game's loader
+    await waitScripts();
+    startRunWith({ diff, mods });
     const G = () => window.__achroma.G;
     const t0 = performance.now();
+    // the resume path needs a beat; without this the first ticks record the menu
+    let modsEarly = [];
+    {
+      const ws = performance.now();
+      while (performance.now() - ws < 8000) {
+        const g = G();
+        if (g && g.p && (g.state === 'play' || g.state === 'cards' || g.state === 'dead')) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const g = G(); modsEarly = (g && g.modifiers) ? g.modifiers.slice() : [];
+    }
     // watchdog: if the run's observable state hasn't changed for 30 real seconds
     // (soft-lock: unpickable state, geometry, …) end it as 'stuck' so experiment
     // matrices always complete.  hurtPlayer is the game's own damage entry point.
@@ -139,6 +202,8 @@
     const g = G();
     return {
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
+      modifiers: modsEarly,
+      modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
       end: res.end, wall: +res.wall.toFixed(1),
       gameT: +g.runT.toFixed(0), floor: g.floor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
@@ -290,6 +355,83 @@
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
     };
   }
+  // ---------------- 入侵抵抗 (invasion resistance) ----------------
+  // The mode is a Brotato-style arena: ivBegin() opens an ivrole picker, then a
+  // shop, then ivStartWave() begins the fight.  The autopilot knows none of the
+  // IV_UI states, so a benchmark has to resume a crafted invade save (the game's
+  // own ivLoadSave validates every field) and let ivResume() set up the arena.
+  async function runInvade({ speed = 8, seed = null, diff = 'despair', role = 'rounded',
+    wave = 5, weapons = [{ id: 'edge', t: 2 }, { id: 'hammer', t: 1 }], seconds = 120,
+    timeoutS = 900, hpCap = null } = {}) {
+    await waitScripts();
+    const wasSpeed = TSW.speed.get(), wasMode = TSW.auto.mode;
+    if (seed != null) TSW.rng.seed(seed);
+    const save = {
+      v: 1, at: Date.now(), rid: 'r' + Date.now().toString(36), diff,
+      ink: 0, kills: 0, runT: 0,
+      iv: {
+        wave, role, w: weapons.slice(), items: {}, base: {}, xp: 0, lv: 0, lvPend: 0,
+        crates: [], offers: [null, null, null, null], lock: [false, false, false, false],
+        rr: 0, freeRolls: 0, events: [], pending: {}, mats0: 0, crateDrops: 0,
+      },
+    };
+    if (hpCap != null) save.iv.hpCap = hpCap;
+    let started = false;
+    try {
+      const txt = JSON.stringify(save);
+      STORE.mem['achroma_ivrun'] = txt;              // STORE.setItem drops writes when locked
+      try { STORE.dirty.add('achroma_ivrun'); } catch (e) { }
+      const ok = (typeof ivResume === 'function') ? ivResume() : false;
+      started = !!ok;
+      TSW.log('invade: resume ' + (ok ? 'ok' : 'FAILED') + ' diff=' + diff + ' wave=' + wave + ' role=' + role);
+    } catch (e) { TSW.err('invade resume', e); }
+    if (!started) return { kind: 'invade', at: Date.now(), error: 'ivResume failed (save rejected)', diff, wave, role };
+
+    const wasRestart = TSW.auto.opts.autoRestart;
+    TSW.auto.opts.autoRestart = false;          // a death must end the sample, not restart it
+    TSW.auto.setMode('full');
+    TSW.speed.set(speed, true);
+    // walk into the fight: ivshop/ivrole need a click/keypress to advance
+    const t0 = performance.now();
+    const seen = [];
+    while (performance.now() - t0 < 12000) {
+      const g = window.__achroma.G;
+      if (!g) { await new Promise((r) => setTimeout(r, 150)); continue; }
+      if (seen[seen.length - 1] !== g.state) seen.push(g.state);
+      if (g.state === 'play') break;
+      // ivshop is the between-wave shop: ivNextWave() is the game's own entry
+      if (g.state === 'ivshop') { try { ivNextWave(); } catch (e) { try { ivStartWave(); } catch (e2) { } } }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    TSW.log('invade: state path ' + seen.join(' → ') + ' (final=' + (window.__achroma.G && __achroma.G.state) + ')');
+    const g0 = window.__achroma.G;
+    const runT0 = g0.runT || 0, k0 = g0.kills | 0, d0 = TSW.metrics.dmgTotal;
+    let peakWave = (g0.iv && g0.iv.wave) | 0;
+    const mon = setInterval(() => {
+      const gg = window.__achroma.G;
+      if (gg && gg.iv && (gg.iv.wave | 0) > peakWave) peakWave = gg.iv.wave | 0;
+    }, 250);
+    await new Promise((res) => setTimeout(res, Math.max(4000, seconds * 1000 / Math.min(4, speed) + 3000)));
+    clearInterval(mon);
+    TSW.auto.setMode('off');
+    TSW.auto.opts.autoRestart = wasRestart;
+    TSW.speed.set(wasSpeed, true);
+    if (wasMode !== 'off') TSW.auto.setMode(wasMode);
+    TSW.rng.clear();
+    const g = window.__achroma.G, iv = g.iv || {};
+    const gameS = Math.max(1, (g.runT || 0) - runT0);
+    return {
+      kind: 'invade', at: Date.now(), seed, diff, role, startWave: wave, seconds, speed,
+      end: g.state === 'dead' ? 'death' : 'alive',
+      gameS: +gameS.toFixed(1), waveReached: peakWave || (iv.wave | 0), wavePhase: iv.phase || '',
+      kills: (g.kills | 0) - k0, hits: g.hits | 0,
+      dmg: Math.round(TSW.metrics.dmgTotal - d0),
+      weapons: (iv.w || []).map((w) => w.id + ':t' + w.t),
+      lv: iv.lv | 0, state: g.state,
+      ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
+    };
+  }
+
   async function runDodge(o = {}) {
     // 躲弹幕只有一个引擎（v2）；无效样本自动重试，避免"没进战斗=0受击"的假数据
     let r = await runDodgeOne(o);
@@ -308,6 +450,7 @@
       else if (kind === 'fullrun') r = await runFullRun(opts);
       else if (kind === 'probe') r = await runProbe(opts);
       else if (kind === 'dodge') r = await runDodge(opts);
+      else if (kind === 'invade') r = await runInvade(opts);
       else throw new Error('unknown kind ' + kind);
     } catch (e) { TSW.err('bench', e); B.running = null; TSW.bus.emit('bench'); return { kind: 'error', error: String(e && e.stack || e).slice(0, 500) }; }
     B.running = null;

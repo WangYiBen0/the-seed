@@ -157,6 +157,10 @@
   row(sAuto).append(setOpt('捡武器', 'autoWeaponPick'), setOpt('捡芯片', 'autoChipPick'));
   row(sAuto).append(setOpt('棱镜/钥匙', 'autoPickups'), setOpt('玩家可手动接管', 'autoManual'));
   row(sAuto).append(setOpt('透析机（花 1 护甲上限清诅咒）', 'autoDialysis'));
+  row(sAuto).append(setOpt('技能芯片（E）', 'autoSkill'), setOpt('主动换弹（R）', 'autoReload'));
+  row(sAuto).append(setOpt('搭档技能（F）', 'autoPartner'), setOpt('换弹切副武器（X）', 'autoWeaponSwap'));
+  row(sAuto).append(setOpt('招募伙伴（篝火）', 'autoMate'), setOpt('冲刺避开陷阱/虚空', 'autoDashHazards'));
+  row(sAuto).append(check('启用冲刺', () => ao.dash, (v) => { ao.dash = v; TSW.settings.set('autoDash', v); }));
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------
@@ -243,6 +247,85 @@
   renderBench();
 
   // ---------------- dzmm 账号 ----------------
+  // ---------------- 最终稳定状态 · GOAL BUILD ----------------
+  // 挂机把这套配置当“目标终局”：选卡/选枪/招募/技能都朝它靠。
+  // 每一项显示游戏内真实名字与描述（取自 WEAPONS / SKILLS / SURV 表）。
+  const sGoal = section('最终稳定状态 · GOAL BUILD');
+  const goalHelp = el('div', 'color:#8d867a');
+  goalHelp.textContent = '挂机会把这套配置当目标终局；没选的项＝不限。（名字与描述取自游戏数据表）';
+  sGoal.appendChild(goalHelp);
+
+  const L1 = (v) => { if (!v) return ''; if (Array.isArray(v)) return v[1] || v[0] || ''; return String(v); };
+  const goalStore = (k, d) => TSW.settings.get('goal.' + k, d);
+  const goalSet = (k, v) => { TSW.settings.set('goal.' + k, v); note('目标已保存：' + k); };
+
+  const goalSel = (label, items, key) => {
+    const r = row(sGoal);
+    const lb = el('span', 'color:#8d867a;min-width:80px', r); lb.textContent = label;
+    const s2 = sel(items);
+    s2.value = goalStore(key, '');
+    r.append(s2);
+    const dd = el('div', 'color:#57534c;margin:0 0 3px 0;padding-left:4px');
+    sGoal.appendChild(dd);
+    const up = () => {
+      const hit = items.find((it) => it[0] === s2.value);
+      dd.textContent = hit && hit[2] ? hit[2] : '';
+    };
+    s2.onchange = () => { goalSet(key, s2.value); up(); };
+    up();
+    return s2;
+  };
+
+  const wItems = [['', '（不限）', '']];
+  try {
+    const ids = (typeof WEAPON_IDS !== 'undefined') ? WEAPON_IDS : Object.keys(WEAPONS);
+    for (const id of ids) { const w = WEAPONS[id]; if (!w || !w.nm) continue; wItems.push([id, L1(w.nm) + ' · ' + id, L1(w.d) + '（' + (w.kind || '') + '）']); }
+  } catch (e) { }
+  goalSel('目标武器', wItems, 'weapon');
+
+  const kItems = [['', '（不限）', '']];
+  try {
+    const ids = (typeof SKILL_IDS !== 'undefined') ? SKILL_IDS : Object.keys(SKILLS);
+    for (const id of ids) { const k = SKILLS[id]; if (!k) continue; kItems.push([id, String(k.nm || id), L1(k.d)]); }
+  } catch (e) { }
+  goalSel('目标技能', kItems, 'skill');
+
+  const svItems = [['', '（不限）', '']];
+  try {
+    const ids = (typeof SURV_IDS !== 'undefined') ? SURV_IDS : Object.keys(SURV);
+    for (const id of ids) { const m = SURV[id]; if (!m) continue; svItems.push([id, L1(m.nm) + ' · ' + id, L1(m.file || '')]); }
+  } catch (e) { }
+  goalSel('电台搭档', svItems, 'radio');
+  goalSel('战斗搭档', svItems, 'mate');
+
+  const exLabel = el('div', 'color:#8d867a;margin-top:3px');
+  exLabel.textContent = '目标排除血清（逗号分隔 id）';
+  sGoal.appendChild(exLabel);
+  const exBox = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:100%;font:11px monospace');
+  exBox.placeholder = 'bloom,shrap,fury …';
+  exBox.value = (TSW.settings.get('serumExclude', []) || []).join(',');
+  exBox.onchange = () => { TSW.settings.set('serumExclude', exBox.value.split(',').map((x) => x.trim()).filter(Boolean)); note('排除血清已保存'); };
+  sGoal.appendChild(exBox);
+
+  const gRow = row(sGoal);
+  const bGoalShow = btn('查看当前目标');
+  const bGoalClear = btn('清空目标');
+  gRow.append(bGoalShow, bGoalClear);
+  const gOut = el('div', 'white-space:pre-wrap;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:3px;padding-top:3px');
+  sGoal.appendChild(gOut);
+  const showGoal = () => {
+    const k = (x) => goalStore(x, '') || '（不限）';
+    gOut.textContent = '目标武器：' + k('weapon') + '\n目标技能：' + k('skill') +
+      '\n电台搭档：' + k('radio') + '\n战斗搭档：' + k('mate') +
+      '\n排除血清：' + ((TSW.settings.get('serumExclude', []) || []).join(',') || '（无）');
+  };
+  bGoalShow.onclick = () => { showGoal(); note('目标如上'); };
+  bGoalClear.onclick = () => {
+    for (const x of ['weapon', 'skill', 'radio', 'mate']) TSW.settings.set('goal.' + x, '');
+    TSW.settings.set('serumExclude', []);
+    note('目标已清空（刷新面板生效）');
+  };
+
   const sAcc = section('工具注入 · INJECT');
   const accRow = row(sAcc);
   const bInject = btn('复制工具注入代码');
@@ -339,6 +422,8 @@
       timeoutS: +(q.get('timeoutS') || 900), seconds: +(q.get('seconds') || 12),
       depth: +(q.get('depth') || 5), diff: q.get('diff') || undefined,
       engine: q.get('engine') || 'v2',
+      mods: q.get('mods') ? q.get('mods').split(',').map((x) => x.trim()).filter(Boolean) : null,
+      role: q.get('role') || undefined, wave: q.get('wave') ? +q.get('wave') : undefined,
     };
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
@@ -351,6 +436,7 @@
         else if (kind === 'fullrun') emit(await TSW.bench.run('fullrun', opts));
         else if (kind === 'probe') emit(await TSW.bench.run('probe', opts));
         else if (kind === 'dodge') emit(await TSW.bench.run('dodge', opts));
+        else if (kind === 'invade') emit(await TSW.bench.run('invade', opts));
         else if (kind === 'explore') {
           const n = +(q.get('results') || 4);
           TSW.explore.start({ policies: [opts.policy], seeds: Array.from({ length: n }, (_, i) => 101 + i * 17), speed: opts.speed, goalDepth: opts.goalDepth, timeoutS: opts.timeoutS });
