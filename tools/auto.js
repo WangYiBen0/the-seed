@@ -48,6 +48,7 @@
       invadeDupStyle: 'normal',                              // invade: 'normal' | 'strong' duplicate-weapon priority
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
+      forgeMode: 'held',                                     // explore: 'held' | 'any' (upgrade any equipped weapon)
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -1308,11 +1309,20 @@
       const d = dist(p.x, p.y, it.x, it.y); if (d < bwd) { bwd = d; bw = it; }
     }
     if (bw) return { pt: [bw.x, bw.y], label: bw.kind, room: roomAt(bw.x, bw.y) };
-    // 1c) forge when the current weapon can still be upgraded and we can pay
-    for (const r of rooms) {
-      if (r.type !== 'forge' || unreachable(r)) continue;
-      const cur = p.weapons[p.wi], lv = p.wlv[cur] || 0;
-      if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+    // 1c) forge: 武器是唯一的伤害**基数**（入侵侧实测结论），锻造把墨水变成
+    // 武器等级（+25%/级，乘在基数上），应当尽早做而不是排在所有战斗房之后。
+    // 'any' 模式检查**所有已装备武器**（原来只看手持，绝境里手持常是初始钉枪，
+    // 条件经常不满足 → 等于从未用过锻造）。
+    {
+      const forgeMode = A.opts.forgeMode || 'held';
+      for (const r of rooms) {
+        if (r.type !== 'forge' || unreachable(r)) continue;
+        const ids = forgeMode === 'any' ? (p.weapons || []) : [p.weapons[p.wi]];
+        for (const id of ids) {
+          const lv = (p.wlv && p.wlv[id]) || 0;
+          if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+        }
+      }
     }
     // ---- 资源优先 vs 直接清房（A/B 开关 A.opts.exploreOrder）-----------------
     // 绝境里 输出/补给 往往比多打一个房间更值：先去商店/锻造/神龛/宝箱，
