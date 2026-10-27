@@ -88,6 +88,14 @@ DZMM_PUBLISHED_AT=1792749394892 \
 #   {"gameId": "...", "publishedAt": 1792749394892, ...}
 # 注意：该端点**需要登录**（匿名请求返回 {"error":"请先登录"}），
 # 在浏览器已登录会话里打开即可看到；拼出来的 static/ 目录本身是**公开**的。
+
+# 关于游客登录（POST /api/auth/anonymous-sign-in）——**自动不了**：
+#   请求体 {"fp": {"data": {...11 组信号...}, "hash": "<32 位 hex>"}}
+#   浏览器指纹由页面自己算（audio/canvas/fonts/hardware/locales/permissions/
+#   plugins/screen/system/webgl/math），换环境就会变；
+#   但即便指纹合法，服务端仍返回 {"code":"human_check_required"}，
+#   即必须过一遍人机验证。所以**不要试图伪造或复用指纹**，
+#   需要登录态时请在浏览器里手动登录一次，再把 Cookie 拿来用。
 # 2) 审计新增脚本（新 API / 新资源族 / 新交互物 kind）
 # 3) 冒烟 + 跑一局，再提交部署
 ```
