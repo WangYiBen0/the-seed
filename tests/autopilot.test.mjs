@@ -166,16 +166,16 @@ test('GW: falls back to a sane width when the game global is absent', () => {
   assert.equal(api.GW(), 480);
 });
 
-test('v1/v2 engines: both return a unit vector', () => {
+test('movement picker: returns a unit vector', () => {
   const { api, G } = loadAuto({ bullets: [BULLET(140, 100, -300, 0), BULLET(80, 60, 200, 60)] });
   G.p = P(100, 100);
-  for (const fn of [api.pickDir, api.pickDirSimple]) {
+  for (const fn of [api.pickDir]) {
     const [dx, dy] = fn(G.p, 1, 0);
     assert.ok(Math.abs(Math.hypot(dx, dy) - 1) < 1e-6, 'direction must be normalised');
   }
 });
 
-test('v2 beats v1 on a forced squeeze: one bullet each side vs one lane-safe opening', () => {
+test('v2 prefers the clear lane in a forced squeeze (one bullet each side)', () => {
   // Two bullets aimed to pass either side of the player: the only safe way out is
   // straight down.  v1 (average danger) tends to pick a lane with a near-miss on
   // each side; v2's maximin term should prefer the clear lane.

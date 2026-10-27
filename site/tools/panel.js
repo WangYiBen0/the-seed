@@ -130,7 +130,7 @@
   const sAuto = section('自动挂机 · AUTOPILOT');
   const modeSel = sel([['off', '关闭'], ['combat', '战斗模式（原地打怪）'], ['full', '全自动（探索/战斗/购物/无尽）']]);
   modeSel.value = TSW.auto.mode; modeSel.onchange = () => { TSW.auto.setMode(modeSel.value); }; row(sAuto).append(modeSel);
-  const polSel = sel([['bloom', '流派: 坏死爆裂连锁 (bloom)'], ['offense', '流派: 极限输出 (offense)'], ['balanced', '流派: 均衡 (balanced)'], ['survival', '流派: 生存 (survival)'], ['crit', '流派: 暴击狙击 (crit)'], ['dot', '流派: 元素侵蚀 (dot)'], ['melee', '流派: 近战斩击 (melee)'], ['ally', '流派: 伙伴军团 (ally)'], ['ammo', '流派: 弹药工程 (ammo)'], ['phase', '流派: 虚体闪避 (phase)']]);
+  const polSel = sel([['rounded', '均衡适应'], ['brawler', '近身搏击'], ['crazy', '精准猛攻'], ['ranger', '远距火力'], ['mage', '元素反应'], ['chunky', '厚重生存'], ['old', '稳守缓进'], ['lucky', '幸运搜集'], ['engineer', '工程布防'], ['doctor', '医疗续航'], ['mutant', '快速蜕变'], ['loud', '喧嚣引敌']]);
   polSel.value = TSW.auto.policy; polSel.onchange = () => TSW.auto.setPolicy(polSel.value); row(sAuto).append(polSel);
   // 排除列表 / 优先级 (comma-separated shard ids)
   const exIn = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace;margin:1px 0');
@@ -162,7 +162,7 @@
   // ---------------- 测评（无尽探索） ----------------
   const sExp = section('无尽流派测评 · EXPLORE');
   const expCfg = row(sExp);
-  const expPolicy = sel([['bloom', 'bloom'], ['offense', 'offense'], ['balanced', 'balanced'], ['survival', 'survival'], ['crit', 'crit'], ['dot', 'dot'], ['melee', 'melee'], ['ally', 'ally'], ['ammo', 'ammo'], ['phase', 'phase']]);
+  const expPolicy = sel([['rounded', '均衡适应'], ['brawler', '近身搏击'], ['crazy', '精准猛攻'], ['ranger', '远距火力'], ['mage', '元素反应'], ['chunky', '厚重生存'], ['old', '稳守缓进'], ['lucky', '幸运搜集'], ['engineer', '工程布防'], ['doctor', '医疗续航'], ['mutant', '快速蜕变'], ['loud', '喧嚣引敌']]);
   const expDepth = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
   expDepth.value = '2'; expDepth.title = '目标无尽深度';
   const expSeeds = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
@@ -197,7 +197,7 @@
   const bBmd = btn('复制结果(Markdown)'); const bBclr = btn('清空'); rB2.append(bBmd, bBclr);
   bBt.onclick = () => { note('跑分中…（引擎吞吐）'); TSW.bench.run('throughput', { seconds: 10, speed: 8 }); };
   bBm.onclick = () => { note('跑分中…（宏+倍速）'); TSW.bench.run('macro', { seconds: 20, speed: 4 }); };
-  bBf.onclick = () => { note('跑分中…（全自动一局，目标无尽1）'); TSW.bench.run('fullrun', { speed: 8, seed: 7, policy: 'bloom', goalDepth: 1, timeoutS: 900 }); };
+  bBf.onclick = () => { note('跑分中…（全自动一局，目标无尽1）'); TSW.bench.run('fullrun', { speed: 8, seed: 7, policy: 'rounded', goalDepth: 1, timeoutS: 900 }); };
   bBmd.onclick = () => navigator.clipboard && navigator.clipboard.writeText(TSW.bench.markdown()).then(() => note('已复制'), () => { });
   bBclr.onclick = () => { TSW.bench.clear(); renderBench(); };
   // ---------------- 躲弹幕测评 (pure-evasion stress test) ----------------
@@ -207,34 +207,28 @@
   sDodge.appendChild(dHelp);
   const numIn = (ph, w) => { const n = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:' + w + 'px;font:11px monospace'); n.placeholder = ph; return n; };
   const dR1 = row(sDodge);
-  const dEng = sel([['v2', 'v2 当前算法'], ['simple', 'v1 旧算法'], ['both', '对比 v2 vs v1']]);
   const dSec = numIn('秒', 44), dDep = numIn('深度', 40), dSeed = numIn('种子', 44);
-  dEng.style.width = '130px';
   dSec.value = '45'; dDep.value = '6'; dSeed.value = '11';
-  dR1.append(dEng, dSec, dDep, dSeed);
-  dEng.value = TSW.settings.get('dodgeEngine', 'v2') === 'simple' ? 'simple' : 'v2';
+  dR1.append(dSec, dDep, dSeed);
   const dR2 = row(sDodge);
   const dGo = btn('开始躲弹幕测评');
-  const dAb = btn('对比 v2 vs v1');
-  dR2.append(dGo, dAb);
+  dR2.append(dGo);
   const dOut = el('div', 'white-space:pre;overflow:auto;max-height:170px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px');
   sDodge.appendChild(dOut);
   const fmt = (r, name) => `${name} 受击 ${r.hitsPerMin}/分（${r.hits} 次 / ${r.gameMinutes} 分）\n` +
     `   危险值 ${r.dangerAvg} · 暴露率 ${r.hazardPct}% · 弹幕余量均值 ${r.clearAvg}（最差 ${r.clearMin}）\n` +
     `   冲刺 ${r.dashesPerMin}/分 · 存活 ${r.end === 'dead' ? '阵亡' : '存活'} · ticks ${r.ticks}`;
-  const runDodge = async (engine) => {
+  const runDodge = async () => {
     note('躲弹幕测评中…（×8，需要几十秒）');
     dOut.textContent = '跑分中…';
-    const o = { engine, seconds: +dSec.value || 45, depth: +dDep.value || 6, seed: +dSeed.value || 11, speed: 8 };
+    const o = { seconds: +dSec.value || 45, depth: +dDep.value || 6, seed: +dSeed.value || 11, speed: 8 };
     const r = await TSW.bench.run('dodge', o);
     if (!r) { dOut.textContent = '（失败）'; return; }
-    if (r.kind === 'dodge-ab') dOut.textContent = fmt(r.v2, 'v2 ') + '\n' + fmt(r.simple, 'v1 ') + '\n结论：' + r.verdict + `（受击差 ${r.delta.hitsPerMin}/分）`;
     else if (r.kind === 'error') dOut.textContent = '错误：' + r.error;
-    else dOut.textContent = fmt(r, r.engine);
+    else dOut.textContent = fmt(r, 'v2');
     note('完成');
   };
-  dGo.onclick = () => runDodge(dEng.value);
-  dAb.onclick = () => runDodge('both');
+  dGo.onclick = () => runDodge();
 
   function renderBench() {
     const rs = TSW.bench.results.slice(-8).reverse();
@@ -247,6 +241,34 @@
     }).join('\n') : '（暂无结果）';
   }
   renderBench();
+
+  // ---------------- dzmm 账号 ----------------
+  const sAcc = section('工具注入 · INJECT');
+  const accRow = row(sAcc);
+  const bInject = btn('复制工具注入代码');
+  const bAccNote = el('div', 'color:#8d867a');
+  bAccNote.textContent = '官网页（dzmm.ai）是纯静态页面之外的另一套登录态，镜像读不到它；\n想在官方页里用这套工具：点上面按钮复制代码，到官网页面按 F12 打开控制台粘贴回车，\n然后 F8 工坊 / F9 HUD / F10 指令台。源码见 inject.js。';
+  accRow.append(bInject);
+  sAcc.appendChild(bAccNote);
+  // 注入代码只有一份（site/inject.js），按钮直接把它取过来复制，避免两处不同步
+  const INJECT_FALLBACK = "(()=>{const B='https://wangyiben0.github.io/the-seed/tools/',F=['core','macro','auto','hud','bench','explore','cheats','panel'];if(window.__TSW)return console.warn('[TSW] already injected');(async()=>{const bad=[];for(const n of F){await new Promise(r=>{const s=document.createElement('script');s.src=B+n+'.js?v='+Date.now();s.onload=r;s.onerror=()=>{bad.push(n);r()};document.head.appendChild(s)})}console.log(bad.length?'[TSW] failed: '+bad:'[TSW] injected')})()})();";
+  const copyInject = async () => {
+    let code = INJECT_FALLBACK;
+    try {
+      const url = new URL('../inject.js', document.baseURI);
+      const res = await fetch(url.href, { cache: 'no-store' });
+      if (res.ok) { const t = await res.text(); if (t && t.length > 80) code = t; }
+    } catch (e) { /* 取不到就退回内置一行版 */ }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(code); note('已复制注入代码 → 到官网页面 F12 粘贴回车'); return; }
+    } catch (e) { }
+    // 剪贴板不可用（无 https / 被拒）时给一个可选中的文本框
+    const ta = document.createElement('textarea');
+    ta.value = code; ta.style.cssText = 'width:100%;height:70px;margin-top:4px;background:#151310;color:#e8e1d3;border:1px solid #3c3732;font:10px monospace';
+    sAcc.appendChild(ta); ta.focus(); ta.select();
+    note('剪贴板被拒：已选中文本，请手动 Ctrl+C');
+  };
+  bInject.onclick = copyInject;
 
   // ---------------- 存档 ----------------
   const sSave = section('存档 · SAVE (localStorage)');
@@ -313,7 +335,7 @@
     const kind = q.get('autotest');
     const opts = {
       speed: +(q.get('speed') || 8), seed: q.get('seed') != null ? +q.get('seed') : (kind === 'fullrun' || kind === 'probe' ? 7 : null),
-      policy: q.get('policy') || 'bloom', goalDepth: +(q.get('goalDepth') || 1),
+      policy: q.get('policy') || 'rounded', goalDepth: +(q.get('goalDepth') || 1),
       timeoutS: +(q.get('timeoutS') || 900), seconds: +(q.get('seconds') || 12),
       depth: +(q.get('depth') || 5), diff: q.get('diff') || undefined,
       engine: q.get('engine') || 'v2',

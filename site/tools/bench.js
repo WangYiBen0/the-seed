@@ -218,14 +218,13 @@
   // clearance, dash usage).  engine 'v2' vs 'simple' is an A/B of the dodge AI
   // itself, so the number says something about the code and not just the seed.
   async function runDodgeOne({ depth = 6, seconds = 45, speed = 8, policy = 'survival', seed = 11,
-    engine = 'v2', floor = 4, keep = 7, spawnEvery = 3, spawnN = 4, hp = 14, types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
+    floor = 4, keep = 7, spawnEvery = 3, spawnN = 4, hp = 14, types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
-    const wasNoFire = TSW.auto.opts.noFire, wasEngine = TSW.auto.opts.dodgeEngine;
+    const wasNoFire = TSW.auto.opts.noFire;
     TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
     TSW.speed.set(speed, true);
     TSW.auto.opts.noFire = true;              // stress: never shoot back
-    TSW.auto.opts.dodgeEngine = engine;
     const M = TSW.metrics; M.reset(); TSW.auto.metrics.reset();
     const save = {
       v: 1, at: Date.now(), floor, diff: diff || 'classic', hp, armor: 3,
@@ -262,7 +261,7 @@
     off();
     TSW.auto.setMode('off');
     TSW.speed.set(wasSpeed, true); TSW.auto.setPolicy(wasPolicy);
-    TSW.auto.opts.noFire = wasNoFire; TSW.auto.opts.dodgeEngine = wasEngine;
+    TSW.auto.opts.noFire = wasNoFire;
     if (wasMode !== 'off') TSW.auto.setMode(wasMode);
     try { window.hurtPlayer = _hp; } catch (e) { }
     TSW.rng.clear();
@@ -274,7 +273,7 @@
     // normalise on measured play ticks: G.runT resets when a run restarts, ticks do not
     const mins = Math.max(1 / 60, (A.ticks || 0) / 3600);
     return {
-      kind: 'dodge', at: Date.now(), engine, depth, floor, seconds, policy, seed, speed,
+      kind: 'dodge', at: Date.now(), depth, floor, seconds, policy, seed, speed,
       diff: diff || 'classic',
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1),
@@ -292,28 +291,10 @@
     };
   }
   async function runDodge(o = {}) {
-    const eng = o.engine || 'both';
-    // retry a run whose arena never went live (ticks ≈ 0): reporting 0 hits/min
-    // there would look like a flawless dodge instead of a broken sample
-    const one = async (e) => {
-      let r = await runDodgeOne(Object.assign({}, o, { engine: e }));
-      for (let i = 0; i < 2 && r && !r.valid; i++) { TSW.log('dodge sample invalid (' + r.ticks + ' ticks), retry ' + (i + 1)); r = await runDodgeOne(Object.assign({}, o, { engine: e })); }
-      return r;
-    };
-    if (eng !== 'both') return one(eng);
-    const a = await one('v2');
-    const b = await one('simple');
-    const d = (k) => +(a[k] - b[k]).toFixed(2);
-    return {
-      kind: 'dodge-ab', at: Date.now(), depth: o.depth ?? 6, seconds: o.seconds ?? 45, seed: o.seed ?? 11,
-      v2: a, simple: b,
-      // lower is better for hits/danger; higher is better for clearance
-      delta: { hitsPerMin: d('hitsPerMin'), dangerAvg: d('dangerAvg'), hazardPct: d('hazardPct'), clearP5: d('clearP5'), clearMin: d('clearMin') },
-      verdict: (!a.valid || !b.valid)
-        ? ('样本无效：' + (!a.valid ? 'v2 ' : '') + (!b.valid ? 'simple ' : '') + '未进入战斗（ticks ≈ 0），不可作为结论')
-        : (a.hitsPerMin < b.hitsPerMin ? 'v2 受击更少' : (a.hitsPerMin > b.hitsPerMin ? 'simple 受击更少' : '打平')),
-      ua: a.ua,
-    };
+    // 躲弹幕只有一个引擎（v2）；无效样本自动重试，避免"没进战斗=0受击"的假数据
+    let r = await runDodgeOne(o);
+    for (let i = 0; i < 2 && r && !r.valid; i++) r = await runDodgeOne(o);
+    return r;
   }
 
   B.run = async function (kind, opts = {}) {

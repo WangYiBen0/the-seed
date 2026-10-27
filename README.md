@@ -20,7 +20,7 @@
 | 组件 | 说明 |
 |---|---|
 | `dzmm-shim.js` | 在 `localStorage` 上模拟 dzmm 平台 SDK（`dzmm.kv/*` 等），游戏照常读写存档、AI/排行榜按平台外状态优雅降级 |
-| `tools/*` | 工坊：倍速（×0.25–×16）、操作宏（录制/回放/循环/导入导出）、自动挂机（含细项开关：开箱/治疗泉/实验血清/军械库/捡武器/捡芯片/棱镜钥匙/玩家接管）、可视化测评 HUD、宏+倍速基准、躲弹幕测评、无尽流派测评 |
+| `tools/*` | 工坊：倍速（×0.25–×16）、操作宏（录制/回放/循环/导入导出）、自动挂机（含细项开关：开箱/治疗泉/实验血清/军械库/捡武器/捡芯片/棱镜钥匙/玩家接管）、可视化测评 HUD、宏+倍速基准、躲弹幕测评、无尽流派测评 ；流派=入侵抵抗 12 偏好：均衡适应/近身搏击/精准猛攻/远距火力/元素反应/厚重生存/稳守缓进/幸运搜集/工程布防/医疗续航/快速蜕变/喧嚣引敌 |
 | `docs/*` | 无尽挂机流派指南（源码机制分析）、benchmark 方法与数据 |
 
 游戏本体、玩法、美术、文本均属原作者；本仓库新增的只有
@@ -68,6 +68,8 @@ nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed
 ```js
 (()=>{const B='https://wangyiben0.github.io/the-seed/tools/',F=['core','macro','auto','hud','bench','explore','cheats','panel'];if(window.__TSW)return console.warn('[TSW] 已注入');(async()=>{const bad=[];for(const n of F){await new Promise(r=>{const s=document.createElement('script');s.src=B+n+'.js?v='+Date.now();s.onload=r;s.onerror=()=>{bad.push(n);r()};document.head.appendChild(s)})}console.log(bad.length?'[TSW] 失败: '+bad:'[TSW] 注入成功 · F8 工坊 / F9 HUD / F10 指令台')})()})();
 ```
+
+镜像页的工坊面板里也有一个 **复制工具注入代码** 按钮，一键把这段代码放进剪贴板。
 
 F8 工坊 / F9 HUD / F10 指令台；脚本原件见 [site/inject.js](site/inject.js)，
 细节与风险见 [site/docs/inject.md](site/docs/inject.md)。

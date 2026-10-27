@@ -5,14 +5,14 @@
 //   combat — fight & loot in the current floor, no purchases
 //   full   — explore (BFS over the room graph), fight, loot, heal, shop,
 //            pick serums per policy, take the endless portal, auto-restart
-// Policies score serum cards differently (balanced / offense / bloom / survival).
+// Policies = the game's own 12 invasion preferences; each reweights serum/weapon picks.
 'use strict';
 (function () {
   const TSW = window.__TSW; if (!TSW || TSW.auto) return;
 
   const A = TSW.auto = {
     mode: TSW.settings.get('autoMode', 'off'),        // off | combat | full
-    policy: TSW.settings.get('autoPolicy', 'bloom'),  // balanced | offense | bloom | survival
+    policy: TSW.settings.get('autoPolicy', 'rounded'),  // 12 个入侵偏好之一，见 POLICY_W
     opts: {
       autoCards: TSW.settings.get('autoCards', true),
       autoRestart: TSW.settings.get('autoRestart', true),
@@ -21,7 +21,6 @@
       forge: TSW.settings.get('autoForge', true),
       dash: TSW.settings.get('autoDash', true),
       noFire: false,                                       // dodge-bench stress mode: never shoot
-      dodgeEngine: TSW.settings.get('dodgeEngine', 'v2'),  // v2 | simple (A/B)
       // ---- fine-grained "wire it up" switches (panel: 挂机 → 细项) ----
       chest: TSW.settings.get('autoChest', true),          // open chests
       labSerum: TSW.settings.get('autoLabSerum', true),    // inject the experimental serum in the lab
@@ -31,6 +30,13 @@
       pickups: TSW.settings.get('autoPickups', true),      // prisms & keys
       arsenal: TSW.settings.get('autoArsenal', true),      // visit the armory rack
       dialysis: TSW.settings.get('autoDialysis', true),    // use the dialysis machine to purge a curse
+      // ---- 战斗动作开关（用户要求可逐项禁用） ----
+      skill: TSW.settings.get('autoSkill', true),          // cast the skill chip (E)
+      reload: TSW.settings.get('autoReload', true),        // active reload to dodge the passive-reload damage
+      partner: TSW.settings.get('autoPartner', true),      // radio partner skill (KeyF)
+      weaponSwap: TSW.settings.get('autoWeaponSwap', true),// swap to the sidearm during a reload
+      mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
+      dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -44,39 +50,66 @@
 
   // ---------------- scoring tables ----------------
   const RARW = [1, 2.2, 3.2, 4.2];
-  // per-policy shard weights (default 1)
+  // ---- 12 个流派 = 入侵抵抗的 12 个偏好（名字取自游戏自身，实质由我们定义） ----
+  // rounded 均衡适应 · brawler 近身搏击 · crazy 精准猛攻 · ranger 远距火力
+  // mage 元素反应 · chunky 厚重生存 · old 稳守缓进 · lucky 幸运搜集
+  // engineer 工程布防 · doctor 医疗续航 · mutant 快速蜕变 · loud 喧嚣引敌
   const POLICY_W = {
-    balanced: { heavy: 1.6, frenzy: 1.6, keen: 1.4, fork: 1.6, needle: 1.3, rime: 1.2, ember: 1.2, vital: 1.2, plate: 1.2, bloom: 1.3, big: 1.2, leech: 1.2 },
-    offense: { keen: 2, heavy: 2, frenzy: 2, overk: 2.2, fork: 1.8, echo: 1.6, needle: 1.5, focus: 1.4, guill: 1.5, big: 1.5, moment: 1.2, rico: 1.3, seeker: 1.2, lastround: 1.3, primed: 1.3, glass: 1.4 },
-    bloom: { bloom: 3, shrap: 2.6, fury: 1.8, leech: 1.8, fork: 1.7, echo: 1.4, frenzy: 1.5, heavy: 1.3, keen: 1.2, rime: 1.1, ember: 1.1, big: 1.3, stat: 1.2, drone: 1.2, plate: 1.2, vital: 1.1 },
-    survival: { plate: 2.4, vital: 2.4, leech: 2, quick: 1.4, spite: 1.4, swift: 1.3, after: 1.2, frenzy: 1.2, heavy: 1.2, keen: 1.2 },
-    // 暴击狙击：mark+keen→omen（标记暴击×1.5）、allin+keen→jackpot、farshot+expose→sniper/hawkeye
-    crit: { keen: 2.6, mark: 2.4, heavy: 1.8, frenzy: 1.8, allin: 1.4, farshot: 1.6, expose: 1.5, focus: 1.3, guill: 1.3, lastround: 1.3, big: 1.2, moment: 1.1, needle: 1.2, glass: 1.3 },
-    // 元素侵蚀：四元素+prism，caustic/plasma/shatter 群体协同，高频低伤武器上元素最快
-    dot: { ember: 2.2, venom: 2.2, arc: 1.8, rime: 1.8, prism: 2.4, keen: 1.1, seeker: 1.2, stat: 1.2, plate: 1.2, vital: 1.2, leech: 1.2, quick: 1.2 },
-    // 近战斩击：needle/rico/lead→wreck（弹射长大）、guill 处决、moment 走A打A
-    melee: { needle: 2, rico: 1.8, lead: 1.6, guill: 2, moment: 1.6, echo: 1.4, overk: 1.4, swift: 1.4, heavy: 1.3, veil: 1.3, plate: 1.2, leech: 1.3, frac: 1.2 },
-    // 伙伴军团：drone+fork→swarm 双发、volley+fork→firing 副手齐射、stat/sat 自动火力
-    ally: { drone: 2.6, fork: 2.2, stat: 2, sat: 2, volley: 1.8, seeker: 1.3, frenzy: 1.2, heavy: 1.2, plate: 1.2, vital: 1.2, leech: 1.2 },
-    // 弹药工程：热循环（hotb/overheat）、装填（quick/tactical/refit）、空尖（lastround/primed/rnova）
-    ammo: { quick: 2.2, hotb: 2.2, lastround: 1.8, primed: 1.8, extmag: 1.6, tactical: 1.5, rnova: 1.5, refit: 1.4, veil: 1.2, bottomless: 1.6, frenzy: 1.3, plate: 1.1 },
-    // 虚体闪避：veil+quick→phase、after+echo→phantom 残影、trail+ember→blaze 燃烧步态
-    phase: { veil: 2.4, quick: 1.8, after: 2.2, echo: 1.8, trail: 1.8, swift: 1.6, spite: 1.4, hyper: 1.4, weave: 1.3, plate: 1.1, vital: 1.2 },
+    // 均衡适应：什么都拿一点，优先能形成协同的通用卡
+    rounded: { heavy: 1.5, frenzy: 1.5, keen: 1.4, fork: 1.5, needle: 1.3, rime: 1.2, ember: 1.2, vital: 1.2, plate: 1.2, bloom: 1.25, big: 1.2, leech: 1.2, echo: 1.2 },
+    // 近身搏击：贴脸打，靠弹射/处决/走砍，血厚一点撑住近身交换
+    brawler: { needle: 2, rico: 1.9, lead: 1.6, guill: 2.1, moment: 1.7, overk: 1.5, plate: 1.4, vital: 1.3, leech: 1.4, swift: 1.3, veil: 1.2 },
+    // 精准猛攻：暴击/标记/全押，玻璃大炮但只吃精准武器
+    crazy: { keen: 2.6, mark: 2.4, heavy: 1.8, frenzy: 1.9, allin: 1.5, focus: 1.4, guill: 1.4, lastround: 1.3, moment: 1.2, glass: 1.2, big: 1.2 },
+    // 远距火力：拉远打，远距增伤 + 暴露标记，近身卡一律不碰
+    ranger: { farshot: 2.4, expose: 1.8, keen: 1.8, mark: 1.6, heavy: 1.5, frenzy: 1.5, seeker: 1.4, focus: 1.3, needle: 0.6, moment: 0.6, guill: 0.8, plate: 1.1, vital: 1.1 },
+    // 元素反应：四元素 + prism，靠状态叠伤与群体协同
+    mage: { ember: 2.2, venom: 2.2, arc: 1.9, rime: 1.9, prism: 2.4, seeker: 1.3, stat: 1.2, keen: 1.1, plate: 1.2, vital: 1.2, leech: 1.2, quick: 1.2 },
+    // 厚重生存：血上限/护甲/吸血，站桩打完再走
+    chunky: { plate: 2.6, vital: 2.6, leech: 2.1, big: 1.4, frenzy: 1.2, heavy: 1.2, keen: 1.1, spite: 1.3, quick: 1.2 },
+    // 稳守缓进：慢节奏，回血/护甲恢复优先，只打必打的房间
+    old: { plate: 2.2, vital: 2.2, leech: 1.9, quick: 1.5, after: 1.4, swift: 1.3, spite: 1.3, veil: 1.2, frenzy: 1.2, heavy: 1.2 },
+    // 幸运搜集：拾取/贪婪/赏金，靠经济与掉落滚雪球
+    lucky: { greed: 2.4, bounty: 2.2, jackpot: 1.9, scrap: 1.8, perfect: 1.5, allin: 1.3, keen: 1.3, stat: 1.3, plate: 1.2, vital: 1.2, leech: 1.2 },
+    // 工程布防：无人机/炮台/召唤物，自动火力为主
+    engineer: { drone: 2.6, sat: 2.3, stat: 2, summon: 1.9, deploy: 1.7, fork: 1.6, seeker: 1.3, plate: 1.2, vital: 1.2, leech: 1.2 },
+    // 医疗续航：吸血 + 上限 + 再生，打得慢但很难死
+    doctor: { leech: 2.6, vital: 2.1, plate: 1.9, after: 1.5, spite: 1.4, quick: 1.3, heavy: 1.2, frenzy: 1.2, keen: 1.2 },
+    // 快速蜕变：经验/成长类，早升级早滚雪球
+    mutant: { stat: 2.3, greed: 1.8, keen: 1.5, frenzy: 1.5, heavy: 1.4, fork: 1.4, bloom: 1.3, echo: 1.3, plate: 1.1, vital: 1.2 },
+    // 喧嚣引敌：全输出，靠更快的清怪速度抵消更密的波次
+    loud: { frenzy: 2.3, heavy: 2.1, overk: 2, keen: 1.9, fork: 1.8, echo: 1.7, rico: 1.5, bloom: 1.4, big: 1.4, moment: 1.3, plate: 1.1 },
   };
   // weapon class preference per policy (higher = take it / buy it)
   const WEAPON_W = {
-    balanced: { rail: 5, scatter: 5, lance: 4.5, volt: 4, bow: 4, nail: 3, twin: 3.5, rivet: 3.5, halo: 3, splinter: 3, edge: 3 },
-    offense: { rail: 6, longshot: 6, scatter: 5.5, lance: 5, hammer: 5, bow: 4.5, crescent: 4.5, volt: 4, iai: 4, trident: 4 },
-    bloom: { hail: 6, storm: 6, flamer: 5.5, twin: 5, splinter: 4.5, nail: 4, shuriken: 4, saw: 4, halo: 3.5, whirl: 4, hive: 3.5, frostbite: 4 },
-    survival: { hammer: 5, whirl: 4.5, edge: 4, fist: 4, graviton: 4, mines: 4, halo: 3.5, shuriken: 3.5 },
-    crit: { rail: 6, longshot: 6, trident: 5, scatter: 5, crescent: 4.5, lance: 4.5, bow: 4, rivet: 4, slug: 4, harpoon: 3.5, flechette: 3.5 },
-    dot: { flamer: 6, frostbite: 5.5, helix: 5, splinter: 5, hive: 4.5, gas: 4.5, volt: 4, nail: 3.5, prism: 4, twin: 4 },
-    melee: { edge: 5.5, lance: 5.5, whirl: 5, hammer: 5, iai: 5, scythe: 5, axe: 4.5, chainsaw: 4.5, baton: 4, flail: 4, fist: 4, crescent: 3.5 },
-    ally: { hail: 5, splinter: 5, twin: 4.5, hive: 4.5, summon: 4.5, deploy: 4, nail: 3.5, shuriken: 3.5, storm: 4 },
-    ammo: { storm: 6, flamer: 5.5, prism: 5, hail: 5, splinter: 4.5, rivet: 4, twin: 4, flak: 4, nail: 3.5 },
-    phase: { shuriken: 5.5, mirage: 5, halo: 4.5, saw: 4.5, carom: 4.5, crescent: 4, bolas: 4, whirl: 3.5, hive: 3.5 },
+    rounded: { rail: 5, scatter: 5, lance: 4.5, volt: 4, bow: 4, twin: 3.5, rivet: 3.5, nail: 3, halo: 3, splinter: 3 },
+    brawler: { edge: 5.5, lance: 5.5, whirl: 5, hammer: 5, iai: 5, scythe: 5, axe: 4.5, chainsaw: 4.5, flail: 4, fist: 4, baton: 4 },
+    crazy: { rail: 6, longshot: 6, trident: 5, scatter: 5, slug: 4.5, crescent: 4.5, lance: 4.5, harpoon: 4, rivet: 4 },
+    ranger: { rail: 6.5, longshot: 6.5, bow: 5.5, crossbow: 5.5, lance: 5, scatter: 4.5, slug: 4.5, trident: 4.5, edge: 1.5, fist: 1.5 },
+    mage: { flamer: 6, frostbite: 5.5, helix: 5, splinter: 5, hive: 4.5, gas: 4.5, prism: 4.5, volt: 4, twin: 4 },
+    chunky: { hammer: 5.5, whirl: 5, edge: 4.5, graviton: 4.5, mines: 4.5, halo: 3.5, shuriken: 3.5, saw: 4 },
+    old: { hammer: 5, whirl: 4.5, edge: 4.5, graviton: 4, mines: 4, halo: 4, hammer: 5, shuriken: 3.5 },
+    lucky: { shuriken: 5, carom: 4.5, hail: 4.5, splinter: 4.5, twin: 4, halo: 4, mirage: 4, saw: 4 },
+    engineer: { summon: 6, deploy: 5.5, hive: 5, hail: 4.5, twin: 4.5, splinter: 4, storm: 4 },
+    doctor: { edge: 4.5, lance: 4.5, crescent: 4.5, volley: 4, halo: 4, splinter: 4, hammer: 3.5, rivet: 3.5 },
+    mutant: { storm: 5, hail: 5, flamer: 4.5, twin: 4.5, splinter: 4.5, nail: 4, hive: 4, volt: 4 },
+    loud: { hail: 6, storm: 6, flamer: 5.5, whirl: 5, saw: 4.5, twin: 5, splinter: 4.5, hammer: 4.5 },
   };
-  const wScore = (id) => (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
+  // ---- 最终稳定状态（面板 goal.*）：目标武器/技能/搭档，命中即加权 ----------
+  const goal = (k) => {
+    try { const st = TSW && TSW.settings; return (st && typeof st.get === 'function' ? st.get('goal.' + k, '') : '') || ''; }
+    catch (e) { return ''; }
+  };
+  A.goal = { weapon: () => goal('weapon'), skill: () => goal('skill'), radio: () => goal('radio'), mate: () => goal('mate') };
+  const GOAL_W = 1.9;                                  // how strongly a match pulls
+  const wScore = (id) => {
+    try {
+      let v = (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
+      const g = A.goal && A.goal.weapon ? A.goal.weapon() : '';
+      if (id && g && id === g) v += GOAL_W;             // target weapon wins ties
+      return v;
+    } catch (e) { return 2.5; }
+  };
   const CURSE_RANK = { greed: 0, hubris: 1, wrath: 2, surr: 3, seal: 4, coward: 5, sloth: 6, disaster: 7, time: 8, over: 9, tremor: 10, drought: 11 };
 
   function scoreShard(id, lv) {
@@ -172,6 +205,9 @@
     path.reverse(); return path;
   }
   // dash only when the dash arc does not end inside a pit
+  // a dash is 330px/s for ~.16s ≈ 52px.  Refuse the arc when ANY sample lands in
+  // a pit, the void (tiles or boss zones) or an active hazard — the old version
+  // only looked at pits, which is why we happily dashed into blades and acid.
   function dashSafe(p, dx, dy) {
     const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
     for (let d = 10; d <= 56; d += 8) {
@@ -184,7 +220,6 @@
     }
     return true;
   }
-
   function isMelee(id) { const w = WEAPONS[id]; return w && ['melee', 'thrust', 'spin', 'whip', 'slam', 'iai', 'fist', 'reap'].includes(w.kind); }
   function nearestEnemy(x, y, maxD, needLos) {
     let best = null, bd = maxD;
@@ -212,10 +247,15 @@
     return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
   }
   const HAZ_PAD = 5;                       // body radius allowance
-  function hazardAt(x, y, pad = HAZ_PAD, look = .45) {
-    const Wd = (typeof WORLD !== 'undefined' && WORLD) || null; if (!Wd) return 0;
-    const G = typeof __achroma !== 'undefined' && __achroma ? __achroma.G : null;
-    const t0 = G ? (G.time || 0) : 0;
+  function hazardAt(x, y, pad, look) {
+    try {
+      return hazardAt_(x, y, pad === undefined ? 5 : pad, look === undefined ? .45 : look);
+    } catch (e) { return 0; }              // never let the threat field throw
+  }
+  function hazardAt_(x, y, pad, look) {
+    const Wd = (typeof WORLD !== 'undefined' && WORLD) || null;
+    if (!Wd || !Wd.tiles) return 0;        // floor not built yet (right after launch)
+    const G_ = (typeof __achroma !== 'undefined' && __achroma) ? __achroma.G : null;
     let d = 0;
     for (const t of Wd.traps || []) {
       if (t.kind === 'blade') {
@@ -250,6 +290,28 @@
           }
         }
       }
+    }
+    // ---- enemy-created dynamic hazards: G.foeFx (acid pools, gas clouds, lobs) ----
+    // These are NOT in WORLD.pools; they are per-instance objects with their own
+    // update closure.  acidPool/gasCloud carry {x,y,R,life}; foeLob carries a
+    // landing point + warnR while it is still in the air.
+    for (const f of (G_ && G_.foeFx) || []) {
+      if (f.R && f.life !== undefined) {                    // acidPool / gasCloud
+        const rr = (f.R || 24) * (f.kind === 'gas' ? .8 : 1) + pad - 4;
+        const dd = Math.hypot(x - f.x, y - f.y);
+        if (dd < rr) d = Math.max(d, 1.9 * (1 - dd / rr) + .8);
+      } else if (f.land && f.dur != null) {                  // foeLob in flight: its landing circle
+        const k = Math.min(1, (f.t || 0) / f.dur);
+        const rr = (f.warnR || 26) + pad - 2;
+        const dd = Math.hypot(x - f.tx, y - f.ty);
+        if (dd < rr) d = Math.max(d, (1.2 + 1.6 * k) * (1 - dd / rr) + .5);
+      }
+    }
+    // ---- void zones (bosses' erase circles, chasm cells): lethal, never step in ----
+    if (G_) for (const z of G_.zones || []) {
+      const rr = (z.r || 24) + pad - 2;
+      const dd = Math.hypot(x - z.x, y - z.y);
+      if (dd < rr) d = Math.max(d, (z.warn > 0 && (z.t || 0) < z.warn ? 1.6 : 3.4) * (1 - dd / rr) + 1.2);
     }
     for (const q of Wd.pools || []) {
       const rr = (q.r || 18) + pad - 2;
@@ -302,26 +364,10 @@
   // stays from this lane.  Maximising the MINIMUM clearance is what turns
   // "dodge the average" into "never get squeezed" — the 16-way version only
   // summed danger, so it happily picked a lane with one near-miss on each side.
-  // the old v1 movement scorer: 16 directions, two radii, average danger only.
-  // Kept switchable so the dodge benchmark can A/B it against v2.
-  function pickDirSimple(p, wx, wy) {
-    const wl = Math.hypot(wx, wy); const ld = A._lastDir || [1, 0];
-    let best = null, bestScore = -1e9;
-    for (let i = 0; i < 16; i++) {
-      const a = i / 16 * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
-      const nx = p.x + dx * 16, ny = p.y + dy * 16, fx = p.x + dx * 46, fy = p.y + dy * 46;
-      let v;
-      if (collides(nx, ny, p.r, false) || collides(fx, fy, p.r, false)) v = -8;
-      else {
-        v = wl > .1 ? 2.2 * (dx * wx + dy * wy) / wl : 0;
-        v -= 2.0 * spotDanger(nx, ny, p) + .9 * spotDanger(fx, fy, p);
-        v += .18 * (dx * ld[0] + dy * ld[1]);
-      }
-      if (v > bestScore) { bestScore = v; best = [dx, dy]; }
-    }
-    if (best) A._lastDir = best;
-    return best || [0, 0];
-  }
+  // the worst-case clearance along a short ray: how far the closest bullet path
+  // stays from this lane.  Maximising the MINIMUM clearance is what turns
+  // "dodge the average" into "never get squeezed" — the 16-way version only
+  // summed danger, so it happily picked a lane with one near-miss on each side.
   function laneClear(p, dx, dy) {
     const G = __achroma.G, R = 46;
     let m = 40;
@@ -664,11 +710,20 @@
         const d = dist(p.x, p.y, it.x, it.y); if (d > 24) continue;
         if (it.kind === 'fount' && A.opts.fount && !it.used && p.hp < p.maxHp - 1 && !hasCurse('drought') && G.ink >= it.cost) { A.status.note = '治疗'; tap('KeyE'); break; }
         if (it.kind === 'chest' && A.opts.chest && !it.used) { A.status.note = '开箱'; tap('KeyE'); break; }
+        if (it.kind === 'survivor' && A.opts.mate && !it.used) {
+          const wantMate = !A.goal.mate() || it.id === A.goal.mate() || it.id === A.goal.radio();
+          if (wantMate) { A.status.note = '招募搭档 ' + it.id; tap('KeyE'); break; }
+          continue;
+        }
         if (it.kind === 'arsrack' && A.opts.arsenal && !it.used) { A.status.note = '军械库：打开武器架'; tap('KeyE'); break; }
         if (it.kind === 'labvial' && A.opts.labSerum && !it.used) { A.status.note = '实验血清：打开'; tap('KeyE'); break; }
         if (it.kind === 'dialysis' && A.opts.dialysis && !it.used && (G.curses || []).length && ((p.maxArmor | 0) >= 1)) { A.status.note = '透析机：清诅咒'; tap('KeyE'); break; }
         if (it.kind === 'key' || it.kind === 'prism') break; // walk over
-        if (it.kind === 'chip') { if (A.opts.chipPick && (!p.skill || it.id !== 'teleport')) { tap('KeyE'); break; } continue; }
+        if (it.kind === 'chip') {
+          const wantSkill = !p.skill || it.id !== 'teleport' || it.id === A.goal.skill();
+          if (A.opts.chipPick && wantSkill) { tap('KeyE'); break; }
+          continue;
+        }
         if (it.kind === 'weapon') {
           const cur = wScore(w.id), nw = wScore(it.id);
           if (nw > cur + .5 || p.weapons.length < wCap()) {
@@ -735,7 +790,7 @@
         }
       }
       // threat field does the dodging: bullets, telegraph circles/lines, void zones, spikes
-      [mx, my] = A.opts.dodgeEngine === 'simple' ? pickDirSimple(p, mx, my) : pickDir(p, mx, my);
+      [mx, my] = pickDir(p, mx, my);
       // ---- evasion scorecard (meaningful while a fight is live)
       {  // always score the dodge while a run is live (benchmark + HUD)
         const M = A.metrics, dg = spotDanger(p.x, p.y, p);
@@ -757,10 +812,30 @@
         const sloth = hasCurse('sloth');
         const low = a.n <= Math.max(1, Math.round(cap * (sloth ? .45 : .2)));
         const safeish = sloth || !nearestEnemy(p.x, p.y, 140, false);
-        if (a.rl <= 0 && p.dashT <= 0 && (a.n <= 0 || (low && safeish))) tap('KeyR');
+        if (A.opts.reload && a.rl <= 0 && p.dashT <= 0 && (a.n <= 0 || (low && safeish))) tap('KeyR');
+      }
+      // ---- reload window: switch to the sidearm instead of standing there dry ----
+      // KeyX toggles p.wi (game.js:160).  While the equipped weapon is reloading
+      // we swap to the other one if *it* is loaded; when the first is ready again
+      // we swap back so the better weapon keeps the DPS.
+      if (A.opts.weaponSwap && p.weapons.length > 1 && p.dashT <= 0) {
+        const curW = WEAPONS[p.weapons[p.wi]], othW = WEAPONS[p.weapons[1 - p.wi]];
+        if (curW && othW && usesAmmo(curW) && usesAmmo(othW)) {
+          const curA = ammoOf(p, curW.id), othA = ammoOf(p, othW.id);
+          const curBusy = curA.rl > 0 || curA.n <= 0;
+          const othReady = othA.rl <= 0 && othA.n > 0;
+          const othBusy = othA.rl > 0 || othA.n <= 0;
+          const curReady = curA.rl <= 0 && curA.n > 0;
+          if (curBusy && othReady) { tap('KeyX'); A.status.note = '换弹切副武器 ' + othW.id; }
+          else if (curReady && othBusy && wScore(curW.id) >= wScore(othW.id)) { tap('KeyX'); A.status.note = '切回主武器 ' + curW.id; }
+        }
+      }
+      // ---- radio partner skill: KeyF (partners.js) ----
+      if (A.opts.partner && G.ptn && (G.ptn.cd || 0) <= 0 && !(G.ptn.act && G.ptn.act.t < G.ptn.act.dur) && !G.prompt) {
+        tap('KeyF'); A.status.note = '搭档技能 ' + (G.ptn.id || '');
       }
       // cast the skill chip whenever it is up (E with no prompt casts)
-      if (p.skill && !p.skillOn && p.skillCd <= 0 && (active || G.trial || near) && !G.prompt) tap('KeyE');
+      if (A.opts.skill && p.skill && !p.skillOn && p.skillCd <= 0 && (active || G.trial || near) && !G.prompt) tap('KeyE');
     }
 
     // ---------- navigation (no active fight) ----------
@@ -859,8 +934,9 @@
       if (it.kind === 'chip' && !A.opts.chipPick) continue;
       if (it.kind !== 'weapon' && it.kind !== 'chip') continue;
       if (unreachable(it) || unreachable(roomAt(it.x, it.y))) continue;
-      const want = it.kind === 'chip' ? (!p.skill || it.id !== 'teleport')
-        : (p.weapons.length < wCap() || wScore(it.id) > wScore(p.weapons[p.wi]) + .5);
+      const want = it.kind === 'chip'
+        ? (!p.skill || it.id !== 'teleport' || it.id === A.goal.skill())
+        : (p.weapons.length < wCap() || it.id === A.goal.weapon() || wScore(it.id) > wScore(p.weapons[p.wi]) + .5);
       if (!want) continue;
       const d = dist(p.x, p.y, it.x, it.y); if (d < bwd) { bwd = d; bw = it; }
     }

@@ -46,10 +46,9 @@ test('dodge rows normalise on play ticks, not on the restart-prone runT', () => 
   assert.ok(!/g\.runT/.test(line), 'dodge minutes must not use G.runT');
 });
 
-test('a sample that never saw combat is flagged invalid', () => {
+test('a sample that never saw combat is flagged invalid and retried', () => {
   assert.ok(/valid:\s*A\.ticks\s*>=\s*600/.test(SRC), 'dodge rows must carry a validity gate');
   assert.ok(/for \(let i = 0; i < 2 && r && !r\.valid; i\+\+\)/.test(SRC), 'invalid samples must be retried');
-  assert.ok(/样本无效/.test(SRC), 'an invalid comparison must say so instead of declaring a winner');
 });
 
 test('hit counting is restart-proof (local wrapper, not G.hits)', () => {
@@ -66,5 +65,6 @@ test('all result rows are JSON-serialisable', () => {
   // A row containing a function or a cycle would break TSW_RESULT parsing.
   const kinds = [...SRC.matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1]);
   for (const k of kinds) assert.ok(/^[a-z-]+$/.test(k), `odd kind: ${k}`);
-  assert.ok(kinds.includes('dodge') && kinds.includes('dodge-ab'), 'dodge rows must be present');
+  assert.ok(kinds.includes('dodge'), 'dodge rows must be present');
+  assert.ok(!kinds.includes('dodge-ab'), 'the v1 A/B was removed — only the v2 engine remains');
 });

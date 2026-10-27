@@ -20,15 +20,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   canvas#c{image-rendering:pixelated}
   #mirror-note{position:fixed;left:0;right:0;bottom:2px;text-align:center;font:10px/1.4 "Microsoft YaHei","PingFang SC",sans-serif;color:#57534c;pointer-events:none;user-select:none;-webkit-user-select:none;z-index:5;letter-spacing:.05em}
   #mirror-note a{color:#6e675c;text-decoration:none}
-  /* powered-by-dsh badge, 121x20, directly under the game title strip */
-  #dsh-badge{position:fixed;left:50%;top:4px;transform:translateX(-50%);z-index:6;line-height:0;pointer-events:auto}
-  #dsh-badge img{width:121px;height:20px;display:block;image-rendering:auto;opacity:.9}
-  #dsh-badge:hover img{opacity:1}
 </style>
 </head>
 <body>
 <canvas id="c" width="1440" height="810"></canvas>
-<a id="dsh-badge" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener" title="powered by dsh"><img src="dsh-badge.png" alt="powered by dsh" width="121" height="20"></a>
 <div id="mirror-note">非官方离线镜像 · UNOFFICIAL OFFLINE MIRROR — 游戏著作权归原作者所有（<a href="https://www.dzmm.ai/character/3738712" target="_blank" rel="noopener">官网页面</a>），本页面仅为镜像并附工具 · game © its author · not affiliated</div>
 
 <!-- 1) our dzmm platform shim (provides window.dzmm + localStorage persistence) -->

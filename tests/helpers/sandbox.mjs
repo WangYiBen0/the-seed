@@ -76,7 +76,7 @@ export function loadAuto({ bullets = [], enemies = [], mechs = [], zones = [], w
   const marker = "  TSW.log('auto module ready');";
   if (!AUTO_SRC.includes(marker)) throw new Error('auto.js export marker not found');
   const patched = AUTO_SRC.replace(marker,
-    '  TSW.__test = { laneClear, pickDir, pickDirSimple, dashSafe, gridPath, mechDanger, spotDanger, hazardAt, nearestEnemy, clampM, GW, drivePicker, nextWaypoint, moveKeys, setKeys, tremorAngle, reverseOn, manualHold, A, Input };\n' + marker);
+    '  TSW.__test = { laneClear, pickDir, dashSafe, gridPath, mechDanger, spotDanger, hazardAt, nearestEnemy, clampM, GW, drivePicker, nextWaypoint, moveKeys, setKeys, tremorAngle, reverseOn, manualHold, A, Input };\n' + marker);
   const fn = new Function(...Object.keys(sandbox), patched + '\n//# sourceURL=auto.js');
   fn(...Object.values(sandbox));
   return { TSW, G, ctx, world, api: TSW.__test, Input: ctx.Input };
