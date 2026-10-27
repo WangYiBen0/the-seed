@@ -141,7 +141,9 @@
     };
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null } = {}) {
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null } = {}) {
+    const detMode = !!(TSW.det && TSW.det.on);
+    const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
@@ -211,10 +213,13 @@
         }
       } catch (e) { }
     }, 250);
+    const tickBudget = detMode ? Math.round((ticks || 18000)) : 0;   // 18000 ticks = 300 game-s
     const res = await new Promise((resolve) => {
       const iv = setInterval(() => {
         const g = G(), wall = (performance.now() - t0) / 1000;
-        const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win');
+        const ticksDone = (TSW.det && TSW.det.on && TSW.det.ticks) ? (TSW.det.ticks - detT0) : 0;
+        const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
+          || (detMode && ticksDone >= tickBudget);
         if (done || wall > timeoutS) {
           clearInterval(iv);
           resolve({ end: g.state === 'dead' ? 'death' : g.state === 'win' ? 'ascend' : g.endless >= goalDepth ? 'goal' : 'timeout', wall });
@@ -231,6 +236,7 @@
     const g = G();
     return {
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
+      det: !!detMode, ticks: (TSW.det && TSW.det.ticks) || 0,
       modifiers: modsEarly,
       modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
       end: res.end, wall: +res.wall.toFixed(1),
@@ -493,7 +499,7 @@
   // optA / optB 是本模块认识的选项覆盖，例如 { policy: 'rounded' } 与
   // { onLowKillsDps: true }（后者由 auto.js 的 A.opts 读取）。
   async function runAB({ rounds = 5, abKind = null, kind = null, base = {}, optA = {}, optB = {},
-    seconds = 60, speed = 8, seed = null, diff = 'despair', mods = null, goalDepth = 1, timeoutS = 200, metric = null } = {}) {
+    seconds = 60, speed = 8, seed = null, diff = 'despair', mods = null, goalDepth = 1, timeoutS = 200, metric = null, warmup = true } = {}) {
     const K = abKind || kind || 'fullrun';        // inner scenario
     const metricKey = metric || (K === 'invade' ? 'survived' : 'gameT');
     const A = Object.assign({}, base, optA), B = Object.assign({}, base, optB);
@@ -511,13 +517,26 @@
       } finally { for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v; }
       return r;
     };
+    // Warm-up: the FIRST run of a session starts from a cold state and is the
+    // only source of noise left under det mode (measured: 3 pairs differed by
+    // 1/-3/1s, the first pair by 160s).  Burn one run and discard it.
+    if (warmup) {
+      TSW.log('AB warmup run (discarded)…');
+      try { await exec(A); } catch (e) { }
+      try { await exec(B); } catch (e) { }
+    }
     TSW.log('AB start: rounds=' + rounds + ' inner=' + K + ' diff=' + diff);
     for (let i = 0; i < rounds; i++) {
       // order alternates: even rounds A→B, odd rounds B→A (cancels session drift)
       const flip = i % 2 === 1;
       TSW.log('AB round ' + (i + 1) + (flip ? ' B→A' : ' A→B'));
-      const a = await exec(flip ? B : A);
-      const b = await exec(flip ? A : B);
+      const first = await exec(flip ? B : A);
+      const second = await exec(flip ? A : B);
+      // IMPORTANT: when flipped, the *first* run is arm B.  Mapping back has to
+      // honour that, otherwise every flipped pair silently reverses the sign
+      // (a null A/B test proved it: identical arms still scored "A better" by -63s).
+      const a = flip ? second : first;          // arm A result
+      const b = flip ? first : second;          // arm B result
       const ka = (a && a[metricKey]) || 0;
       const kb = (b && b[metricKey]) || 0;
       const kk = 'kills';

@@ -434,6 +434,7 @@
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
     TSW.perf.enable();
+    if (q.get('det') !== '0' && q.get('det')) TSW.det.enable();
     const emit = (r) => { (window.__TSW_RESULTS = window.__TSW_RESULTS || []).push(r); console.info('TSW_RESULT ' + JSON.stringify(r)); };
     TSW.whenGame().then(async () => {
       try {
