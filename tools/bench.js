@@ -144,6 +144,20 @@
   async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null } = {}) {
     const detMode = !!(TSW.det && TSW.det.on);
     const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
+    // log every hurtPlayer call (dmg, pierce, mechHit) so death causes are visible
+    try {
+      window.__hurtLog = [];
+      if (!window.__hurtWrap) {
+        window.__hurtWrap = true;
+        const orig = window.hurtPlayer;
+        if (typeof orig === 'function') {
+          window.hurtPlayer = function (dmg, sx, sy, mechHit, pierce) {
+            try { window.__hurtLog.push({ d: dmg, p: +!!pierce, m: +!!mechHit, at: (window.__achroma && __achroma.G.time) | 0, hp: (__achroma.G.p.hp) | 0, ar: (__achroma.G.p.armor) | 0 }); } catch (e) { }
+            return orig.apply(this, arguments);
+          };
+        }
+      }
+    } catch (e) { }
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
@@ -175,7 +189,13 @@
     let lastSig = '', lastSigT = performance.now();
     const wd = setInterval(() => {
       const g = G(); if (!g || !g.p) return;
-      const sig = [g.state, g.kills | 0, g.ink | 0, g.floor, g.endless | 0, g.enemies.filter((e) => !e.dead).length].join(',');
+      // NB: the player's position must be part of the signature.  Without it, a bot
+      // that is walking (e.g. crossing a large floor to reach the next room) shows
+      // NO observable change for 30s and gets killed as "stuck" — which is exactly
+      // what the hurt-trace showed on every "failed" run (dmg=999, pierce, mech).
+      const sig = [g.state, g.kills | 0, g.ink | 0, g.floor, g.endless | 0,
+        g.enemies.filter((e) => !e.dead).length,
+        Math.round(g.p.x / 24), Math.round(g.p.y / 24), g.p.hp | 0, g.p.armor | 0].join(',');
       if (sig === lastSig) {
         if (g.state === 'play' && performance.now() - lastSigT > 30000) {
           try { hurtPlayer(999, g.p.x, g.p.y, true, true); } catch (e) { }
@@ -243,6 +263,10 @@
       gameT: +g.runT.toFixed(0), floor: g.floor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
       orbs: (g.floorOrbs | 0), shardN: Object.keys((g.p && g.p.shards) || {}).length,
+      // death causes: who actually took the last hits (pierce ignores armour, so
+      // a "3-hit death" is usually pierce or a post-armour burst)
+      hitsTaken: (window.__hurtLog || []).length,
+      hurtTrace: (window.__hurtLog || []).slice(-8),
       // local, low-variance metrics
       roomClears: clears.length,
       roomClearMean: clears.length ? +(clears.reduce((a, b) => a + b, 0) / clears.length).toFixed(1) : 0,
