@@ -51,6 +51,7 @@
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
       forgeMode: 'held',                                     // explore: 'held' | 'any' (upgrade any equipped weapon)
+      pickupOrder: 'eager',                                  // explore: 'eager' | 'clear-first' (defer loose drops)
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -1315,7 +1316,13 @@
         return { pt: [it.x, it.y], label: '透析机', room: roomAt(it.x, it.y) };
     if (A.opts.labSerum) for (const it of G.inter) if (it.kind === 'labvial' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
       return { pt: [it.x, it.y], label: '实验血清', room: roomAt(it.x, it.y) };
-    if (A.opts.pickups) for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
+    // 'clear-first' (A/B): during the first pass we push combat rooms before
+    // walking back for loose drops; prisms are picked up once rooms are cleared.
+    const deferLoose = A.opts.pickupOrder === 'clear-first';
+    const combatLeft = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+    if (A.opts.pickups && !(deferLoose && combatLeft))
+      for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+        return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
     // 1b) weapon/chip drops on the floor worth walking to
     let bw = null, bwd = 1e9;
     for (const it of G.inter) {
