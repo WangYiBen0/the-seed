@@ -46,6 +46,7 @@
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
+      exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -900,6 +901,22 @@
         // one of is worth extra.
         const setOf = (id) => { try { const w = IV_W[id]; return (w && Array.isArray(w.set)) ? w.set : []; } catch (e) { return []; } };
         const counts = (() => { const c = {}; for (const s2 of (iv.w || [])) for (const k of setOf(s2.id)) c[k] = (c[k] || 0) + 1; return c; })();
+        // Real DPS of an offered weapon at tier t: damage x projectiles / cooldown.
+        // Ranking by tier alone (the old rule) picks a t3 wet noodle over a t1
+        // hammer.  The measured wall is raw DPS (wave 4: foes 5->32 while ink +18).
+        const dpsOf = (id, t) => {
+          try {
+            const w = IV_W[id]; if (!w) return 0;
+            const dmg = Array.isArray(w.dmg) ? (w.dmg[Math.min(3, t | 0)] || 0) : (w.dmg || 0);
+            const cd = Array.isArray(w.cd) ? (w.cd[Math.min(3, t | 0)] || 1) : (w.cd || 1);
+            const n = w.n ? (Array.isArray(w.n) ? (w.n[Math.min(3, t | 0)] || 1) : w.n) : 1;
+            return (dmg * n) / Math.max(.15, cd);
+          } catch (e) { return 0; }
+        };
+        // duplicate of something we own at the same tier => buying it enables a
+        // COMBINE (+1 tier, multiplicative damage), which is worth more than a
+        // same-DPS stranger.
+        const dupBonus = (id, t) => ((iv.w || []).some((q) => q && q.id === id && (q.t | 0) === (t | 0)) ? 120 : 0);
         const setBonus = (id) => {
           if (A.opts.invadeSets === false) return 0;
           let b = 0;
@@ -908,7 +925,7 @@
         };
         const rank = (o) => {
           if (!o) return -1;
-          if (style === 'weapon') return o.k === 'w' ? 200 + setBonus(o.id) : 10;   // weapons only
+          if (style === 'weapon') return o.k === 'w' ? 60 + dpsOf(o.id, o.t | 0) + dupBonus(o.id, o.t | 0) + setBonus(o.id) : 10;   // weapons only, best DPS first
           if (o.k === 'w') return 100 + (o.t || 0) * 10;            // otherwise strongest weapon
           const id = o.id || '';
           if (/dmg|crit|aspd|atk|power/.test(id)) return 90;
@@ -1269,6 +1286,13 @@
       if (r.type !== 'forge' || unreachable(r)) continue;
       const cur = p.weapons[p.wi], lv = p.wlv[cur] || 0;
       if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
+    }
+    // ---- 资源优先 vs 直接清房（A/B 开关 A.opts.exploreOrder）-----------------
+    // 绝境里 输出/补给 往往比多打一个房间更值：先去商店/锻造/神龛/宝箱，
+    // 再回头清战斗房。 默认保持原顺序（直接清房），可用 A/B 切换验证。
+    if (A.opts.exploreOrder === 'resources') {
+      if (A.opts.shop) for (const r of rooms) if (!r.visited && ['treasure', 'shop', 'camp', 'dialysis', 'barracks'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
+      for (const r of rooms) if (!r.visited && ['forge', 'shrine'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
     }
     const boss = rooms.find((r) => r.type === 'boss');
     // 2) boss room once unlocked (or never locked)
