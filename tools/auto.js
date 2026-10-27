@@ -45,6 +45,7 @@
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set
+      invadeDupStyle: 'normal',                              // invade: 'normal' | 'strong' duplicate-weapon priority
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
@@ -917,7 +918,10 @@
         // duplicate of something we own at the same tier => buying it enables a
         // COMBINE (+1 tier, multiplicative damage), which is worth more than a
         // same-DPS stranger.
-        const dupBonus = (id, t) => ((iv.w || []).some((q) => q && q.id === id && (q.t | 0) === (t | 0)) ? 120 : 0);
+        // Buying a duplicate enables a COMBINE (+1 tier = multiplicative damage).
+        // Weight is switchable: 'strong' prioritises combines over raw DPS.
+        const dupW = A.opts.invadeDupStyle === 'strong' ? 400 : 120;
+        const dupBonus = (id, t) => ((iv.w || []).some((q) => q && q.id === id && (q.t | 0) === (t | 0)) ? dupW : 0);
         const setBonus = (id) => {
           if (A.opts.invadeSets === false) return 0;
           let b = 0;
