@@ -43,6 +43,7 @@
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
+      usePortals: true,                                      // explore: walk to the floor/endless portal
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -1494,6 +1495,26 @@
       // happen to be near it: the boss room stays locked until the seal opens,
       // and the bot used to hover at the door forever (seed 19: 10/11 rooms
       // cleared, obj=boss, position oscillating in a 10x8 px box).
+      // Portals are the only way to advance a floor (and the endless portal only
+      // appears after the last floor).  Like the seal, they used to exist ONLY in
+      // the interaction branch, so the bot never walked to one: it would clear a
+      // floor, watch the portal spawn, and wander until it died.
+      if (A.opts.usePortals !== false) {
+        // Only take a portal once this floor has nothing left worth clearing —
+        // otherwise walking to it skips rooms, prisms and serums, and the run
+        // arrives at the next floor weaker than it should be.
+        const floorHasWork = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+        if (floorHasWork) { /* fall through to the fight objectives */ }
+        else for (const it of G.inter) {
+          if (it.kind !== 'portal') continue;
+          if (G.time - (it.born || 0) < .6) continue;
+          if (it.endless) {
+            if (!A.opts.preferEndless) continue;
+          } else if (G.endless) continue;      // already endless: portals only chain
+          if (!unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+            return { pt: [it.x, it.y], label: 'portal', room: roomAt(it.x, it.y) };
+        }
+      }
       if (A.opts.openSeals !== false) {
         for (const it of G.inter) {
           if (it.kind !== 'seal') continue;
