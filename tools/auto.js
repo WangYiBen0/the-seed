@@ -46,6 +46,8 @@
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set
       invadeDupStyle: 'normal',                              // invade: 'normal' | 'strong' duplicate-weapon priority
+      invadeReroll: true,                                    // invade: reroll the shop when it has no weapon
+      invadeRerollCap: 3,                                    // max rerolls per wave
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
       forgeMode: 'held',                                     // explore: 'held' | 'any' (upgrade any equipped weapon)
@@ -891,6 +893,23 @@
           if (wi >= 0 && wt < bestOfferT && typeof ivSell === 'function') {
             try { ivSell(wi); A.status.note = '入侵：卖弱换强 (t' + wt + '→可买t' + bestOfferT + ')'; return true; } catch (e) { }
           }
+        }
+      }
+      // ---- 缺武器就 reroll 刷出武器 ----------------------------------------
+      // 「钱买武器」是唯一被验证有效的杠杆（+94s / 1.94×）。如果这一屏报价里
+      // 完全没有武器，且还付得起重掷，就重掷直到出现武器（ivReroll 自带付款与
+      // freeRolls 检查）。有上限，避免把钱全烧在刷新上。
+      if (A.opts.invadeReroll && typeof ivReroll === 'function') {
+        const offers = iv.offers || [];
+        const hasWeapon = offers.some((o) => o && o.k === 'w');
+        const rollCap = A.opts.invadeRerollCap || 3;
+        A._rollN = A._rollN || {};
+        const wk = (iv.wave | 0);
+        if (A._rollWave !== wk) { A._rollWave = wk; A._rollN[wk] = 0; }
+        if (!hasWeapon && (A._rollN[wk] | 0) < rollCap) {
+          const before = iv.rr | 0;
+          try { ivReroll(); } catch (e) { }
+          if ((iv.rr | 0) !== before) { A._rollN[wk] = (A._rollN[wk] | 0) + 1; A.status.note = '入侵：reroll 刷武器 (' + A._rollN[wk] + ')'; return true; }
         }
       }
       // buy affordable offers, most useful first, then start the next wave
