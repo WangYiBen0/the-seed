@@ -522,7 +522,11 @@
     const metricKey = metric || (K === 'invade' ? 'survived' : 'gameT');
     const pick = (r) => {
       if (!r) return 0;
-      if (metricKey === 'reach') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
+      if (metricKey === 'reach') {
+        // binary: invade -> waves, explore -> floors (both bounded, low variance)
+        if (K === 'invade') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
+        return ((r.floor | 0) >= reachWave) ? 1 : 0;
+      }
       return r[metricKey] || 0;
     };
     const A = Object.assign({}, base, optA), B = Object.assign({}, base, optB);
@@ -530,9 +534,14 @@
     const exec = async (o) => {
       // apply autopilot option overrides, remember originals
       const saved = {};
+      const unknown = [];
       for (const [k, val] of Object.entries(o.autoOpts || {})) {
         if (k in (TSW.auto.opts || {})) { saved[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = val; }
+        else unknown.push(k);
       }
+      // A typo (or a patch that never landed) would otherwise silently run the
+      // SAME code on both arms and produce a plausible-looking fake difference.
+      if (unknown.length) TSW.err('AB: unknown autoOpts ignored → ' + unknown.join(', '));
       let r;
       try {
         if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 9) }, o));

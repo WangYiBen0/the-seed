@@ -37,6 +37,7 @@
       weaponSwap: TSW.settings.get('autoWeaponSwap', true),// swap to the sidearm during a reload
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
+      weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -54,6 +55,7 @@
       pickupOrder: 'eager',                                  // explore: 'eager' | 'clear-first' (defer loose drops)
       invadeBossSafe: true,                                  // invade: keep clear of the boss's contact damage
       bossOrder: 'early',                                    // explore: 'early' | 'late' (clear rooms before the boss)
+      shopShardBar: 2,                                       // explore: minimum scoreShard to buy a shop serum
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -120,11 +122,24 @@
   };
   A.goal = { weapon: () => goal('weapon'), skill: () => goal('skill'), radio: () => goal('radio'), mate: () => goal('mate') };
   const GOAL_W = 1.9;                                  // how strongly a match pulls
+  // Real DPS of an explore weapon = damage x shots-per-second x projectiles.
+  // The table below was previously the ONLY input, so the bot could hold a
+  // 30-DPS-while-preferred peashooter over a much stronger gun.
+  const wDps = (id) => {
+    try {
+      const w = WEAPONS[id]; if (!w) return 0;
+      const rate = w.rate || (w.melee ? 1 : 1);
+      const n = w.n || 1;
+      return (w.dmg || 0) * rate * n;
+    } catch (e) { return 0; }
+  };
   const wScore = (id) => {
     try {
       let v = (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
       const g = A.goal && A.goal.weapon ? A.goal.weapon() : '';
       if (id && g && id === g) v += GOAL_W;             // target weapon wins ties
+      // optional DPS term (A/B: A.opts.weaponDps)
+      if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
       return v;
     } catch (e) { return 2.5; }
   };
@@ -1067,7 +1082,10 @@
         if (it.kind === 'forge' && A.opts.forge) { const lv = p.wlv[w.id] || 0, cost = 30 + lv * 25; if (lv < 3 && G.ink >= cost + 15) { A.status.note = '锻造 +' + (lv + 1); tap('KeyE'); } break; }
         if (it.kind === 'shop' && A.opts.shop && !it.sold) {
           if (it.what === 'heart' && p.hp < p.maxHp && G.ink >= it.price) { tap('KeyE'); break; }
-          if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= 2) { tap('KeyE'); break; }
+          {   // configurable bar (the earlier attempt never landed — verified by grep this time)
+            const bar = (A.opts.shopShardBar === undefined) ? 2 : A.opts.shopShardBar;
+            if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= bar) { tap('KeyE'); break; }
+          }
           if (it.what === 'weapon' && G.ink >= it.price && p.weapons.length < wCap() && wScore(it.id) > wScore(w.id) + .5) { tap('KeyE'); break; }
           if (it.what === 'chip' && G.ink >= it.price && !p.skill) { tap('KeyE'); break; }
           continue;

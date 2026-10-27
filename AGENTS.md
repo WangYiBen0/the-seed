@@ -173,6 +173,26 @@ rsync -a --delete --exclude='.git' ../../site/ ./
 git add -A && git commit -m "pages: …" && git -c credential.helper= push origin gh-pages
 ```
 
+**改完代码后、跑实验之前（血的教训，见 `docs/benchmark.md` §53）**：
+
+```bash
+grep -c "<新符号>" site/tools/auto.js     # 必须 > 0，否则补丁根本没落盘
+```
+
+曾经用 python 打补丁时断言在**写盘前**失败，但因为 fmt 钩子照常通过、测试也照常通过，
+我误以为改动已生效，于是拿一个**不存在的选项**做了 8 局实验，得到「0/8 vs 基线 4/8」
+这种看起来合理的假差异，还写进了文档 —— 实际两侧跑的是同一份代码。
+
+两道防线：
+
+1. **补丁后必须 grep 新符号**（补丁脚本失败时不会留下痕迹）；
+2. `runAB` 现在会检查 `autoOpts` 的每个键是否存在于 `TSW.auto.opts`，
+   不存在就打印红色 `AB: unknown autoOpts ignored → <keys>`。
+   **看到这行就说明实验无效，立刻作废。**
+
+同理：**A/B 必须同批次交错**。批次之间基线会漂移（同一默认配置实测得到
+2/8、3/8、4/8、0/8），跨批次比较得出的“改善”基本是假的。
+
 **验证部署（缺一不可）**：
 
 ```bash
