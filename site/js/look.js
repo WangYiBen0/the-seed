@@ -156,7 +156,7 @@ function tbItems() {
       ...DIFFS.map((d, i) => ({ l: () => tr(d.nm), diff: d.id, clr: d.id, cur: () => DEP.pick === i, act: () => depPick(i) }))] },
     { ic: 'girls', l: () => L('tb_partner'), at: CAMP_FIRE, rows: () => SURV_IDS.map(id => girlMet(id) ? { l: () => svName(id), dot: SURV[id].c, aff: id, act: () => openGirlTab(id, 0) } : { l: () => '???', off: true }) },
     { ic: 'market', l: () => L('market'), at: CPOS.market, rows: () => [{ l: () => L('mk_tabSup'), cur: () => MENU.page === 'market' && MKT.tab === 0, act: () => dockGo('market', 0) }, { l: () => L('mk_wHead'), cur: () => MENU.page === 'market' && MKT.tab === 1, act: () => dockGo('market', 1) }, { l: () => L('mk_privHead'), cur: () => MENU.page === 'market' && MKT.tab === 2, act: () => dockGo('market', 2) }, { l: () => L('mk_gearHead'), cur: () => MENU.page === 'market' && MKT.tab === 3, act: () => dockGo('market', 3) }, { l: () => L('g_proofs', gpLoad().proofs), off: true, info: true }] },
-    { ic: 'board', l: () => L('board'), at: CPOS.board, rows: () => ['bd_top', 'bd_endless', 'bd_invade'].map((k, i) => ({ l: () => L(k), cur: () => MENU.page === 'board' && BOARD.tab === i, act: () => dockGo('board', i) })) },
+    { ic: 'board', l: () => L('board'), at: CPOS.board, rows: () => ['bd_top', 'bd_endless', 'bd_invade', 'bd_invadeE'].map((k, i) => ({ l: () => L(k), cur: () => MENU.page === 'board' && BOARD.tab === i, act: () => dockGo('board', i) })) },
     { ic: 'codex', l: () => L('codex'), at: CPOS.codex, rows: () => CX_TABS.map((k, i) => ({ l: () => L(k), cur: () => MENU.page === 'codex' && CX.tab === i, act: () => dockGo('codex', i) })) },
     { ic: 'settings', l: () => L('settings'), title: () => TBAR.sub.length ? L(SET_SUB[TBAR.sub[TBAR.sub.length - 1]]) : L('settings'), at: CPOS.radio, rows: setRows },
   ];
@@ -208,8 +208,8 @@ function tbSet(i) { if (TBAR.area === i) return; if (TBAR.area >= 0) TBAR.last =
   if (i >= 0) { TBAR.focus = i; if (i === 0) loadClears(); const rows = tbItems()[i].rows(); TBAR.sel = Math.max(0, rows.findIndex(r => !r.off && !r.head && !r.info)); } AU.play(i >= 0 ? 'menuOk' : 'menu', i >= 0 ? 1 : .8); }
 function tbAct(r) { if (!r || r.off || r.head || r.info) { if (r && !r.head && !r.info) AU.play('locked'); return; } AU.play('menuOk'); r.act(); }
 function areaStep(rows, d) { if (!rows.length) return; let i = TBAR.sel; for (let n = 0; n < rows.length; n++) { i = (i + d + rows.length) % rows.length; if (!rows[i].head && !rows[i].info) break; } TBAR.sel = i; AU.play('menu'); }
-// the sortie: the first click on a threat level shows what it means above the jeep, a second click (or the card's button) sets off
-function depPick(i) { if (DEP.pick === i) { sortie(i); return; } DEP.pick = i; DEP.t = 0; AU.play('menu', .9 + i * .08); loadClears(); }
+// 列表只选择难度，统一从右侧出击按钮开始。
+function depPick(i) { if (DEP.pick === i) return; DEP.pick = i; DEP.t = 0; AU.play('menu', .9 + i * .08); loadClears(); }
 function updateTaskbar(rdt) {
   if (Input.clicked && wcChipClick()) return;
   const lay = tbLayout(), mx = Input.mx, my = Input.my, mv = Math.abs(mx - TBAR.lmx) + Math.abs(my - TBAR.lmy) > .5; TBAR.lmx = mx; TBAR.lmy = my; if (mv) TBAR.kb = false;
@@ -302,8 +302,9 @@ function depCard() { const w = 180, tx = (TBAR.fx == null ? CPOS.truck : TBAR.fx
   return { x: Math.round(clamp(tx - w / 2 + 14, W / 2 + 6, W - w - 10)), y, w, h }; }
 function cardPlate(x, y, w, h) { rect(x, y, w, h, 'rgba(8,8,8,.95)'); box(x, y, w, h, null, WIN_EDGE); }
 function drawDeployCard(t, k0) {
-  DEP.btn = null; DEP.card = null; const d = DIFFS[DEP.pick]; if (!d) return; const q = easeOut(clamp(DEP.t / .28, 0, 1)) * k0; if (q <= .01) return;
-  const r = depCard(), c = d.c(), x = r.x + 10, iw = r.w - 20, lh = lineH(), by = r.y + r.h - 22, a0 = ctx.globalAlpha; DEP.card = r; DEP.btn = { x, y: by, w: iw, h: 16 };
+  DEP.btn = null; DEP.card = null; DEP.modBtn = null; const d = DIFFS[DEP.pick]; if (!d) return; const q = easeOut(clamp(DEP.t / .28, 0, 1)) * k0; if (q <= .01) return;
+  const r = depCard(), c = d.c(), x = r.x + 10, iw = r.w - 20, lh = lineH(), by = r.y + r.h - 22, a0 = ctx.globalAlpha, mod = typeof modifierEntryAllowed === 'function' && modifierEntryAllowed(), mw = mod ? Math.max(46, Math.round(iw * .34)) : 0;
+  DEP.card = r; DEP.btn = { x, y: by, w: iw - (mod ? mw + 4 : 0), h: 16 }; DEP.modBtn = mod ? { x: x + iw - mw, y: by, w: mw, h: 16 } : null;
   ctx.globalAlpha = a0 * q; ctx.save(); ctx.translate(0, Math.round((1 - q) * -12)); cardPlate(r.x, r.y, r.w, r.h, c);
   drawDiffEmblem(d.id, x - 3, r.y + 7, 1.4, t); textS(tr(d.nm), x + 36, r.y + 9, c, 2); for (let p = 0; p < DIFFS.length; p++) rect(x + 37 + p * 6, r.y + 31, 5, 2, p < d.pips ? c : '#24221f');
   const sep = by - 4 - lh * 3 - 6; let y = r.y + 45;
@@ -313,6 +314,7 @@ function drawDeployCard(t, k0) {
   { const s1 = '×' + (PROOF_BY_DIFF[d.id] || 3); drawProof(x, y); text(s1, x + 11, y + 1, TH.gold); let rx = x + 11 + textW(s1) + 12;
     if (typeof evOpen === 'function' && evOpen()) { const s2 = '+' + (EV_MAT[d.id] || 0); rect(rx, y + 2, 7, 5, '#3a2a14'); rect(rx, y + 2, 7, 1, '#8a6a30'); text(s2, rx + 10, y + 1, TH.bone2); } }
   drawBtn(DEP.btn.x, DEP.btn.y, DEP.btn.w, DEP.btn.h, L('dw_go', tr(d.nm)), true, c);
+  if (DEP.modBtn) { const b = DEP.modBtn; drawBtn(b.x, b.y, b.w, b.h, '修饰符', !TOUCH.on && inR(b, Input.mx, Input.my), '#bd9cdb'); }
   ctx.restore(); ctx.globalAlpha = a0;
 }
 // ---------------- docked windows: the codex, the leaderboard and the black market open beside the column, sliding in from the open side ----------------

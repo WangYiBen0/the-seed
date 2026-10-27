@@ -46,7 +46,7 @@ const _resumeRunFl = resumeRun; resumeRun = function (...a) { const s = loadSave
 // ---------------- in the fight ----------------
 squadEnterFloor = (orig => function () { flRun(orig); const m = G.follow; if (m) { m.shT = 0; m.pumpT = 0; m.ammo = {}; } })(squadEnterFloor);
 const _mateTargetFl = mateTarget; mateTarget = function (m) { if (!m.fl) return _mateTargetFl(m);
-  let best = null, bd = m.gear === 'regul' ? 260 : 185; for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(m.x, m.y, e.x, e.y) - (e.boss ? 30 : 0); if (d < bd && los(m.x, m.y - 2, e.x, e.y)) { bd = d; best = e; } } return best; };
+  let best = null, bd = m.gear === 'regul' ? 260 : 185; for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(m.x, m.y, e.x, e.y) - (e.boss ? 30 : 0); if (d < bd && los(m.x, m.y - 2, e.x, e.y)) { bd = d; best = e; } } return best; };
 // her shot goes through the same attack code as yours, but of your serums only the damage ones and the magazine / reload ones
 // reach it: while her attack (and every hit of her bullets) is worked out, G.S holds just those and the synergies are switched off
 const FL_KEEP = ['dmg', 'crit', 'critMul', 'focus', 'big', 'moment', 'close', 'sear', 'pristine', 'allin', 'farshot', 'mag', 'reload'];
@@ -136,16 +136,21 @@ const _campRestFl = campRest; campRest = function (it) { const m = G.follow; if 
   if (!G.ptn && m) { it.used = true; AU.play('heal'); burst(it.x, it.y - 4, 24, C.orange, 90, .6); notify(L('fl_rest', svName(m.id), FL_CAMP), C.green); return; } _campRestFl(it); };
 // ---------------- the camp meeting: radio, at your side, or neither ----------------
 recruit = function (T) { if (T.end >= 0) return; T.end = 0; const it = T.it, k = G.inter.indexOf(it); if (k >= 0) G.inter.splice(k, 1);
-  AU.play('select'); AU.play('heal', 1.2, .6); girlsMeet(T.id); T.ask3 = true; T.sel = G.follow && G.follow.id === T.id ? 1 : 0; };
+  AU.play('select'); AU.play('heal', 1.2, .6); T.ask3 = true; T.sel = G.follow && G.follow.id === T.id ? 1 : 0; };
 const flBtns = () => [0, 1, 2].map(j => ({ j, x: Math.round(W / 2 - 189 + j * 128), y: 88, w: 122, h: 40 }));
 function flTake(id, T) { const m0 = G.follow;
   if (m0 && m0.id === id) { m0.hits = 0; m0.away = false; m0.shT = 0; T.res = L('fl_mine', svName(id)); AU.play('heal'); return; }
   if (G.ptn && G.ptn.id === id) ptnSet(null, 0);
   const m = mkFollow(id); m.x = T.it.x; m.y = T.it.y; G.follow = m; sqSync(); const s = L('fl_took', svName(id), wname(m.wid)); T.res = s; notify(s, SURV[id].c); AU.play('menuOk'); }
-function flPick(T, j) { T.ask3 = false; T.end = .5; const id = T.id;
+function flPick(T, j) { if (!T || !T.ask3 || ![0, 1, 2].includes(j)) return;
+  T.ask3 = false; T.end = .5; const id = T.id, depth = exploreDepth();
+  if ((G.campUsed || []).includes(depth)) { T.res = L('fl_skipped', svName(id)); return; }
+  (G.campUsed = G.campUsed || []).push(depth); girlsMeet(id);
   if (j === 0) { if (G.ptn && G.ptn.id === id) { G.ptn.cd = 0; G.ptn.tier = ptTier(id); T.res = L('ra_meetMine', svName(id)); } else { ptnTake(id, T); T.intro = true; } }
   else if (j === 1) flTake(id, T);
-  else { T.res = L('fl_skipped', svName(id)); AU.play('menu', .8); } }
+  else { T.res = L('fl_skipped', svName(id)); AU.play('menu', .8); }
+  // Save the choice and encounter receipt together, before the introduction can be interrupted.
+  saveRun(); }
 const _updateTalkFl = updateTalk; updateTalk = function (rdt) { const T = G.talk; if (!T || !T.ask3) return _updateTalkFl(rdt);
   T.t += rdt; T.end = Math.min(T.end + rdt, .6); if (T.end < .45) return;
   const bs = flBtns(), hv = bs.findIndex(b => inR(b, Input.mx, Input.my)); if (hv >= 0 && !TOUCH.on && hv !== T.sel) { T.sel = hv; AU.play('menu', 1.1, .5); }
@@ -220,11 +225,12 @@ function drawGirlEquip(id, d, I, c, x, y, w) {
 // ---------------- the launch notice: shown once the opening card has played ----------------
 const ANN = { open: false, t: 0, top: 0, drag: null, hit: null };
 // this notice's gift: 20 embers for everyone, once (gp.gifts), handed over when the notice is closed
-const ANN_GIFT = { id: 'v127', n: 20 };
+const ANN_GIFT = { id: 'v127', n: 20, on: false };   // the v127 gift is over; set on: true (and a new id) to hand out another
+const ANN_ID = 'n139';                                 // a new id shows the notice again to players who chose not to see it
 Object.assign(STR, { ann_gift: ['UPDATE GIFT: {0} EMBERS (GIVEN WHEN YOU CLOSE THIS NOTICE)', '更新補償：{0} 火種（關閉公告時發放）', 'アップデート補償：火種{0}（閉じると受け取り）', '更新补偿：{0} 火种（关闭公告时发放）'],
   ann_got: ['UPDATE GIFT: {0} EMBERS RECEIVED', '更新補償：已領取 {0} 火種', 'アップデート補償：火種{0}受け取り済み', '更新补偿：已领取 {0} 火种'],
   ann_claim: ['CLAIM {0}', '領取 {0} 火種', '{0}受け取る', '领取 {0} 火种'], ann_toast: ['+{0} EMBERS: UPDATE GIFT', '+{0} 火種：更新補償', '+{0} 火種：アップデート補償', '+{0} 火种：更新补偿'] });
-const annGot = () => { const gp = gpLoad(); return !!(gp.gifts && gp.gifts[ANN_GIFT.id]); };
+const annGot = () => { if (!ANN_GIFT.on) return true; const gp = gpLoad(); return !!(gp.gifts && gp.gifts[ANN_GIFT.id]); };
 function annClaim() { if (annGot()) return; const gp = gpLoad(); gp.gifts = gp.gifts || {}; gp.gifts[ANN_GIFT.id] = 1; gp.proofs = (gp.proofs || 0) + ANN_GIFT.n; gpSave();
   NET.toast = { txt: L('ann_toast', ANN_GIFT.n), c: TH.gold, t: 0 }; AU.play('chipGet'); }
 // the notice is laid out in parts: a lead paragraph, sections with a heading, and update items (a coloured mark, a white title, grey details)
@@ -234,14 +240,13 @@ const ANN_DOC = [
   { k: 'p', s: IZ('Message the developer on the platform with a clear description of the bug. Once it is confirmed you receive a limited title:', '可在平台内私聊开发者，提供明确的 bug 现象。经检验无误后，你可获得限定称号：') },
   { k: 'title', id: 't_tester', s: IZ('GOLD-WHITE GRADIENT', '金白色渐变') },
   { k: 'h', s: IZ('IN THIS UPDATE', '本次更新') },
-  { k: 'gift' },
-  { k: 'i', c: () => C.red, t: IZ('Breach balance', '突入探索平衡调整'), s: IZ('Lighter bullet patterns and boss health, and more cover.', '削弱了弹幕密度，BOSS血量，添加了更多掩体。') },
-  { k: 'i', c: () => C.green, t: IZ('Breach Exploration is easier', '突入探索难度下调'), s: IZ('The difficulty of Breach Exploration has been reduced; please keep playing.', '突入探索模式的难度已受到削弱，请大家继续体验。') },
-  { k: 'i', c: () => TH.pink, t: IZ('Private photos are back', '隐私照片回归'), s: IZ("The girls' private photos are back in the album and the black market.", '少女们的隐私照片已回归相册与黑市。') },
-  { k: 'i', c: () => TH.ember, t: IZ('The girls fight beside you again', '少女协同战斗'), s: IZ('They can no longer come along from the start: meet one at a camp in the run and choose to have her fight at your side. A girl cannot be on the radio and at your side at once; only one girl fights at your side.', '少女们又可以协同大家一起战斗了。无法在开局时直接陪同，需在局内营地邂逅后选择陪同战斗。同一个少女无法同时进行电台支援和协同战斗，协同战斗的少女最多只能有一位。') },
-  { k: 'i', c: () => '#9aa6b0', t: IZ('Exclusive gear', '专属装备'), s: IZ('The girls can wear exclusive gear, sold at the black market.', '少女们可以穿戴专属装备，装备可前往黑市购买。') },
-  { k: 'i', c: () => TH.cyan, t: IZ('Sample sieve', '样本筛滤'), s: IZ('The serum choice in Breach runs now has EXCLUDE (that serum never shows up again this run) and SKIP (cancel this choice). Buy uses in the black market supplies: 1 ember for one of each, stacking.', '突入探索局内的血清三选一新增「排除」与「跳过」：排除后本局不再出现该血清，跳过则直接取消本次选择。次数在黑市补给道具「样本筛滤」购买，1 火种排除与跳过各一次，可重复购买累加。') },
-  { k: 'i', c: () => C.violet, t: IZ('Dialysis can be cancelled', '透析机可取消'), s: IZ('The dialysis machine now has a cancel button.', '透析机现在可以取消了。') },
+  { k: 'i', c: () => '#8ed872', t: IZ('Daily tasks', '每日任务'), s: IZ('Two tasks each day on the main menu: clear 突入探索 once (+3 embers) and clear 入侵抵抗 once (+3 embers), any difficulty.', '主界面新增每日任务，每天两项：通关一次突入探索 +3 火种、通关一次入侵抵抗 +3 火种，难度不限。') },
+  { k: 'i', c: () => C.red, t: IZ('入侵抵抗: endless mode', '入侵抵抗无尽模式'), s: IZ('After holding wave 20 you may settle or go on into endless mode, balanced after Brotato: foes grow stronger every wave, both bosses every 10 waves. Falling in endless still counts as a win. Endless runs have their own leaderboard.', '守住第 20 波后可选择结算或进入无尽。无尽数值参照土豆兄弟：敌人每波持续变强，每 10 波同时出现两个首领；在无尽中倒下也算胜利。新增"入侵抵抗 - 无尽"排行榜。') },
+  { k: 'i', c: () => '#9fd8c8', t: IZ('New room: the broken lab', '新房间：破碎的实验室'), s: IZ('A test tube of experimental serum on a cracked bench. Each of the three serums has a drawback for 3 fights, then a permanent gift for the run.', '试验台上放着一支实验血清（α / β / Ω 随机其一）：接下来 3 次战斗有副作用，之后本局永久获得强化。') },
+  { k: 'i', c: () => '#a4cfe0', t: IZ('Dialysis reworked', '透析机改版'), s: IZ('Free: remove one serum or clear one curse for 1 maximum armor; what goes never comes back this run. Machines now stand on floors 5, 15, 45 and 75.', '免费去除一个血清或清除一个诅咒，代价为护甲上限 -1，被清除的本局不再出现。透析机只出现在第 5、15、45、75 层。') },
+  { k: 'i', c: () => TH.gold, t: IZ('Overclock! chip', 'Overclock! 技能芯片'), s: IZ('5 s: you take double damage, but every hit crits, crit damage +100%, attack speed +50%. Cannot be ended early; cooldown 30 s. It joins everyone’s chip pools once the event goal is reached.', '开启后 5 秒内：自身受到双倍伤害，但攻击必定暴击，暴击伤害 +100%，攻击速度 +50%；不可手动关闭，冷却 30 秒。活动目标达成后自动进入所有人的芯片池。') },
+  { k: 'i', c: () => '#bd9cdb', t: IZ('Despair modifiers', '绝境修饰符'), s: IZ('A new selection screen and a tidier button on the despair card. Rage now applies only 20% of its speed-up to bosses.', '修饰符选择界面与绝境出击按钮重新排版；激怒对首领只生效 20%。') },
+  { k: 'i', c: () => TH.ember, t: IZ('Event window', '活动窗口'), s: IZ('Once the event goal is reached, players who have claimed the reward no longer see the event window.', '活动目标达成后，已领取奖励的玩家不再显示活动窗口。') },
 ];
 function annRows(w) { const lh = lineH(), out = [];
   for (const d of ANN_DOC) {
@@ -255,12 +260,13 @@ function annRows(w) { const lh = lineH(), out = [];
   return out; }
 function annLayout() { const w = Math.min(W - 30, 400), cw = w - 36, rows = annRows(cw), total = rows.reduce((s, r) => s + r.h, 0), head = 40, foot = 30, h = Math.min(H - 20, head + total + 6 + foot), vh = h - head - foot;
   return { x: Math.round(W / 2 - w / 2), y: Math.round(H / 2 - h / 2), w, h, cw, rows, total, head, foot, vh, max: Math.max(0, total + 6 - vh) }; }
-const _updateIntroAnn = updateIntro; updateIntro = function (rdt) { const was = G.state; _updateIntroAnn(rdt); if (was === 'intro' && G.state === 'menu') { ANN.open = true; ANN.t = 0; ANN.top = 0; } };
+const _updateIntroAnn = updateIntro; updateIntro = function (rdt) { const was = G.state; _updateIntroAnn(rdt); if (was === 'intro' && G.state === 'menu' && SET.annHide !== ANN_ID) { ANN.open = true; ANN.t = 0; ANN.top = 0; } };
 const _updateMenuAnn = updateMenu; updateMenu = function (rdt) { if (!ANN.open) return _updateMenuAnn(rdt); ANN.t += rdt; const A = annLayout();
   if (Input.wheel) ANN.top = clamp(ANN.top + Input.wheel * 24, 0, A.max);
   if (ANN.drag) { if (Math.abs(Input.my - ANN.drag.y) > 3) ANN.drag.moved = true; if (ANN.drag.moved) ANN.top = clamp(ANN.drag.top - (Input.my - ANN.drag.y), 0, A.max); if (!Input.down) ANN.drag = null; }
   if (pressed('ArrowDown') || pressed('KeyS')) ANN.top = Math.min(A.max, ANN.top + 24); if (pressed('ArrowUp') || pressed('KeyW')) ANN.top = Math.max(0, ANN.top - 24);
-  if (ANN.t > .3 && (pressed('Enter') || pressed('Escape') || pressed('Space') || (Input.clicked && ANN.hit && inR(ANN.hit, Input.mx, Input.my)))) { ANN.open = false; Input.clicked = false; Input.down = false; AU.play('menuOk'); annClaim(); return; }
+  if (ANN.t > .3 && Input.clicked && ANN.hide && inR(ANN.hide, Input.mx, Input.my)) { ANN.open = false; SET.annHide = ANN_ID; saveSettings(); Input.clicked = false; Input.down = false; AU.play('menu', .8); if (ANN_GIFT.on) annClaim(); return; }
+  if (ANN.t > .3 && (pressed('Enter') || pressed('Escape') || pressed('Space') || (Input.clicked && ANN.hit && inR(ANN.hit, Input.mx, Input.my)))) { ANN.open = false; Input.clicked = false; Input.down = false; AU.play('menuOk'); if (ANN_GIFT.on) annClaim(); return; }
   if (Input.clicked) { if (inR(A, Input.mx, Input.my)) ANN.drag = { y: Input.my, top: ANN.top, moved: false }; Input.clicked = false; } };
 const _drawMenuAnn = drawMenu; drawMenu = function (t) { _drawMenuAnn(t); if (!ANN.open || G.state !== 'menu') return; const A = annLayout(), e = easeOut(clamp(ANN.t / .3, 0, 1)), x = A.x, y = A.y + Math.round((1 - e) * 8), w = A.w;
   ctx.globalAlpha = .65 * e; rect(0, 0, W, H, '#000'); ctx.globalAlpha = e; frame2(x, y, w, A.h, TH.ember);
@@ -276,4 +282,5 @@ const _drawMenuAnn = drawMenu; drawMenu = function (t) { _drawMenuAnn(t); if (!A
   // the foot: a scroll hint while there is more, and the button
   rect(x + 14, y + A.h - A.foot + 2, w - 28, 1, '#1d1a17');
   if (A.max && ANN.top < A.max - 2) { const s = tr(IZ('SCROLL FOR MORE', '下滑查看更多')); text(s, x + 16, y + A.h - 18 - (isCJK(s) ? 1 : 0), '#57524a'); }
+  { const hb = { x: x + w - 166, y: y + A.h - 23, w: 74, h: 16 }; ANN.hide = hb; drawBtn(hb.x, hb.y, hb.w, hb.h, tr(IZ("DON'T SHOW", '不再显示')), !TOUCH.on && inR(hb, Input.mx, Input.my), TH.bone2); }
   const b = { x: x + w - 86, y: y + A.h - 23, w: 72, h: 16 }; ANN.hit = b; drawBtn(b.x, b.y, b.w, b.h, annGot() ? L('fl_ok') : L('ann_claim', ANN_GIFT.n), !TOUCH.on && inR(b, Input.mx, Input.my), annGot() ? TH.ember : TH.gold); ctx.globalAlpha = 1; };

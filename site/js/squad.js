@@ -110,7 +110,7 @@ function pickCampSurvivor() {
   G.campResume = null; if (id && !G.met.includes(id)) G.met.push(id); G.campPick = id;
   if (id && !RESUMING) loadPortrait(id); return id;
 }
-function campInter(r) { const cx = r.cx * T + 8, cy = r.cy * T + 8, id = pickCampSurvivor(); const out = [{ kind: 'camp', x: cx, y: cy - 2 }];
+function campInter(r) { const cx = r.cx * T + 8, cy = r.cy * T + 8, id = (G.campUsed || []).includes(exploreDepth()) ? null : pickCampSurvivor(); const out = [{ kind: 'camp', x: cx, y: cy - 2 }];
   if (id) out.push({ kind: 'survivor', id, x: cx + 30, y: cy + 2 }); return out; }
 function drawCamp(it, x, y, t) {
   // warm light first, so everything else stands in it
@@ -223,7 +223,7 @@ function mateWarp(m, fx) {
   if (!spot) spot = [p.x, p.y]; m.x = spot[0]; m.y = spot[1]; m.vx = m.vy = 0; m.stuck = 0;
   if (fx) { const c = SURV[m.id].c; burst(m.x, m.y, 10, c, 70, .35); ringFx(m.x, m.y, 12, c, .3, 1); }
 }
-function mateTarget(m) { let best = null, bd = 185; for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(m.x, m.y, e.x, e.y) - (e.boss ? 30 : 0); if (d < bd && los(m.x, m.y - 2, e.x, e.y)) { bd = d; best = e; } } return best; }
+function mateTarget(m) { let best = null, bd = 185; for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(m.x, m.y, e.x, e.y) - (e.boss ? 30 : 0); if (d < bd && los(m.x, m.y - 2, e.x, e.y)) { bd = d; best = e; } } return best; }
 function updateSquad(dt) {
   updateSquadShots(dt); for (let i = SQ.fx.length - 1; i >= 0; i--) { SQ.fx[i].t += dt; if (SQ.fx[i].t > SQ.fx[i].dur) SQ.fx.splice(i, 1); }
   const list = (G.squad || []).filter(m => !m.away); if (!list.length || !dt) return;
@@ -233,8 +233,8 @@ function updateSquad(dt) {
     // never left behind: through a sealed door, too far away, or stuck on a wall she reappears at your side
     const dp = dist(m.x, m.y, p.x, p.y), mr = roomAt(m.x, m.y);
     if (dp > 230 || (pr && pr.active && mr !== pr)) { mateWarp(m, true); return; }
-    if (m.tgT <= 0 || !m.tg || m.tg.dead) { m.tg = mateTarget(m); m.tgT = .2; }
-    const tg = m.tg && !m.tg.dead ? m.tg : null;
+    if (m.tgT <= 0 || !m.tg || m.tg.dead || m.tg.deathFightLeft>0) { m.tg = mateTarget(m); m.tgT = .2; }
+    const tg = m.tg && !m.tg.dead && !(m.tg.deathFightLeft>0) ? m.tg : null;
     // where to stand: a slot fanned out behind you, or in reach of her target when she fights up close
     let gx, gy; const reach = (w.range || 24) * .85 + 8;
     if (tg && st === 'melee' && dist(p.x, p.y, tg.x, tg.y) < 175) { const a = ang(tg.x, tg.y, m.x, m.y), rr = reach * .6 + tg.r; gx = tg.x + Math.cos(a) * rr; gy = tg.y + Math.sin(a) * rr; }
@@ -268,14 +268,14 @@ function mateAttack(m, w, st, tg, reach) {
   if (st === 'melee') {
     if (dist(m.x, m.y, tg.x, tg.y) > reach + tg.r) return; // walk in first
     const arc = Math.max(1.6, w.arc || 2.2), sw = { t: 0, dur: .18, a, flip: !(m.swing && m.swing.flip) }; m.swing = sw;
-    for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && dist(m.x, m.y, e.x, e.y) < reach + e.r && Math.abs(angDiff(a, ang(m.x, m.y, e.x, e.y))) < arc / 2 + .2)
+    for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(m.x, m.y, e.x, e.y) < reach + e.r && Math.abs(angDiff(a, ang(m.x, m.y, e.x, e.y))) < arc / 2 + .2)
       hitEnemy(e, base, { melee: true, proc: 0, ka: a, knock: (w.knock || 80) * .6, quiet: true, color: c, sx: m.x, sy: m.y });
     // her swing also knocks enemy bullets out of the air
     for (let k = G.ebullets.length - 1; k >= 0; k--) { const q = G.ebullets[k]; if (q.delay > 0) continue; if (dist(m.x, m.y, q.x, q.y) < reach && Math.abs(angDiff(a, ang(m.x, m.y, q.x, q.y))) < arc / 2) { G.ebullets.splice(k, 1); burst(q.x, q.y, 3, c, 50, .15); } }
     SQ.fx.push({ k: 'slash', x: m.x, y: m.y - 2, a, r: reach, arc, c, t: 0, dur: .16, flip: sw.flip }); AU.play(w.sfx || 'slash', 1.15, .35);
   } else if (st === 'line') {
     const pts = rayPath(mx, my, a, 260, 0), [ex, ey] = pts[pts.length - 1];
-    for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && segDist(e.x, e.y, mx, my, ex, ey) < e.r + 3) hitEnemy(e, base * (w.fan ? 1.6 : 1), { proc: 0, ka: a, knock: (w.knock || 60) * .5, quiet: true, color: c, sx: m.x, sy: m.y });
+    for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && segDist(e.x, e.y, mx, my, ex, ey) < e.r + 3) hitEnemy(e, base * (w.fan ? 1.6 : 1), { proc: 0, ka: a, knock: (w.knock || 60) * .5, quiet: true, color: c, sx: m.x, sy: m.y });
     SQ.fx.push({ k: 'line', x: mx, y: my, ex, ey, c, t: 0, dur: .14 }); AU.play(w.sfx || 'rail', 1.2, .3);
   } else {
     const n = Math.min(w.n || 1, 5), spd = (w.spd || 300) * .9, boom = ['rocket', 'lob', 'mine', 'hive', 'orb'].includes(w.kind) || w.bk === 'fw';
@@ -286,11 +286,11 @@ function mateAttack(m, w, st, tg, reach) {
   m.cd = Math.max(.12, 1 / rate);
 }
 function shotBoom(b) { burst(b.x, b.y, 10, b.c, 90, .3); ringFx(b.x, b.y, 16, b.c, .25, 2); AU.play('pop', 1.2, .4);
-  for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && dist(b.x, b.y, e.x, e.y) < 18 + e.r) hitEnemy(e, b.dmg * .6, { boom: true, proc: 0, ka: ang(b.x, b.y, e.x, e.y), knock: 100, quiet: true, color: b.c }); }
+  for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(b.x, b.y, e.x, e.y) < 18 + e.r) hitEnemy(e, b.dmg * .6, { boom: true, proc: 0, ka: ang(b.x, b.y, e.x, e.y), knock: 100, quiet: true, color: b.c }); }
 function updateSquadShots(dt) {
   for (let i = SQ.shots.length - 1; i >= 0; i--) { const b = SQ.shots[i]; b.life -= dt; b.tr.push([b.x, b.y]); if (b.tr.length > 3) b.tr.shift();
     b.x += b.vx * dt; b.y += b.vy * dt; let dead = b.life <= 0 || shotBlocked(b.x, b.y);
-    if (!dead) for (const e of G.enemies) { if (e.dead || e.spawnT > 0 || b.hit.has(e) || dist(b.x, b.y, e.x, e.y) > e.r + b.r) continue; b.hit.add(e);
+    if (!dead) for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0 || b.hit.has(e) || dist(b.x, b.y, e.x, e.y) > e.r + b.r) continue; b.hit.add(e);
       hitEnemy(e, b.dmg, { proc: 0, ka: Math.atan2(b.vy, b.vx), knock: b.knock, quiet: true, color: b.c, sx: b.sx, sy: b.sy }); if (b.pierce-- <= 0) { dead = true; break; } }
     if (dead) { SQ.shots.splice(i, 1); if (b.boom) shotBoom(b); else burst(b.x, b.y, 3, b.c, 50, .15); } }
 }

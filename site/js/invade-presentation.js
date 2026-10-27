@@ -1,7 +1,7 @@
 // Invasion presentation only: enamel insignia, salvage containers and airlock cuts.
 'use strict';
 const IV_STAT_COLOR={hp:'#e88c84',regen:'#9cd6a4',steal:'#d88ca7',dmg:'#efaa78',melee:'#ddbc93',ranged:'#ddcd82',elem:'#86ccd6',aspd:'#e9ce78',crit:'#ed9f91',eng:'#d9b575',range:'#95bddf',armor:'#a2bbc8',dodge:'#a1d8c8',speed:'#bbd18a',luck:'#a9d46f',harvest:'#d8bb73'};
-const IV_PREF_COLOR={rounded:'#c6c9a0',brawler:'#d19b70',crazy:'#dc9f9a',ranger:'#d5c77f',mage:'#83c6d2',chunky:'#9bbac7',old:'#aabc9c',lucky:'#b2cf77',engineer:'#dfb66a',doctor:'#a7d6bc'};
+const IV_PREF_COLOR={rounded:'#c6c9a0',brawler:'#d19b70',crazy:'#dc9f9a',ranger:'#d5c77f',mage:'#83c6d2',chunky:'#9bbac7',old:'#aabc9c',lucky:'#b2cf77',engineer:'#dfb66a',doctor:'#a7d6bc',mutant:'#bba2df',loud:'#e99870'};
 const ivReducedMotion=()=>!!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 function ivDrawBadge(sp,x,y,size){ctx.save();ctx.imageSmoothingEnabled=false;ctx.drawImage(sp.n,Math.round(x-size/2),Math.round(y-size/2),size,size);ctx.restore();}
 function ivStatSprite(id){const key='stat:'+id;if(IV_ART_CACHE.has(key))return IV_ART_CACHE.get(key);
@@ -30,6 +30,8 @@ function ivPreferenceSprite(id){const key='pref:'+id;if(IV_ART_CACHE.has(key))re
   const c=IV_PREF_COLOR[id],s=ivPixelArt(36,36,({r,l,p,e,ring})=>{
     if(id==='engineer'){r(10,24,6,4,'steel');r(22,24,6,4,'steel');r(14,21,10,4,'shade');r(17,16,3,8,'copper');p([[10,13],[15,9],[24,10],[25,18],[11,18]],'amber');r(13,11,8,3,'cream');r(23,12,8,3,'steel');r(29,11,2,5,'shade');r(12,16,3,2,'cyan');l(10,26,7,29,'copper');}
     else if(id==='doctor'){r(8,13,20,15,'cream');r(11,10,14,3,'steel');r(13,9,10,2,'steel');r(9,14,18,2,'light');r(16,17,5,9,'red');r(13,20,11,3,'red');r(8,24,3,4,'olive');r(25,24,3,4,'olive');}
+    else if(id==='mutant'){for(let i=0;i<7;i++){const y=6+i*3.6,dx=Math.sin(i*.8)*7;l(18-dx,y,18+dx,y,'steel');e(18-dx,y,2,2,c);e(18+dx,y,2,2,'cyan');}r(9,25,2,2,'light');r(26,8,2,2,'light');r(17,17,2,2,'cream');}
+    else if(id==='loud'){p([[8,14],[15,14],[25,8],[25,27],[15,21],[8,21]],'copper');p([[16,15],[24,10],[24,25],[16,20]],c);r(8,15,7,5,'steel');r(12,22,4,7,'wood');l(28,12,30,9,'amber',2);l(29,17,30,17,'cream',2);l(28,23,30,26,'amber',2);r(8,15,2,3,'light');}
     else if(id==='rounded'){p([[18,6],[21,15],[29,18],[21,21],[18,29],[15,21],[7,18],[15,15]],c);p([[18,10],[20,17],[18,21],[16,17]],'light');e(18,18,2,2,'cyan');r(17,24,2,3,'copper');}
     else if(id==='old'){p([[9,12],[18,6],[27,12],[25,24],[18,29],[11,24]],'olive');r(13,13,11,12,'steel');r(15,15,7,9,'dark');r(17,16,3,6,'amber');r(10,11,4,4,'cream');r(23,11,4,4,'cream');}
   });

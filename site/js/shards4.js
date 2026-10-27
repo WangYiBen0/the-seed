@@ -39,7 +39,7 @@ const _healS4 = healPlayer; healPlayer = function (n) { const p = G.p, before = 
 // ---- who hurt you: enemy bullets carry their shooter; contact, mechanics and pools are matched to the nearest foe ----
 const _eshotS4 = eshot; eshot = function (x, y, a, spd, o = {}) { if (G.curShooter && o.own === undefined) o = Object.assign({}, o, { own: G.curShooter }); return _eshotS4(x, y, a, spd, o); };
 function hurtSource(sx, sy, mechHit) { if (G.hitSrc && !G.hitSrc.dead) return G.hitSrc;
-  let best = null, bd = 1e9; for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(e.x, e.y, sx, sy) - e.r * (e.scale || 1); if (d < bd) { bd = d; best = e; } }
+  let best = null, bd = 1e9; for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(e.x, e.y, sx, sy) - e.r * (e.scale || 1); if (d < bd) { bd = d; best = e; } }
   if (best && bd < 14) return best; if (G.boss && !G.boss.dead) return G.boss; return best; }
 const _hurtPlayerS4 = hurtPlayer; hurtPlayer = function (dmg, sx, sy, mechHit, pierce) { const p = G.p;
   // temporary armor soaks a hit before anything else

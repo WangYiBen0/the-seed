@@ -97,7 +97,7 @@ function computeTints() { const s = G.p.shards, t = []; if (s.ember || s.prism) 
 function mkBullet(o) {
   const bs2 = (G.S && G.S.bspd) || 1; return Object.assign({ x: 0, y: 0, vx: Math.cos(o.a) * o.spd * bs2, vy: Math.sin(o.a) * o.spd * bs2, r: 2, dmg: 5, life: 1, kind: 'bolt', pierce: 0, bounce: 0, home: 0, proc: 1, knock: 60, hits: new Set(), t: 0, tint: buildTint(), tr: [] }, o);
 }
-function nearestEnemy(x, y, maxD, filter) { let best = null, bd = maxD; for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; if (filter && !filter(e)) continue; const d = dist(x, y, e.x, e.y); if (d < bd) { bd = d; best = e; } } return best; }
+function nearestEnemy(x, y, maxD, filter) { let best = null, bd = maxD; for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; if (filter && !filter(e)) continue; const d = dist(x, y, e.x, e.y); if (d < bd) { bd = d; best = e; } } return best; }
 function segDist(px, py, x1, y1, x2, y2) { const dx = x2 - x1, dy = y2 - y1, l = dx * dx + dy * dy; let t = l ? ((px - x1) * dx + (py - y1) * dy) / l : 0; t = clamp(t, 0, 1); return Math.hypot(px - x1 - t * dx, py - y1 - t * dy); }
 const wlvMul = w => 1 + .25 * ((G.p.wlv && G.p.wlv[w.id]) || 0);
 // attack-speed bonuses only count 55% for melee weapons
@@ -281,7 +281,7 @@ function fireOnce(p, w, a, o) {
     for (let i = 0; i <= 12; i++) { const t2 = i / 12, off = Math.sin(t2 * Math.PI) * 10 * side; pts.push([p.x + Math.cos(a) * L2 * t2 - Math.sin(a) * off, p.y + Math.sin(a) * L2 * t2 + Math.cos(a) * off]); }
     G.whips.push({ pts, life: .18, max: .18, c: tint, ghost });
     const hit = new Set();
-    for (let i = 0; i < pts.length - 1; i++) for (const e of G.enemies) { if (e.dead || hit.has(e)) continue;
+    for (let i = 0; i < pts.length - 1; i++) for (const e of G.enemies) { if (e.dead || e.deathFightLeft>0 || hit.has(e)) continue;
       if (segDist(e.x, e.y, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]) < e.r + 4) { hit.add(e); const tip = i >= 8;
         hitEnemy(e, dmg * (tip ? 2 : 1), { melee: true, ka: a, knock: w.knock * (tip ? 1.6 : 1), proc: w.proc, ghost, critBonus: tip ? .3 : 0 }); if (tip) starFx(e.x, e.y, 6, C.gold, .12); } }
     for (const pr of WORLD.props) if (!pr.dead && segDist(pr.x, pr.y, p.x, p.y, pts[12][0], pts[12][1]) < pr.r + 4) damageProp(pr, dmg);
@@ -368,15 +368,15 @@ function updateBullets(dt) {
       starFx(b.x, b.y, 4, col(5), .08); continue; }
     if (b.kind === 'fw' && b.t >= b.fuse) { G.bullets.splice(i, 1); fwBurst(b); continue; }
     if (b.kind === 'mine') { b.vx *= Math.pow(.02, dt); b.vy *= Math.pow(.02, dt); b.arm -= dt;
-      if ((b.arm <= 0 && G.enemies.some(e => !e.dead && e.spawnT <= 0 && dist(e.x, e.y, b.x, b.y) < 22 + e.r)) || b.life <= dt) { G.bullets.splice(i, 1); explode(b.x, b.y, 30 * Math.sqrt(S.size), b.dmg, { color: b.ghost ? C.violet : C.red, proc: b.proc }); continue; } }
+      if ((b.arm <= 0 && G.enemies.some(e => !e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(e.x, e.y, b.x, b.y) < 22 + e.r)) || b.life <= dt) { G.bullets.splice(i, 1); explode(b.x, b.y, 30 * Math.sqrt(S.size), b.dmg, { color: b.ghost ? C.violet : C.red, proc: b.proc }); continue; } }
     if (b.kind === 'missile') { if (b.t > .18) b.home = 7; if (Math.random() < .6) part({ x: b.x, y: b.y, vx: rand(-8, 8), vy: rand(-8, 8), life: .3, max: .3, c: Math.random() < .4 ? C.orange : col(3), s: 1 }); }
     if (b.kind === 'flame') { b.r += dt * 9; b.vx *= 1 - dt * 2.5; b.vy *= 1 - dt * 2.5; }
     if (b.kind === 'orb') { b.vx *= 1 - dt * .3; b.vy *= 1 - dt * .3; b.pulse -= dt;
-      for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(b.x, b.y, e.x, e.y); if (d < 60 && d > 3) { const pull = 90 * ccMul(e, 'pull') * (e.boss ? .1 * (bossKnock(e) ? 1 : 0) : 1); ccAdd(e, 'pull', dt * .4); moveBody(e, (b.x - e.x) / d * pull * dt, (b.y - e.y) / d * pull * dt); } }
-      if (b.pulse <= 0) { b.pulse = .25; ringFx(b.x, b.y, 30, b.ghost ? C.violet : C.indigo, .2, 1); for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && dist(b.x, b.y, e.x, e.y) < 30 + e.r) hitEnemy(e, b.dmg, { proc: b.proc, knock: 0, quiet: true, color: C.indigo, fromField: true }); }
+      for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(b.x, b.y, e.x, e.y); if (d < 60 && d > 3) { const pull = 90 * ccMul(e, 'pull') * (e.boss ? .1 * (bossKnock(e) ? 1 : 0) : 1); ccAdd(e, 'pull', dt * .4); moveBody(e, (b.x - e.x) / d * pull * dt, (b.y - e.y) / d * pull * dt); } }
+      if (b.pulse <= 0) { b.pulse = .25; ringFx(b.x, b.y, 30, b.ghost ? C.violet : C.indigo, .2, 1); for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(b.x, b.y, e.x, e.y) < 30 + e.r) hitEnemy(e, b.dmg, { proc: b.proc, knock: 0, quiet: true, color: C.indigo, fromField: true }); }
       if (b.life <= dt) explode(b.x, b.y, 34, b.dmg * 2.5, { color: C.indigo, proc: .4, small: true }); }
     if (b.home && b.kind !== 'chakram' || (b.kind === 'chakram' && b.t < b.out && b.home)) {
-      if (!b.tg || b.tg.dead || ((b.t * 10) | 0) % 2 === 0) b.tg = nearestEnemy(b.x, b.y, 150);
+      if (!b.tg || b.tg.dead || b.tg.deathFightLeft>0 || ((b.t * 10) | 0) % 2 === 0) b.tg = nearestEnemy(b.x, b.y, 150);
       if (b.tg) { const sp = Math.hypot(b.vx, b.vy), a = Math.atan2(b.vy, b.vx), da = angDiff(a, ang(b.x, b.y, b.tg.x, b.tg.y)); const na = a + clamp(da, -1, 1) * Math.min(1, dt * 2.2 * b.home); b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp; }
     }
     if (b.kind === 'chakram' && b.t > b.out) { const a = ang(b.x, b.y, p.x, p.y), sp = Math.min(520, Math.hypot(b.vx, b.vy) + 900 * dt); b.vx = lerp(b.vx, Math.cos(a) * sp, Math.min(1, dt * 9)); b.vy = lerp(b.vy, Math.sin(a) * sp, Math.min(1, dt * 9)); if (dist(b.x, b.y, p.x, p.y) < 10) dead = true; }
@@ -397,7 +397,7 @@ function updateBullets(dt) {
       else { dead = true; burst(b.x, b.y, 3, col(4), 50, .15); starFx(b.x, b.y, 2, col(5), .05); }
     } else { b.x = nx; b.y = ny; }
     if (!dead) for (const e of G.enemies) {
-      if (e.dead || e.spawnT > 0 || dist(b.x, b.y, e.x, e.y) > e.r + b.r) continue;
+      if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0 || dist(b.x, b.y, e.x, e.y) > e.r + b.r) continue;
       if (b.kind === 'orb' || b.kind === 'mine') continue;
       if (b.kind === 'saw') { const last = b.hitMap.get(e) || -9; if (b.t - last < .15) continue; b.hitMap.set(e, b.t); }
       if (b.kind === 'chakram') { const last = b.hitMap.get(e) || -9; if (b.t - last < .22) continue; b.hitMap.set(e, b.t); }
@@ -456,7 +456,7 @@ function updateOrbs(dt) {
   if (!n) return; p.orbA = (p.orbA || 0) + dt * 3.2;
   for (let i = 0; i < n; i++) { const a = p.orbA + i / n * Math.PI * 2, o = { x: p.x + Math.cos(a) * 22, y: p.y + Math.sin(a) * 22 }; p.orbs.push(o);
     for (let j = G.ebullets.length - 1; j >= 0; j--) { const b = G.ebullets[j]; if (dist(o.x, o.y, b.x, b.y) < 5 + b.r) { G.ebullets.splice(j, 1); burst(b.x, b.y, 4, col(5), 50, .2); } }
-    for (const e of G.enemies) { if (e.dead || e.spawnT > 0 || dist(o.x, o.y, e.x, e.y) > e.r + 4) continue; e.orbCd = e.orbCd || 0; if (G.time - e.orbCd < .3) continue; e.orbCd = G.time;
+    for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0 || dist(o.x, o.y, e.x, e.y) > e.r + 4) continue; e.orbCd = e.orbCd || 0; if (G.time - e.orbCd < .3) continue; e.orbCd = G.time;
       hitEnemy(e, 6 * S.dmg, { proc: .5, ka: ang(p.x, p.y, e.x, e.y), knock: 90, quiet: true }); if (SYN.storm && !e.dead) chainLightning(e, 5 * S.dmg, 1 + S.shock); }
   }
 }
@@ -588,7 +588,7 @@ function reloadDone(p, w, active) {
   if (!G.preview) AU.play(active ? 'reloadDone' : 'reloadBg');
   if (active) { burst(p.x + Math.cos(p.aim) * 8, p.y - 2 + Math.sin(p.aim) * 8, 10, c, 90, .3); ringFx(p.x, p.y - 2, 12, c, .25, 1); } else G.bgReloadT = .6;
   if (S.rnova) { const R = (38 + 10 * S.rnova) * Math.sqrt(S.size); ringFx(p.x, p.y, R, c, .35, 3); ringFx(p.x, p.y, R * .6, col(5), .25, 2); burst(p.x, p.y, 18, c, 180, .4);
-    for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < R + e.r) { hitEnemy(e, (6 + 7 * S.rnova) * S.dmg, { proc: 1, ka: ang(p.x, p.y, e.x, e.y), knock: 180, color: c }); if (SYN.flash) { e.burn = Math.max(e.burn, 3); e.burnT = 3; } }
+    for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < R + e.r) { hitEnemy(e, (6 + 7 * S.rnova) * S.dmg, { proc: 1, ka: ang(p.x, p.y, e.x, e.y), knock: 180, color: c }); if (SYN.flash) { e.burn = Math.max(e.burn, 3); e.burnT = 3; } }
     if (SYN.flash) G.later.push({ t: .05, f: () => explode(p.x, p.y, R * .8, 12 * S.dmg, { color: C.orange, proc: .3, small: true }) }); }
 }
 // shared trigger logic (player + preview sandbox): charge, spin-up, ammo, auto-reload

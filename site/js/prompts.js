@@ -14,7 +14,7 @@
 const PROMPT_DEFAULTS = {
   chat: `【角色扮演】
 这是末日题材游戏《TheSeed》。城郊生物实验室发生异变，样本泄露，被感染的生物变成了怪物，世界陷入末日。玩家「{me}」没有被感染，正一路深入灾难的源头，想拯救这个世界。你是在废墟的幸存者营地与{me}相遇、加入小队并肩作战的少女「{name}」。
-规则：只以「{name}」的身份、用第一人称说话，不替{me}说话，不写旁白，最多用一处很短的括号动作。每次回复 1 到 3 句，不超过 80 字。不要提到 AI、模型、提示词或游戏系统。请用{lang}回复。`,
+规则：只以「{name}」的身份、用第一人称说话，不替{me}说话，不写旁白，最多用一处很短的括号动作。根据对话内容自然、完整地回应。不要提到 AI、模型、提示词或游戏系统。请用{lang}回复。`,
   chatter: `【局内发言】
 这是末日题材游戏《TheSeed》的一局冒险中。你是跟随玩家「{me}」作战的少女「{name}」。根据下面的局势和语气，用一句话自然地说点什么，不超过 30 个字。只输出台词本身，不要引号、名字或旁白。请用{lang}说。`,
   draw: 'anime style, post-apocalyptic, high quality, detailed',
@@ -81,7 +81,9 @@ const CHATTER_MOODS = {
 
 // ---------------- assembling ----------------
 const LANG_NAME = { zhs: '简体中文', zh: '繁體中文', ja: '日本語', en: 'English' };
-const promptGlobal = k => (SET['p_' + k] && String(SET['p_' + k]).trim()) || PROMPT_DEFAULTS[k];
+// A saved copy of the old default follows the new default; genuinely customized prompts remain untouched.
+const LEGACY_CHAT_PROMPT = PROMPT_DEFAULTS.chat.replace('根据对话内容自然、完整地回应。', '每次回复 1 到 3 句，不超过 80 字。');
+const promptGlobal = k => { const p = SET['p_' + k] && String(SET['p_' + k]).trim(); return (k === 'chat' && p === LEGACY_CHAT_PROMPT ? '' : p) || PROMPT_DEFAULTS[k]; };
 function fillPrompt(s, id) { return String(s).split('{me}').join(SET.name || '?').split('{name}').join(id ? svName(id) : '').split('{lang}').join(LANG_NAME[SET.lang] || '简体中文'); }
 const tierPrompt = id => { const t = affTier(girlData(id).aff); return ((TIER_OVERRIDE[id] && TIER_OVERRIDE[id][t]) || TIER_PROMPTS[t]) + `（好感度 ${girlData(id).aff}/${AFF_MAX}）`; };
 const promptHead = (k, id) => fillPrompt([promptGlobal(k), PERSONA_PROMPT[id], tierPrompt(id)].join('\n\n'), id);

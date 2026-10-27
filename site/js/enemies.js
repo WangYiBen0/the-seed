@@ -91,6 +91,7 @@ function updateEnemies(dt) {
       if (before > .3 && e.spawnT <= .3) AU.play('spawnHit');
       if (e.spawnT <= 0) { e.land = .25; burst(e.x, e.y, 14, col(5), 110, .35); ringFx(e.x, e.y, 18, col(5), .25, 2); ringFx(e.x, e.y, 10, e.elite ? C.gold : C.red, .3, 1); starFx(e.x, e.y, 6, col(5), .1); e.flash = .1; splat(e.x, e.y, col(2), 10, 9); }
       continue; }
+    if(modifierEnemyTick(e,dt))continue;
     ccDecay(e, dt);
     if (dotTick(e, dt)) continue;
     if (e.slowT > 0) e.slowT -= dt; else { e.chill = 0; e.slowMul = 1; }
@@ -102,12 +103,14 @@ function updateEnemies(dt) {
     // spikes hurt enemies too
     if (tileAtPx(e.x, e.y) === TL.SPIKE && !e.fly && spikeState() === 2 && (e.spk || 0) < G.time) { e.spk = G.time + 1; hitEnemy(e, 10, { proc: 0, knock: 0 }); }
     e.raged = hasCurse('time') && !e.boss && e.room && e.room.actT !== undefined && e.room.active && G.time - e.room.actT > 20;
-    e.t += dt; e.cd -= dt * (1 + statFloor() * .12) * (e.affix === 'haste' ? 1.4 : 1) * diffV('aggr') * (e.raged ? 1.5 : 1);
-    if (e.buffT > 0) { e.buffT -= dt; e.cd -= dt * .3; }
+    // rage (a despair modifier) doubles how fast foes act; on a boss only 20% of it applies
+    const attackRate=e.boss?1+(enemyAttackRate()-1)*.2:enemyAttackRate();
+    e.t += dt*attackRate; e.cd -= dt*attackRate * (1 + statFloor() * .12) * (e.affix === 'haste' ? 1.4 : 1) * diffV('aggr') * (e.raged ? 1.5 : 1);
+    if (e.buffT > 0) { e.buffT -= dt; e.cd -= dt * .3 * attackRate; }
     const st = typeof sentryTarget === 'function' && !G.preview ? sentryTarget(e) : null, px0 = p.x, py0 = p.y; if (st) { p.x = st.x; p.y = st.y - 4; }
     const d = dist(e.x, e.y, p.x, p.y), a = ang(e.x, e.y, p.x, p.y), sp = e.spd * slow * (e.buffT > 0 ? 1.4 : 1);
     const rx = e.x, ry = e.y;
-    try { G.curShooter = e; if (e.ai) e.ai(e, dt, d, a, slow); else AI[e.type](e, dt, d, a, sp); } finally { G.curShooter = null; if (st) { p.x = px0; p.y = py0; } }
+    try { G.curShooter = e; MOD_AI_BODY=e; MOD_AI_RATE=attackRate; if (e.ai) e.ai(e, dt*attackRate, d, a, slow); else AI[e.type](e, dt*attackRate, d, a, sp); } finally { MOD_AI_BODY=null; MOD_AI_RATE=1; G.curShooter = null; if (st) { p.x = px0; p.y = py0; } }
     if (e.rootT > 0) { e.rootT -= dt; e.x = rx; e.y = ry; }
     if (!st && e.contact && p.alive && d < e.r + p.r - 1 && !e.boss) hurtPlayer(1, e.x, e.y);
   }
@@ -144,7 +147,7 @@ const AI = {
     if (e.cd <= 0 && d < 260) { e.st = 'fire'; e.t = 0; e.n = 0; }
   },
   bomber(e, dt, d, a, sp) {
-    if (e.st === 'fuse') { if (e.t > .55) { e.dead = true; explode(e.x, e.y, 34, 20, { hurtsPlayer: true, color: C.red }); } return; }
+    if (e.st === 'fuse') { if (e.t > .55) { if(e.deathFightLeft>0){e.st='idle';e.t=0;}else e.dead=true; explode(e.x, e.y, 34, 20, { hurtsPlayer: true, color: C.red }); } return; }
     steer(e, G.p.x, G.p.y, sp, dt); e.face = a;
     if (d < 28) { e.st = 'fuse'; e.t = 0; AU.play('telegraph', 1.5); }
   },

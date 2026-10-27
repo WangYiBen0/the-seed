@@ -11,6 +11,7 @@ chips2.js
 codex2.js
 combat.js
 curses2.js
+daily.js
 difficulty.js
 enemies.js
 enemies2.js
@@ -27,6 +28,7 @@ invade-art.js
 invade-data.js
 invade-details.js
 invade-effects.js
+invade-endless.js
 invade-enemies.js
 invade-extras.js
 invade-items.js
@@ -38,8 +40,11 @@ invade-visuals.js
 invade-weapon-info.js
 invade-weapons.js
 invade.js
+labserum.js
+limited.js
 look.js
 market.js
+modifiers.js
 name.js
 net.js
 news.js

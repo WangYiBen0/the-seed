@@ -132,7 +132,7 @@ function updateSupport(dt) {
             if (S.fired % 100 === 0) { S.rest = 2; S.cd = 0; break; } } } else S.cd = Math.max(0, S.cd); } }
     S.flash = Math.max(0, (S.flash || 0) - dt);
   } else if (S.k === 'gun') {
-    if (S.phase === 'aim') { S.next -= dt; if (S.next <= 0) { const foes = shuffle(G.enemies.filter(e => !e.dead && e.spawnT <= 0)); S.marks = [];
+    if (S.phase === 'aim') { S.next -= dt; if (S.next <= 0) { const foes = shuffle(G.enemies.filter(e => !e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0)); S.marks = [];
         for (let i = 0; i < 3; i++) { const e = foes.length ? foes[i % foes.length] : null; S.marks.push(e ? { x: e.x, y: e.y, t: 0 } : { x: p.x + rand(-90, 90), y: p.y + rand(-60, 60), t: 0 }); }
         S.phase = 'fall'; S.ft = 0; AU.play('telegraph', .7); } }
     else if (S.phase === 'fall') { S.ft += dt; if (S.ft > 2.3 && !S.whistle) { S.whistle = true; AU.play('shellIn'); }
@@ -152,7 +152,7 @@ function updateSupport(dt) {
       S.flash = Math.max(0, (S.flash || 0) - dt); S.hitT = Math.max(0, S.hitT - dt); S.invT = Math.max(0, (S.invT || 0) - dt);
       // it soaks up what was meant for you
       for (let i = G.ebullets.length - 1; i >= 0; i--) { const b = G.ebullets[i]; if (dist(b.x, b.y, S.x, S.y - 4) < 8 + (b.r || 3)) { G.ebullets.splice(i, 1); sentryHurt(S); if (!G.sup) return; } }
-      for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && !e.boss && dist(e.x, e.y, S.x, S.y) < e.r + 9 && (e.sentT || 0) < G.time) { e.sentT = G.time + .7; sentryHurt(S); if (!G.sup) return; }
+      for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && !e.boss && dist(e.x, e.y, S.x, S.y) < e.r + 9 && (e.sentT || 0) < G.time) { e.sentT = G.time + .7; sentryHurt(S); if (!G.sup) return; }
     }
   }
 }

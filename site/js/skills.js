@@ -53,7 +53,7 @@ function updateSkill(rdt, wdt) {
   for (let i = G.strails.length - 1; i >= 0; i--) { G.strails[i].life -= rdt; if (G.strails[i].life <= 0) G.strails.splice(i, 1); }
   for (let i = G.shockwaves.length - 1; wdt > 0 && i >= 0; i--) { const sw = G.shockwaves[i]; sw.r += sw.spd * wdt * (1 - sw.r / (sw.max * 1.4));
     for (let j = G.ebullets.length - 1; j >= 0; j--) { const b = G.ebullets[j]; if (dist(sw.x, sw.y, b.x, b.y) < sw.r) { G.ebullets.splice(j, 1); if (Math.random() < .5) part({ x: b.x, y: b.y, vx: rand(-40, 40), vy: rand(-40, 40), life: .3, max: .3, c: choice(HUES()), s: 2 }); } }
-    for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && !sw.hit.has(e) && dist(sw.x, sw.y, e.x, e.y) < sw.r + e.r) { sw.hit.add(e); hitEnemy(e, (14 + 5 * statFloor()) * G.S.dmg, { proc: 1, ka: ang(sw.x, sw.y, e.x, e.y), knock: 280, color: C.pink }); }
+    for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && !sw.hit.has(e) && dist(sw.x, sw.y, e.x, e.y) < sw.r + e.r) { sw.hit.add(e); hitEnemy(e, (14 + 5 * statFloor()) * G.S.dmg, { proc: 1, ka: ang(sw.x, sw.y, e.x, e.y), knock: 280, color: C.pink }); }
     if (sw.r >= sw.max) G.shockwaves.splice(i, 1); }
   if (!p.skill || !p.alive) return;
   const sk = SKILLS[p.skill];
@@ -63,7 +63,7 @@ function updateSkill(rdt, wdt) {
       G.limBeat = (G.limBeat || 0) - rdt; if (G.limBeat <= 0) { G.limBeat = .9; AU.play('limitBeat'); } }
     if (p.skill === 'dash') { const mv = Math.hypot(p.vx, p.vy) > 20 || p.dashT > 0;
       if (mv) { for (let k = 0; k < 2; k++) G.strails.push({ x: p.x + rand(-2, 2), y: p.y + 2 + rand(-2, 2), c: HUES()[((G.time * 20 + k) | 0) % 7], life: .45, max: .45 });
-        for (const e of G.enemies) if (!e.dead && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < p.r + e.r + 4 && (e.skHit || 0) < G.time) { e.skHit = G.time + .35; hitEnemy(e, (10 + 4 * statFloor()) * G.S.dmg, { proc: 1, ka: ang(p.x, p.y, e.x, e.y), knock: 170, color: choice(HUES()) }); } }
+        for (const e of G.enemies) if (!e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < p.r + e.r + 4 && (e.skHit || 0) < G.time) { e.skHit = G.time + .35; hitEnemy(e, (10 + 4 * statFloor()) * G.S.dmg, { proc: 1, ka: ang(p.x, p.y, e.x, e.y), knock: 170, color: choice(HUES()) }); } }
       if (p.tempShield <= 0) { endSkill(); return; } }
     if (p.skill === 'teleport') { const tx = Input.mx + G.cam.x, ty = Input.my + G.cam.y;
       if (Input.clicked && p.skillAge > .05) { Input.clicked = false;

@@ -30,7 +30,7 @@ function newRun() {
   G = { state: 'play', time: 0, runT: 0, floor: 0, kills: 0, combo: 0, comboT: 0, comboMax: 0, comboPop: 0, ink: 0, rerolls: 0, rerollBase: 15, tints: [], curse: 0, fury: 0, furyT: 0,
     enemies: [], bullets: [], ebullets: [], slashes: [], beams: [], bolts: [], thrusts: [], muzzles: [], vortices: [], whips: [], slams: [], iais: [], punches: [], orbOpen: null, bgReloadT: 0, emitters: [], wreck: null, strails: [], shockwaves: [], limit: false, skillCall: null, skillPulse: null, riskRestore: null, mechs: [], pillars: [], fusionQ: [], fusion: null, deathwall: null, picks: [], inter: [], later: [], lasers: [], zones: [], ghosts: [], went: [],
     cam: { x: 0, y: 0 }, banner: null, boss: null, cards: null, endT: 0, muzzle: 0, inkPitch: 0, inkT: 0, trial: null, notes: [], inkAcc: 0, hits: 0, freeReroll: false, curses: [], fires: [], curseDone: false, result: null, squad: [], met: [], campPick: null, talk: null, rid: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) };
-  G.diff = DIFF_BY[SET.diff] ? SET.diff : 'classic'; G.proofGain = 0;
+  G.diff = DIFF_BY[SET.diff] ? SET.diff : 'classic'; G.proofGain = 0; G.modifiers = takeRunModifiers();
   G.p = { x: 0, y: 0, r: 4, vx: 0, vy: 0, aim: 0, hp: 5, maxHp: 5, armor: 3, maxArmor: 3, armorRegen: 0, lastHit: 99, inv: 0, dashT: 0, dashCd: 0, dx: 0, dy: 0,
     weapons: ['nail'], wi: 0, wlv: {}, ammo: {}, skill: null, skillCd: 0, skillOn: false, skillT: 0, tempShield: 0, lean: 0, primed: 0, kx: 0, ky: 0, slowT: 0, cd: 0, charge: 0, spin: 0, recoil: 0, shards: {}, alive: true, walkT: 0, safe: null, echoN: 0, ricoN: {}, veilClock: 0, veilCd: 0, veilReloads: {}, fly: false, phoenixUsed: false };
   G.seenW = new Set(G.p.weapons); recomputeStats(); computeTints(); codexMark('w:nail'); G.p.armor = G.p.maxArmor;
@@ -57,8 +57,9 @@ function enterFloor(fi) {
     const cx = r.cx * T + 8, cy = r.cy * T + 8;
     if (r.type === 'treasure') { const two = diffV('wChest') && Math.random() < .5; G.inter.push({ kind: 'chest', x: two ? cx - 26 : cx, y: cy + 4 }, { kind: 'fount', x: cx, y: cy - 34, cost: 20 }); if (two) G.inter.push({ kind: 'chest', weapon: true, x: cx + 26, y: cy + 4 }); }
     if (r.type === 'shrine') G.inter.push({ kind: 'altar', x: cx, y: cy });
-    if (r.type === 'dialysis') G.inter.push({ kind: 'dialysis', x: cx, y: cy });
+    if (r.type === 'dialysis') G.inter.push({ kind: 'dialysis', x: cx, y: cy, used: (G.diaUsed || []).includes(exploreDepth()) });
     if (r.type === 'barracks') barracksSetup(r, cx, cy);
+    if (r.type === 'lab' && typeof labSetup === 'function') labSetup(r, cx, cy);
     try { roomDecor(r, cx, cy); } catch (e) { console.error(e); }
     if (r.type === 'camp') G.inter.push(...campInter(r));
     if (r.type === 'forge') G.inter.push({ kind: 'forge', x: cx, y: cy });
@@ -231,13 +232,13 @@ function updateRooms(dt) {
   if (G.trial) { const tr2 = G.trial; tr2.t -= dt; tr2.spawn -= dt;
     if (tr2.spawn <= 0 && tr2.t > 2) { tr2.spawn = Math.max(.7, 1.6 - (25 - tr2.t) * .03); if (G.enemies.filter(e => !e.dead).length < 9) { const all = roomFloorTiles(tr2.room), distant = all.filter(([x, y]) => dist(x * T + 8, y * T + 8, p.x, p.y) > 60), tiles = distant.length ? distant : all;
       for (let i = 0; tiles.length && i < randi(1, 2); i++) { const [tx, ty] = choice(tiles); spawnEnemy(choice(POOLS[G.floor]), tx * T + 8, ty * T + 8, { elite: Math.random() < .15, room: tr2.room, ink: 1 }); } } }
-    if (tr2.t <= 0) { G.trial = null; for (const e of G.enemies) if (!e.dead) killEnemy(e, {}); unlockRoom(tr2.room);
+    if (tr2.t <= 0) { G.trial = null; for (const e of G.enemies.slice()) if (!e.dead && e.room === tr2.room) killEnemy(e, { roomCleanup: true }); unlockRoom(tr2.room);
       const cx = tr2.room.cx * T + 8, cy = tr2.room.cy * T + 8; G.inter.push({ kind: 'prism', x: cx, y: cy + 16, minRar: 1, born: G.time });
       for (let i = 0; i < 20; i++) G.picks.push({ kind: 'ink', x: cx, y: cy, vx: rand(-120, 120), vy: rand(-120, 120), t: 0, magnet: true });
       G.banner = { t: 1.8, big: L('trialDone'), small: L('comboX', G.comboMax), c: C.pink }; } }
   const br = WORLD.rooms.find(x => x.type === 'boss');
   if (br && br.active && G.bossDead && !G.enemies.some(e => !e.dead && e.room === br)) {
-    br.active = false; br.cleared = true; setDoors(br, false); AU.setMode('calm');
+    br.active = false; br.cleared = true; setDoors(br, false); AU.setMode('calm'); if (typeof expBattle === 'function') expBattle();
     const cx = br.cx * T + 8, cy = br.cy * T + 8;
     G.later.push({ t: 1.6, f: () => { G.inter.push({ kind: 'prism', x: cx - 24, y: cy + 10, minRar: 2, born: G.time }); G.inter.push({ kind: 'portal', x: cx + 24, y: cy + 10, born: G.time }); if (G.floor === FLOORS.length - 1 && !G.endless && !(window.BOSS_TEST && BOSS_TEST.on)) G.inter.push({ kind: 'portal', endless: true, x: cx, y: cy + 46, born: G.time }); for (const pk of G.picks) pk.magnet = true; } });
   }
@@ -278,10 +279,12 @@ const SAVE_KEY = 'achroma_run';
 let RESUMING = false;
 function saveRun() {
   if (RESUMING || !G.p || (window.BOSS_TEST && BOSS_TEST.on)) return; const p = G.p;
-  const s = { v: 1, at: Date.now(), floor: G.floor, diff: G.diff, hp: p.hp, armor: p.armor, weapons: p.weapons.slice(), wi: p.wi, wlv: Object.assign({}, p.wlv), shards: Object.assign({}, p.shards), meltVersion: p.shards.melt ? 2 : undefined,
+  const s = { v: 1, at: Date.now(), modifiers: cleanModifiers(G.modifiers,G.diff,G.mode), floor: G.floor, diff: G.diff, hp: p.hp, armor: p.armor, weapons: p.weapons.slice(), wi: p.wi, wlv: Object.assign({}, p.wlv), shards: Object.assign({}, p.shards), meltVersion: p.shards.melt ? 2 : undefined,
     skill: p.skill || null, phoenixUsed: !!p.phoenixUsed, ink: G.ink, inkAcc: G.inkAcc || 0, rerolls: G.rerolls, curse: G.curse || 0, mhpLoss: G.mhpLoss || 0, ptn: G.ptn ? { id: G.ptn.id, cd: +G.ptn.cd.toFixed(1), sv: !!G.ptnSaved } : null, kills: G.kills, comboMax: G.comboMax, runT: G.runT, seenW: [...(G.seenW || [])], hits: G.hits || 0, freeReroll: !!G.freeReroll, diaN: G.diaN || 0, support: G.support || null, rid: G.rid, curses: (G.curses || []).slice(), bossPick: G.bossPick || null, endless: G.endless || 0, powCap: G.powCap || 0, buffs: G.buffs || {}, adrenAt: G.adrenAt || 0,
     squad: (G.squad || []).map(m => ({ id: m.id, wid: m.wid, hits: m.hits, away: !!m.away })), met: (G.met || []).slice(), campPick: G.campPick || null,
     assisted: !!G.assisted, clearRewarded: !!G.clearRewarded, proofGain: G.proofGain || 0, affGain: G.affGain || [],
+    svBan: (G.svBan || []).slice(), curseBan: (G.curseBan || []).slice(), armorLoss: G.armorLoss || 0, diaUsed: (G.diaUsed || []).slice(), campUsed: (G.campUsed || []).slice(),
+    exp: G.exp ? { id: G.exp.id, left: G.exp.left } : null, expPerm: Object.assign({}, G.expPerm || {}), labUsed: (G.labUsed || []).slice(),
     transition: Number.isInteger(G.nextFloor) ? { floor: G.nextFloor, curseDone: !!G.curseDone } : null };
   try { STORE.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { }
 }
@@ -294,7 +297,14 @@ function loadSave() { try {
   s.wi = Math.floor(saveNum(s.wi, 0, 0, s.weapons.length - 1));
   const levels = (o, defs, cap) => { const out = {}; if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) if (Object.hasOwn(defs, k) && Number.isFinite(+v) && +v > 0) out[k] = clamp(Math.floor(+v), 1, cap || defs[k].max); return out; };
   s.wlv = levels(s.wlv, WEAPONS, 3); s.shards = levels(s.shards, SHARD);
+  s.modifiers = cleanModifiers(s.modifiers,s.diff);
   s.curses = [...new Set(saveList(s.curses).filter(c => Object.hasOwn(CURSE, c)))];
+  s.svBan = [...new Set(saveList(s.svBan).filter(id => Object.hasOwn(SHARD, id)))];
+  s.curseBan = [...new Set(saveList(s.curseBan).filter(id => Object.hasOwn(CURSE, id)))];
+  s.armorLoss = Math.floor(saveNum(s.armorLoss, 0, 0, 10004));
+  for (const k of ['diaUsed', 'labUsed', 'campUsed']) s[k] = [...new Set(saveList(s[k]).filter(n => Number.isInteger(n) && n >= 1 && n <= 10004))];
+  s.exp = s.exp && Object.hasOwn(EXP, s.exp.id) && s.exp.left > 0 ? { id: s.exp.id, left: Math.floor(saveNum(s.exp.left, 1, 1, EXP_FIGHTS)) } : null;
+  s.expPerm = levels(s.expPerm, EXP, 9);
   s.squad = saveList(s.squad).filter(m => m && Object.hasOwn(SURV, m.id) && Object.hasOwn(WEAPONS, m.wid));
   s.met = saveList(s.met).filter(id => Object.hasOwn(SURV, id)); s.seenW = saveList(s.seenW).filter(id => Object.hasOwn(WEAPONS, id));
   for (const k of ['ink', 'inkAcc', 'rerolls', 'curse', 'kills', 'comboMax', 'runT', 'hits', 'powCap', 'adrenAt', 'proofGain']) s[k] = saveNum(s[k], 0);
@@ -314,17 +324,19 @@ function markAssisted() { if (G.assisted) return; G.assisted = true; const s = l
 function resumeRun() {
   const s = loadSave(); if (!s) { newRun(); return; }
   RESUMING = true; try { newRun(); } finally { RESUMING = false; }
-  G.diff = s.diff; const p = G.p;
+  G.diff = s.diff; G.modifiers = s.modifiers; const p = G.p;
   // only restore things that still exist in this version of the game
   p.weapons = s.weapons.filter(w => WEAPONS[w]); if (!p.weapons.length) p.weapons = ['nail']; p.wi = Math.min(s.wi || 0, p.weapons.length - 1);
   p.wlv = {}; for (const k in s.wlv || {}) if (WEAPONS[k]) p.wlv[k] = s.wlv[k];
   p.shards = {}; for (const k in s.shards || {}) if (SHARD[k]) p.shards[k] = s.shards[k];
   p.skill = s.skill && SKILLS[s.skill] ? s.skill : null; p.skillCd = 0; p.phoenixUsed = !!s.phoenixUsed; p.ammo = {};
-  recomputeStats(); computeTints(); p.hp = clamp(s.hp, 1, p.maxHp); p.armor = clamp(s.armor, 0, p.maxArmor);
+  // Restore capacity modifiers and exclusion pools before recalculating stats or generating the saved floor.
+  Object.assign(G, { svBan: s.svBan, curseBan: s.curseBan, armorLoss: s.armorLoss, diaUsed: s.diaUsed, campUsed: s.campUsed, exp: s.exp, expPerm: s.expPerm, labUsed: s.labUsed });
   Object.assign(G, { support: SUP_KINDS.includes(s.support) ? s.support : null, diaN: s.diaN || 0, ink: s.ink || 0, inkAcc: s.inkAcc || 0, rerolls: s.rerolls || 0, curse: s.curse || 0, mhpLoss: Math.max(0, s.mhpLoss | 0), kills: s.kills || 0, comboMax: s.comboMax || 0, runT: s.runT || 0, seenW: new Set(s.seenW || p.weapons), hits: s.hits || 0, freeReroll: !!s.freeReroll, rid: s.rid || G.rid, curses: (s.curses || []).filter(c => CURSE[c]), resuming: true, bossPick: s.bossPick || null, resumePick: !!s.bossPick, endless: s.endless | 0, powCap: +s.powCap || 0, buffs: s.buffs && typeof s.buffs === 'object' ? s.buffs : {}, adrenAt: s.adrenAt || 0,
     squad: s.squad.map(m => mkMate(m.id, m.wid, saveNum(m.hits, 0, 0, 60), m.away)), met: s.met, campResume: s.campPick || null,
     assisted: !!s.assisted, clearRewarded: !!s.clearRewarded || s.endless > 0, proofGain: s.proofGain, affGain: s.affGain });
-  recomputeStats(); if (G.endless && !G.powCap) G.powCap = powerScale(); // saves from before the cap existed
+  recomputeStats(); computeTints(); p.hp = clamp(s.hp, 1, p.maxHp); p.armor = clamp(s.armor, 0, p.maxArmor);
+  if (G.endless && !G.powCap) G.powCap = powerScale(); // saves from before the cap existed
   // Older osteolysis saves had no armor. Grant the replacement conversion once,
   // after curses/HP costs are restored, before enterFloor writes the new checkpoint.
   if (G.S.melt && s.meltVersion !== 2 && G.mode !== 'invade') p.armor = Math.min(p.maxArmor, p.armor + p.meltArmor);
@@ -360,8 +372,8 @@ function updateInter(dt) {
       if (E) { codexMark('w:' + it.id); AU.play('pickup'); burst(it.x, it.y, 16, col(5), 100, .4); if (p.weapons.length < wCap()) { p.weapons.push(it.id); p.wi = 1; G.inter.splice(i, 1); } else { const old = p.weapons[p.wi]; p.weapons[p.wi] = it.id; it.id = old; } p.charge = 0; p.spin = 0; notify(L('n_equip', wname(p.weapons[p.wi])), col(5)); } }
     else if (it.kind === 'camp' && !it.used && (G.squad || []).length) { G.prompt = { x: it.x, y: it.y - 4, t: L('cp_rest'), sub: L('cp_restSub'), c: C.orange }; if (E) campRest(it); }
     else if (it.kind === 'survivor') { G.prompt = { x: it.x, y: it.y - 4, t: L('sq_talk', svName(it.id)), sub: L('sq_survivor'), c: SURV[it.id].c }; if (E) { startTalk(it); return; } }
-    else if (it.kind === 'soldier') { const gone = it.room && it.room.supUsed; G.prompt = { x: it.x, y: it.y - 8, t: L('sup_talk'), sub: gone ? L('sup_gone') : supName(it.sup), c: '#8fa77e' }; if (E) { if (gone) { notify(L('sup_gone'), col(4)); AU.play('locked'); } else { openBarracksTalk(it); return; } } }
-    else if (it.kind === 'dialysis') { G.prompt = { x: it.x, y: it.y, t: L('dia'), sub: L('diaSub2', diaCost(0), diaCost(1)), c: '#a4cfe0' }; if (E) openDialysis(); }
+    else if (it.kind === 'soldier') { const gone = it.room && it.room.supUsed; G.prompt = { x: it.x, y: it.y - 8, t: L('sup_talk'), sub: gone ? L('sup_gone') : supName(it.sup), c: '#8fa77e' }; if (E) { if (gone) { notify(L('sup_gone'), col(4), false); AU.play('locked'); } else { openBarracksTalk(it); return; } } }
+    else if (it.kind === 'dialysis') { G.prompt = { x: it.x, y: it.y, t: L('dia'), sub: it.used ? L('diaUsed') : L('diaSub2'), c: it.used ? '#57524a' : '#a4cfe0' }; if (E) openDialysis(it); }
     else if (it.kind === 'fount') { G.prompt = { x: it.x, y: it.y, t: it.used ? L('dry') : L('fount', it.cost), sub: it.used ? '' : L('fountSub'), c: C.green };
       if (E && !it.used) { if (hasCurse('drought')) notify(L('n_drought'), CURSE_C); else if (p.hp >= p.maxHp) notify(L('n_whole'), C.red); else if (pay(it.cost)) { healPlayer(2); it.used = true; AU.play('heal'); burst(p.x, p.y, 20, C.green, 100, .5); } } }
     else if (it.kind === 'altar') { G.prompt = { x: it.x, y: it.y, t: it.used ? L('spent') : L('pact'), sub: it.used ? '' : L('pactSub'), c: C.red };
@@ -735,4 +747,4 @@ function beginFloorTransition(fi) { G.nextFloor = fi; G.state = 'trans'; G.trans
 function startEndless() { if (G.endless) return; girlsOnClear(); G.powCap = powerScale(); G.endless = 1; beginFloorTransition(endlessFloor()); flash(C.red, .4, true); notify(L('endlessOn'), C.red); }
 const endlessFloor = () => randi(0, FLOORS.length - 1);
 // the curse event is skipped once every curse has been taken
-const curseless = () => CURSES.every(c => (G.curses || []).includes(c.id));
+const curseless = () => cursePool().length === 0;

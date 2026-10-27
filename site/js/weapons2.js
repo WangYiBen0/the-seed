@@ -38,7 +38,7 @@ for (const k of ['nail', 'hail', 'storm', 'scatter', 'rail', 'prism', 'volt', 'h
 function went(o) { (G.went || (G.went = [])).push(Object.assign({ t: 0 }, o)); }
 function updateWents(dt) { const L3 = G.went; if (!L3) return; for (let i = L3.length - 1; i >= 0; i--) { const e = L3[i]; e.t += dt; if (e.u(e, dt)) L3.splice(i, 1); } }
 function drawWents(cx, cy) { const L3 = G.went; if (!L3) return; for (const e of L3) e.dr(e, cx, cy); }
-const liveFoes = () => G.enemies.filter(e => !e.dead && e.spawnT <= 0);
+const liveFoes = () => G.enemies.filter(e => !e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0);
 function hitOpts(w, o, extra) { return Object.assign({ proc: w.proc, knock: w.knock, ghost: o.ghost, critBonus: o.critBonus }, extra); }
 function rootFoe(e, t) { const k = e.boss ? 0 : ccMul(e, 'root'); ccAdd(e, 'root', .5); if (k < .1) { if (e.boss) { e.slowT = Math.max(e.slowT, t); e.slowMul = .6; } else resistText(e); return; } e.rootT = Math.max(e.rootT || 0, t * k); }
 
@@ -48,7 +48,7 @@ const WK = {
       u(h, dt) { const P = G.p;
         if (h.st === 'out') { h.d += 420 * dt; h.x = P.x + Math.cos(h.a) * h.d; h.y = P.y + Math.sin(h.a) * h.d;
           if (shotBlocked(h.x, h.y) || h.d > h.R) { h.st = 'back'; return false; }
-          const e = G.enemies.find(q => !q.dead && q.spawnT <= 0 && dist(q.x, q.y, h.x, h.y) < q.r + 5);
+          const e = G.enemies.find(q => !q.dead && !(q.deathFightLeft>0) && q.spawnT <= 0 && dist(q.x, q.y, h.x, h.y) < q.r + 5);
           if (e) { h.tg = e; h.st = 'pull'; h.pt = 0; hitEnemy(e, h.dmg, hitOpts(w, h.o, { ka: h.a, melee: true })); AU.play('stick', .7); shake(.06); } return false; }
         if (h.st === 'pull') { const e = h.tg; h.pt += dt; if (!e || e.dead) { h.st = 'back'; return false; } h.x = e.x; h.y = e.y; const d = dist(P.x, P.y, e.x, e.y);
           if (e.boss || e.champ) { if (d > 26 && P.dashT <= 0) moveBody(P, (e.x - P.x) / d * 260 * dt, (e.y - P.y) / d * 260 * dt); }
@@ -84,7 +84,7 @@ const WK = {
     if ((G.went || []).filter(q => q.hound).length >= 4) { const old = G.went.find(q => q.hound); if (old) old.life = 0; }
     went({ hound: true, x: p.x + Math.cos(a) * 8, y: p.y + Math.sin(a) * 8, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 3, bites: 4, bt: 0, dmg, c, o, face: a,
       u(h, dt) { h.life -= dt; h.bt -= dt; if (h.life <= 0 || h.bites <= 0) { burst(h.x, h.y, 10, h.c, 60, .4); return true; }
-        if (!h.tg || h.tg.dead) h.tg = nearestEnemy(h.x, h.y, 220);
+        if (!h.tg || h.tg.dead || h.tg.deathFightLeft>0) h.tg = nearestEnemy(h.x, h.y, 220);
         if (h.tg) { const a2 = ang(h.x, h.y, h.tg.x, h.tg.y); h.face = a2; h.vx = lerp(h.vx, Math.cos(a2) * 230, Math.min(1, dt * 6)); h.vy = lerp(h.vy, Math.sin(a2) * 230, Math.min(1, dt * 6));
           if (dist(h.x, h.y, h.tg.x, h.tg.y) < h.tg.r + 6 && h.bt <= 0) { h.bt = .3; h.bites--; hitEnemy(h.tg, h.dmg, hitOpts(w, h.o, { ka: h.face, color: h.c })); AU.play('slash', 1.4, .5); burst(h.x, h.y, 5, h.c, 70, .2); } }
         else { h.vx *= Math.pow(.2, dt); h.vy *= Math.pow(.2, dt); }
@@ -96,7 +96,7 @@ const WK = {
   net(p, w, a, o, mx, my) { const S = G.S, dmg = w.dmg * S.dmg * o.scale, tx = G.aimX !== undefined ? G.aimX : Input.mx + G.cam.x, ty = G.aimY !== undefined ? G.aimY : Input.my + G.cam.y, L4 = clamp(dist(p.x, p.y, tx, ty), 40, 190);
     went({ x: mx, y: my, a, d: 0, L: L4, st: 'fly', R: 34 * Math.sqrt(S.size), dmg, o, tick: 0, life: 2.6,
       u(n, dt) { if (n.st === 'fly') { n.d += 300 * dt; const nx = n.x + Math.cos(n.a) * 300 * dt, ny = n.y + Math.sin(n.a) * 300 * dt;
-          const hitE = G.enemies.some(e => !e.dead && e.spawnT <= 0 && dist(e.x, e.y, nx, ny) < e.r + 4);
+          const hitE = G.enemies.some(e => !e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(e.x, e.y, nx, ny) < e.r + 4);
           if (shotBlocked(nx, ny) || hitE || n.d >= n.L) { n.st = 'open'; n.t = 0; AU.play('chakram', .6); for (const e of liveFoes()) if (dist(e.x, e.y, n.x, n.y) < n.R + e.r) rootFoe(e, 2); } else { n.x = nx; n.y = ny; } return false; }
         n.life -= dt; n.tick -= dt; if (n.tick <= 0) { n.tick = .4; for (const e of liveFoes()) if (dist(e.x, e.y, n.x, n.y) < n.R + e.r) { hitEnemy(e, n.dmg, hitOpts(w, n.o, { knock: 0, quiet: true, color: C.lime })); if ((e.rootT || 0) < .2) rootFoe(e, .5); } }
         return n.life <= 0; },

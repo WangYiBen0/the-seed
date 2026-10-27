@@ -331,7 +331,7 @@ Object.assign(WK, {
 // parasitic wasps: they hunt, sting and infect; an infected foe that dies lets two more out
 function wasp(x, y, dmg, w, o) { if ((G.went || []).filter(q => q.wasp).length >= 14) return; AU.play('ui', 2.2, .2);
   went({ wasp: true, x, y, vx: rand(-90, 90), vy: rand(-90, 90), life: 5, bt: 0, dmg, o, wob: rand(0, 6),
-    u(q, dt) { q.life -= dt; q.bt -= dt; if (!q.tg || q.tg.dead) q.tg = nearestEnemy(q.x, q.y, 220);
+    u(q, dt) { q.life -= dt; q.bt -= dt; if (!q.tg || q.tg.dead || q.tg.deathFightLeft>0) q.tg = nearestEnemy(q.x, q.y, 220);
       if (q.tg) { const a = ang(q.x, q.y, q.tg.x, q.tg.y) + Math.sin(G.time * 9 + q.wob) * .7; q.vx = lerp(q.vx, Math.cos(a) * 175, Math.min(1, dt * 5)); q.vy = lerp(q.vy, Math.sin(a) * 175, Math.min(1, dt * 5));
         if (dist(q.x, q.y, q.tg.x, q.tg.y) < q.tg.r + 3 && q.bt <= 0) { q.bt = .5; q.life -= 1.1; const e = q.tg; hitEnemy(e, q.dmg, hitOpts(w, q.o, { knock: 10, quiet: true, color: C.lime })); if (!e.dead) infect(e, q.dmg, w, q.o); } }
       else { q.vx *= Math.pow(.3, dt); q.vy *= Math.pow(.3, dt); }
@@ -356,7 +356,7 @@ Object.assign(HOLD, {
     part({ x: x2, y: y2, vx: Math.cos(a + 2.4) * 120, vy: Math.sin(a + 2.4) * 120, life: .15, max: .15, c: '#ffd070', t: 'spark', drag: 4 });
     if (!G.preview) AU.play('smg', any ? .42 : .34, any ? .55 : .3); if (any) shake(.02); },
   tether(p, w, dt, held) { const S = G.S; if (!held) { p.lch = null; p.lchK = 0; return; } const R = 125 * sz(); let L4 = p.lch;
-    if (!L4 || L4.dead || dist(p.x, p.y, L4.x, L4.y) > R + 20 || !los(p.x, p.y, L4.x, L4.y)) { const tg = nearestEnemy(p.x, p.y, R, e => Math.abs(angDiff(p.aim, ang(p.x, p.y, e.x, e.y))) < .75 && los(p.x, p.y, e.x, e.y)); if (tg && tg !== L4) AU.play('stick', .7, .6); p.lch = L4 = tg; }
+    if (!L4 || L4.dead || L4.deathFightLeft>0 || dist(p.x, p.y, L4.x, L4.y) > R + 20 || !los(p.x, p.y, L4.x, L4.y)) { const tg = nearestEnemy(p.x, p.y, R, e => Math.abs(angDiff(p.aim, ang(p.x, p.y, e.x, e.y))) < .75 && los(p.x, p.y, e.x, e.y)); if (tg && tg !== L4) AU.play('stick', .7, .6); p.lch = L4 = tg; }
     if (!L4) { p.lchK = Math.max(0, (p.lchK || 0) - dt); return; }
     p.lchK = Math.min(1, (p.lchK || 0) + dt / 3); p.lchT = (p.lchT || 0) - dt;
     if (p.lchT <= 0) { p.lchT = .15; hitEnemy(L4, w.dmg * S.dmg * wlvMul(w) * (1 + 2 * p.lchK), { proc: w.proc, knock: 0, quiet: true, color: '#b8262e', ka: ang(p.x, p.y, L4.x, L4.y) });

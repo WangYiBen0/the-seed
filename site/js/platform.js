@@ -7,9 +7,9 @@
 //   start can never overwrite real progress), then loads the game scripts in order.
 'use strict';
 const PLAT = { dzmm: false, caps: {}, user: null, env: null };
-const STORE_KEYS = ['achroma_set', 'achroma_run', 'achroma_codex', 'achroma_pending', 'achroma_girls', 'achroma_evpend', 'achroma_ivrun'];
+const STORE_KEYS = ['achroma_set', 'achroma_run', 'achroma_codex', 'achroma_pending', 'achroma_girls', 'achroma_evpend', 'achroma_ivrun', 'achroma_ltpend'];
 // the run save and the girls' progress go out at once; settings are batched for a moment (sliders change many times a second)
-const STORE_NOW = new Set(['achroma_run', 'achroma_girls', 'achroma_pending', 'achroma_evpend', 'achroma_ivrun']);
+const STORE_NOW = new Set(['achroma_run', 'achroma_girls', 'achroma_pending', 'achroma_evpend', 'achroma_ivrun', 'achroma_ltpend']);
 const STORE = {
   mem: {}, dirty: new Set(), dead: new Set(), locked: false, timer: 0, fails: 0, running: null, again: false,
   getItem(k) { return Object.prototype.hasOwnProperty.call(this.mem, k) ? this.mem[k] : null; },
@@ -80,8 +80,8 @@ function bootRetry(msg) {
   });
 }
 const GAME_SCRIPTS = ['engine', 'i18n', 'net', 'sfxdata', 'audio', 'world', 'combat', 'weapons', 'enemies', 'boss', 'ui', 'skills', 'shards2', 'shards3', 'enemies2', 'weapons2', 'boss2', 'boss3',
-  'traps', 'difficulty', 'news', 'screens', 'name', 'overlay', 'panels', 'game', 'weapons3', 'enemies3', 'shards4', 'bossart', 'curses2', 'rooms', 'support', 'testmode', 'chips2', 'squad', 'prompts', 'chat', 'girls', 'stories-data', 'stories', 'market', 'wchat', 'event', 'camp', 'look', 'codex2', 'touch', 'partners', 'invade-data', 'invade-items', 'invade-weapons', 'invade-roles', 'invade-art-data', 'invade-art', 'invade-enemies', 'invade-weapon-info', 'invade', 'invade-effects', 'invade-details', 'invade-visuals', 'invade-presentation', 'invade-summons', 'invade-style', 'invade-extras', 'achieve', 'follow', 'sieve', 'gamepad', 'balance'];
-const GAME_V = 'mv9nfppo';
+  'traps', 'difficulty', 'news', 'screens', 'name', 'overlay', 'panels', 'game', 'weapons3', 'enemies3', 'shards4', 'bossart', 'curses2', 'rooms', 'support', 'testmode', 'chips2', 'squad', 'prompts', 'chat', 'girls', 'stories-data', 'stories', 'market', 'wchat', 'event', 'camp', 'look', 'codex2', 'touch', 'partners', 'invade-data', 'invade-items', 'invade-weapons', 'invade-roles', 'invade-art-data', 'invade-art', 'invade-enemies', 'invade-weapon-info', 'invade', 'invade-effects', 'invade-details', 'invade-visuals', 'invade-presentation', 'invade-summons', 'invade-style', 'invade-extras', 'achieve', 'follow', 'sieve', 'gamepad', 'balance', 'modifiers', 'invade-endless', 'labserum', 'daily', 'limited'];
+const GAME_V = 'mvffch7m';
 // served from this machine (development): never reuse cached scripts
 const DEV_BUST = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? '.' + Date.now() : '';
 // startup timings (ms since the page started): printed to the console, and sent once to the author's DZMM log

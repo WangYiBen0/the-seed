@@ -47,7 +47,7 @@ function gpLoad() { if (GP) return GP; let o = null; try { o = JSON.parse(STORE.
     if (!obj(d.lv)) d.lv = {}; for (const k of ['spd', 'dmg', 'hp']) d.lv[k] = num(d.lv[k], LV_MAX);
     d.own = Array.isArray(d.own) ? [...new Set(d.own.filter(w => typeof w === 'string' && Object.hasOwn(WEAPONS, w)))] : [];
     if (typeof d.wsel !== 'string' || !Object.hasOwn(WEAPONS, d.wsel)) d.wsel = null;
-    d.log = Array.isArray(d.log) ? d.log.filter(q => q && !q.live && ['p', 'h'].includes(q.r) && typeof q.t === 'string' && q.t).slice(-48).map(q => ({ r: q.r, t: q.t.slice(0, 300) })) : [];
+    d.log = Array.isArray(d.log) ? d.log.filter(q => q && !q.live && ['p', 'h'].includes(q.r) && typeof q.t === 'string' && q.t).slice(-48).map(q => ({ r: q.r, t: q.t })) : [];
     d.imgs = Array.isArray(d.imgs) ? d.imgs.filter(q => obj(q) && typeof q.id === 'string' && q.id).slice(0, 24) : [];
     d.stories = Array.isArray(d.stories) ? [...new Set(d.stories.filter(n => Number.isInteger(n) && n >= 0 && n < 3))] : [];
     if (!obj(d.storyPage)) d.storyPage = {};
@@ -80,7 +80,7 @@ function girlsOnClear() {
   if (G.clearRewarded || gp.clearRuns.includes(G.rid)) { G.clearRewarded = true; return; }
   // The reward and its receipt share one KV value: a retry/replayed checkpoint
   // cannot award proofs or affection twice, even without batch KV support.
-  const n = PROOF_BY_DIFF[G.diff] || 3; gp.proofs += n; G.proofGain = n; G.affGain = []; G.clearRewarded = true;
+  const n = (PROOF_BY_DIFF[G.diff] || 3) + runModifierReward(); gp.proofs += n; G.proofGain = n; G.affGain = []; G.clearRewarded = true;
   gp.clearRuns = gp.clearRuns.concat(G.rid).slice(-128);
   gpSave();
 }

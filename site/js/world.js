@@ -48,8 +48,9 @@ function genFloor(fi) {
     // every floor has a survivor camp, preferably tucked away in a dead end
     { const free = cells.filter(c => !c.type && c.d > 0), dead = free.filter(c => c.links.length === 1); if (!free.length) { cells = null; continue; } (dead.length ? choice(dead) : choice(free)).type = 'camp'; }
     // special rooms prefer dead ends and deeper cells; keep at least 3 combat rooms
-    // floors 3 and 5 always have a dialysis machine
-    if (fi === 2 || fi === 4) { const free = cells.filter(c => !c.type && c.d > 0), dead = free.filter(c => c.links.length === 1); if (free.length > 3) (dead.length ? choice(dead) : choice(free)).type = 'dialysis'; }
+    // a dialysis machine on floors 5, 15, 45 and 75 (endless floors count on from the fifth)
+    const depthNo = G && G.endless ? FLOORS.length + G.endless : fi + 1;
+    if ([5, 15, 45, 75].includes(depthNo)) { const free = cells.filter(c => !c.type && c.d > 0), dead = free.filter(c => c.links.length === 1); if (free.length > 3) (dead.length ? choice(dead) : choice(free)).type = 'dialysis'; }
     const sp = shuffle(SPECIALS.slice()).slice(0, FLOORS[fi].specials);
     for (const kind of sp) { const free = cells.filter(c => !c.type && c.d > 0); if (free.length <= 3) break;
       const dead = free.filter(c => c.links.length === 1); const pick = dead.length ? choice(dead) : choice(free); pick.type = kind; }

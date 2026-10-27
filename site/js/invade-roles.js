@@ -8,9 +8,11 @@ const IV_ROLES = [
   {id:'mage',n:'元素反应',en:'ELEMENTAL',tags:["Elemental Damage"],ic:'bolt',base:{},scale:{elem:1.25,melee:0,ranged:0,eng:.5},items:['snake','scared_sausage'],lines:['元素伤害的属性修改＋25%','开局携带蛇和惊恐香肠','近战、远程伤害的属性修改－100%','工程学的属性修改－50%'],start:['wand','torch','plank','taser','lightning_shiv','smg','double_barrel_shotgun']},
   {id:'chunky',n:'厚重生存',en:'FORTIFIED',tags:["Max HP", "Luck", "Consumable"],ic:'heart',base:{steal:-100,food:3},scale:{hp:1.25,regen:.5,dodge:.5,speed:0},lines:['生命上限的属性修改＋25%','每3点生命上限提供1%伤害','消耗品额外恢复3生命','生命窃取－100%','生命再生、闪避的属性修改－50%','移动速度的属性修改－100%'],start:['fist','cacti_club','rock','stick','torch','plank','chopper','pruner','spiky_shield','double_barrel_shotgun','taser','ghost_scepter','shredder','revolver']},
   {id:'old',n:'稳守缓进',en:'STEADY',tags:["Less Enemies", "Less Enemy Speed"],ic:'clock',base:{enemySpeed:-25,harvest:10,enemies:-10,speed:-10},lines:['敌人移动速度－25%','收获＋10，地图面积－33%','敌人数量－10%','移动速度－10%'],start:['scissors','screwdriver','wrench','rock','plank','chopper','pruner','double_barrel_shotgun','revolver','taser','wand']},
-  {id:'lucky',n:'幸运搜集',en:'SCAVENGING',tags:["Luck", "Pickup", "Exploration"],ic:'spiral',base:{luck:100,aspd:-60,xp:-50},scale:{luck:1.25},lines:['幸运＋100','幸运的属性修改＋25%','拾取材料时75%概率随机伤害敌人','触发伤害：1＋15%幸运','攻击速度－60%，经验获取－50%'],start:['stick','rock','fist','chopper','plank','screwdriver','jousting_lance','torch','pruner','slingshot','wand']},
+  {id:'lucky',n:'幸运搜集',en:'SCAVENGING',tags:["Luck", "Pickup", "Exploration"],ic:'spiral',base:{luck:100,aspd:-35,xp:-30,pick:50},scale:{luck:1.25,harvest:1.2},lines:['幸运＋100，拾取范围＋50%','幸运的属性修改＋25%','收获的属性修改＋20%','拾取材料时75%概率随机伤害敌人','触发伤害：1＋15%幸运','攻击速度－35%，经验获取－30%'],start:['stick','rock','fist','chopper','plank','screwdriver','jousting_lance','torch','pruner','slingshot','wand']},
   {id:'engineer',n:'工程布防',en:'FORTIFICATION',tags:['Engineering','Structure'],ic:'gear',base:{eng:10},scale:{eng:1.25,dmg:.5},weapon:'wrench',lines:['工程学＋10','工程学的属性修改＋25%','伤害%的属性修改－50%','额外携带1把工程扳手','炮塔与建筑集中布置'],start:['wrench','screwdriver','plank','hammer'],startTier:{hammer:1}},
-  {id:'doctor',n:'医疗续航',en:'SUSTAIN',tags:['HP Regeneration'],ic:'heart',base:{regen:5,harvest:5,aspd:-100},scale:{regen:2,armor:.5},lines:['医疗武器攻击速度＋200%','所有武器攻击速度－100%','生命再生＋5，收获＋5','生命再生的属性修改＋100%','护甲的属性修改－50%'],start:['scissors','medical_gun']}
+  {id:'doctor',n:'医疗续航',en:'SUSTAIN',tags:['HP Regeneration'],ic:'heart',base:{regen:5,harvest:5,aspd:-100},scale:{regen:2,armor:.5},lines:['医疗武器攻击速度＋200%','所有武器攻击速度－100%','生命再生＋5，收获＋5','生命再生的属性修改＋100%','护甲的属性修改－50%'],start:['scissors','medical_gun']},
+  {id:'mutant',n:'快速蜕变',en:'METAMORPHOSIS',tags:['XP Gain'],ic:'helix',base:{price:50},xpNeed:.34,lines:['升级所需经验－66%','商店商品价格＋50%'],start:['cacti_club','stick','rock','plank','lightning_shiv','double_barrel_shotgun','smg','revolver','shredder','crossbow','taser','wand']},
+  {id:'loud',n:'喧嚣引敌',en:'PROVOCATION',tags:['More Enemies'],ic:'heavy',base:{dmg:30,enemies:50},lines:['伤害＋30%','敌人数量＋50%','每波结束后收获－3'],start:['cacti_club','ghost_flint','lightning_shiv','thief_dagger','lance','torch','rock','plank','wrench','jousting_lance','pruner','screwdriver','double_barrel_shotgun','pistol','smg','shredder','shuriken','slingshot','crossbow']}
 ];
 const ivRole = () => IV_ROLES.find(r => r.id === G.iv.role);
 const ivWeaponAllowed = id => G.iv.role !== 'ranger' || !IV_W[id].melee;
@@ -37,19 +39,23 @@ function ivChooseWeapon(id) {
 }
 function ivDrawRoleUI() {
   ivTop('选择偏好'); const idx=clamp(IVU.roleSel||0,0,IV_ROLES.length-1),r=IV_ROLES[idx],pw=194,gw=W-pw-24,cw=Math.floor((gw-6)/2);
-  IV_ROLES.forEach((role,i)=>{const x=10+i%2*(cw+6),y=34+Math.floor(i/2)*37,on=idx===i,c=IV_PREF_COLOR[role.id],b={x,y,w:cw,h:33,f:()=>{IVU.roleSel=i;AU.play('ui');}};
-    IVU.hits.push(b);box(x,y,cw,33,on?'#17140f':'#0e0d0b',on?c:'#2b2823');rect(x+1,y+1,2,31,on?c:'#3a3631');ivDrawBadge(ivPreferenceSprite(role.id),x+18,y+16,28);
+  const step=Math.min(37,Math.floor((H-66)/Math.ceil(IV_ROLES.length/2))),ch=step-3;
+  IV_ROLES.forEach((role,i)=>{const x=10+i%2*(cw+6),y=34+Math.floor(i/2)*step,on=idx===i,c=IV_PREF_COLOR[role.id],b={x,y,w:cw,h:ch,f:()=>{IVU.roleSel=i;AU.play('ui');}};
+    IVU.hits.push(b);box(x,y,cw,ch,on?'#17140f':'#0e0d0b',on?c:'#2b2823');rect(x+1,y+1,2,ch-2,on?c:'#3a3631');ivDrawBadge(ivPreferenceSprite(role.id),x+18,y+16,28);
     text(role.n,x+35,y+7,on?'#e6dfd1':'#bdb5a6');text(fitText(role.en,cw-39),x+35,y+21,c,.75);if(on)rect(x+cw-5,y+4,2,2,c);});
   const x=W-pw-8,c=IV_PREF_COLOR[r.id];box(x,34,pw,H-93,'#0e0d0b','#36322d');rect(x+1,35,pw-2,2,c);ivDrawBadge(ivPreferenceSprite(r.id),x+25,59,36);text(r.n,x+49,46,c,1.35);text('生存倾向 / '+String(idx+1).padStart(2,'0'),x+49,65,TH.dim,.85);
   let y=85;for(const s of r.lines){for(const l of wrapW(s,pw-22)){text(l,x+11,y,TH.bone2,.95);y+=lineH()+1;}y+=3;}
-  ivBtn({x,y:H-53,w:pw,h:23,f:()=>ivChooseRole(r.id)},'确认偏好 → 选择武器',c);
+  ivBtn({x,y:H-53,w:pw,h:23,kind:'confirm-preference',f:()=>ivChooseRole(r.id)},'确认偏好 → 选择武器',c);
+  ivBtn({x:10,y:H-23,w:100,h:18,kind:'back-deploy',f:ivBackToDeploy},'← 返回出击',TH.bone2);
 }
+function ivBackToDeploy(){IVU.hits=[];IVU.detail=IVU.pop=IVU.motion=null;toMenu();tbSet(0);depMode('invade');depPick(Math.max(0,DIFFS.findIndex(d=>d.id===G.diff)));Input.clicked=Input.down=false;}
 function ivDrawStartUI() {
   const r=ivRole(); if(!r){G.state='ivrole';return;} ivTop('选择武器 · '+r.n);
   const page=IVU.startPage||0, ids=r.start.slice(page*8,page*8+8), cw=Math.floor((W-38)/4), ch=104;
   ids.forEach((id,i)=>{const x=10+i%4*(cw+6),y=31+Math.floor(i/4)*108,o={k:'w',id,t:r.startTier?.[id]||0},b={x,y,w:cw,h:ch,f:()=>ivChooseWeapon(id)};
     IVU.hits.push(b); ivCard(x,y,cw,ch,o,inR(b,Input.mx,Input.my)||IVU.startSel===i); });
   ivBtn({x:10,y:H-23,w:85,h:18,f:()=>{G.state='ivrole';IVU.hits=[];}},'← 更换偏好',TH.bone2);
-  if(r.start.length>8) ivBtn({x:W-106,y:H-23,w:96,h:18,f:()=>{IVU.startPage=1-page;IVU.startSel=0;}},'更多武器 '+(page+1)+'/2',TH.gold);
+  const pages=Math.ceil(r.start.length/8);
+  if(pages>1) ivBtn({x:W-106,y:H-23,w:96,h:18,f:()=>{IVU.startPage=(page+1)%pages;IVU.startSel=0;}},'更多武器 '+(page+1)+'/'+pages,TH.gold);
   if(r.weapon)text('额外初始武器：'+tr(IV_W[r.weapon].n),W/2,H-18,TH.dim,1,'center');
 }

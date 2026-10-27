@@ -154,5 +154,9 @@
   };
 
   TSW.info = () => ({ version: TSW.version, speed: TSW.speed.get(), rng: TSW.rng.on, perf: TSW.perf.active, game: !!window.__achroma });
+  // global error ring (surfaces load-time crashes in later tool files)
+  window.__errs = [];
+  window.addEventListener('error', (e) => { window.__errs.push((e.message || 'err') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno); });
+  window.addEventListener('unhandledrejection', (e) => { window.__errs.push('rej: ' + String(e.reason && (e.reason.stack || e.reason.message) || e.reason).slice(0, 200)); });
   TSW.log('core ready', TSW.info());
 })();

@@ -105,6 +105,7 @@ function ccAdd(e, k, a) { e.cc[k] = Math.min(6, (e.cc[k] || 0) + a * (e.boss ? 2
 function ccDecay(e, dt) { for (const k in e.cc) e.cc[k] = Math.max(0, e.cc[k] - dt * (e.boss ? .35 : .5)); }
 function resistText(e) { if ((e.resT || 0) > G.time) return; e.resT = G.time + 1.6; floatText(e.x, e.y - e.r - 10, L('resist'), col(4), 1, .6); }
 function applyFreeze(e, base) {
+  if(e.deathFightLeft>0||hasRunModifier('rot'))return false;
   const d = base * ccMul(e, 'freeze'); ccAdd(e, 'freeze', 1);
   if (d < .08) { resistText(e); return false; }
   e.frozen = d; AU.play('freeze'); burst(e.x, e.y, 8, C.frost, 60, .4); return true;
@@ -112,7 +113,7 @@ function applyFreeze(e, base) {
 
 // ---- hit pipeline: every attack flows through here, so every shard works with every weapon ----
 function hitEnemy(e, dmg, o = {}) {
-  if (e.dead || e.spawnT > 0 || e.inv > 0) return false;
+  if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0 || e.inv > 0) return false;
   const S = G.S, p = G.p, pr = o.proc === undefined ? 1 : o.proc;
   if (e.shield && !o.boom && !o.melee) {
     const from = o.sx !== undefined ? ang(e.x, e.y, o.sx, o.sy) : e.face;
@@ -135,6 +136,7 @@ function hitEnemy(e, dmg, o = {}) {
   if (e.frozen > 0) dmg *= 1.25;
   if (e.boss && e.armorT > 0) dmg *= .3;
   if (e.buffT > 0) dmg *= .5;
+  dmg *= modifierDamageMul(e);
   e.hp -= dmg; e.flash = .07; e.hurtT = .15; if (!o.fromField && !o.quiet) G.hitMark = { t: .14, crit: false, kill: false };
   if (!e.boss || Math.random() < .5) { const ba = o.ka !== undefined ? o.ka : rand(0, 6.28); for (let i = 0; i < (crit ? 5 : 2); i++) { const a = ba + rand(-.6, .6), v = rand(40, 120); part({ x: e.x, y: e.y - 2, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, life: .35, max: .35, c: Math.random() < .5 ? '#8a1820' : '#b8262e', grav: 300, drag: 2 }); } if (Math.random() < .3) splat(e.x + rand(-4, 4), e.y + rand(-2, 4), '#3a0a0e', 3, 5); }
   if (e.boss) G.bossDmgT = .4;
@@ -171,7 +173,7 @@ function chainLightning(src, dmg, n) {
   if (SYN.plasma && src.burn > 0) plasmaPop(src);
   for (let i = 0; i < n; i++) {
     let best = null, bd = 85;
-    for (const e of G.enemies) { if (e.dead || hit.has(e)) continue; const d = dist(cur.x, cur.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
+    for (const e of G.enemies) { if (e.dead || e.deathFightLeft>0 || hit.has(e)) continue; const d = dist(cur.x, cur.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
     if (!best) break; hit.add(best);
     G.bolts.push({ pts: zig(cur.x, cur.y, best.x, best.y), life: .14, max: .14, c: C.cyan });
     hitEnemy(best, dmg, { proc: .35, fromShock: true, color: C.cyan, knock: 20, ka: ang(cur.x, cur.y, best.x, best.y) });
@@ -186,7 +188,7 @@ function zig(x1, y1, x2, y2) { const pts = [[x1, y1]], n = 5; for (let i = 1; i 
 function dotTick(e, dt) {
   const S = G.S, both = SYN.caustic && e.burn > 0 && e.venom > 0 ? 2 : 1;
   if (both > 1 && Math.random() < dt * 2) reactionFx(e.x, e.y, C.lime, C.red, 10, 'caustic');
-  const dotMul = e.affix === 'warded' ? .6 : 1;
+  const dotMul = (e.affix === 'warded' ? .6 : 1)*modifierDamageMul(e);
   if (e.burn > 0) { e.burnT -= dt; e.bt -= dt;
     if (e.bt <= 0) { e.bt = .33; const dmg = (1 + e.burn) * (1 + S.burn * .35) * .7 * (e.boss ? 1.5 : 1) * both * dotMul; e.hp -= dmg; e.flash = .03;
       floatText(e.x, e.y - e.r - 2, Math.round(dmg), C.red, 1, .4); if (e.hp <= 0) { killEnemy(e, { color: C.red }); return true; } }
@@ -244,9 +246,9 @@ function killEnemy(e, o = {}) {
   if (S.burn >= 2 && e.burn > 0) for (const n of G.enemies) if (!n.dead && n !== e && dist(e.x, e.y, n.x, n.y) < 46) { n.burn = Math.max(n.burn, 2); n.burnT = 3; }
   if (SYN.plague && e.venom > 0) { ringFx(e.x, e.y, 50, C.lime, .4, 2); reactionFx(e.x, e.y, C.lime, col(5), 14, 'plague'); for (const n of G.enemies) if (!n.dead && n !== e && dist(e.x, e.y, n.x, n.y) < 50) { n.venom = Math.max(n.venom, e.venom); n.venomT = 4; } }
   if (e.elite && e.room && !e.room.orb && (G.bonusOrbs || 0) < 1 && Math.random() < .25) { e.room.orb = true; G.bonusOrbs = (G.bonusOrbs || 0) + 1; G.inter.push({ kind: 'prism', x: e.x, y: e.y, minRar: 0, born: G.time }); }
-  if (e.affix === 'volatile') G.later.push({ t: .35, f: () => { for (let i = 0; i < 12; i++) eshot(e.x, e.y, i / 12 * 6.28, 80, { c: C.orange }); ringFx(e.x, e.y, 20, C.orange, .3, 2); AU.play('pop'); } });
+  if (e.affix === 'volatile' && !o.roomCleanup) G.later.push({ t: .35, f: () => { for (let i = 0; i < 12; i++) eshot(e.x, e.y, i / 12 * 6.28, 80, { c: C.orange }); ringFx(e.x, e.y, 20, C.orange, .3, 2); AU.play('pop'); } });
   onKillExtra(e);
-  if (e.onDeath) e.onDeath(e);
+  if (e.onDeath && !o.roomCleanup) e.onDeath(e);
 }
 function explode(x, y, r, dmg, o = {}) {
   const c = o.color || col(5);
@@ -282,7 +284,7 @@ function spawnVortex(x, y) { G.vortices.push({ x, y, r: 42 * Math.sqrt(G.S.size)
 function updateFields(dt) {
   const S = G.S, p = G.p;
   for (let i = G.vortices.length - 1; i >= 0; i--) { const v = G.vortices[i]; v.life -= dt; v.tick -= dt;
-    for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(v.x, v.y, e.x, e.y); if (d > v.r || d < 2) continue;
+    for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(v.x, v.y, e.x, e.y); if (d > v.r || d < 2) continue;
       const pull = 110 * ccMul(e, 'pull') * (e.boss ? .15 * (bossKnock(e) ? 1 : 0) : 1) * (1 - d / v.r * .5); ccAdd(e, 'pull', dt * .5);
       moveBody(e, (v.x - e.x) / d * pull * dt, (v.y - e.y) / d * pull * dt);
       if (v.tick <= 0) hitEnemy(e, 2.5 * S.dmg, { proc: .15, fromField: true, knock: 0, quiet: true, color: C.indigo }); }
@@ -302,7 +304,7 @@ function updateFields(dt) {
   // static aura
   if (S.stat) { G.staticT = (G.staticT || 0) - dt;
     if (G.staticT <= 0) { G.staticT = (2.4 - .4 * S.stat) * (SYN.tesla ? .5 : 1);
-      const ts = G.enemies.filter(e => !e.dead && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < 110).sort((a, b) => dist(p.x, p.y, a.x, a.y) - dist(p.x, p.y, b.x, b.y)).slice(0, 1 + S.stat);
+      const ts = G.enemies.filter(e => !e.dead && !(e.deathFightLeft > 0) && e.spawnT <= 0 && dist(p.x, p.y, e.x, e.y) < 110).sort((a, b) => dist(p.x, p.y, a.x, a.y) - dist(p.x, p.y, b.x, b.y)).slice(0, 1 + S.stat);
       if (ts.length) AU.play('static');
       for (const e of ts) { G.bolts.push({ pts: zig(p.x, p.y - 2, e.x, e.y), life: .12, max: .12, c: C.cyan }); hitEnemy(e, (5 + 3 * S.stat) * S.dmg, { proc: .5, fromShock: !SYN.tesla, color: C.cyan, knock: 30, ka: ang(p.x, p.y, e.x, e.y) }); } } }
   if (G.furyT > 0) { G.furyT -= dt; if (G.furyT <= 0) G.fury = 0; }

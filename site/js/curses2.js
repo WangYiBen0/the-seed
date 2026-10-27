@@ -20,9 +20,9 @@ const _drawDarkC2 = drawDark; drawDark = function (cx, cy) { _drawDarkC2(cx, cy)
   const x = p.x - cx, y = p.y - cy - 3, R = 150, ring = (r, f) => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(x, y, r, 0, 6.2832, true); ctx.clip('evenodd'); f(); ctx.restore(); };
   ring(R, () => ctx.drawImage(ditherLayer(.45, '#000'), 0, 0)); ring(R * 1.22, () => ctx.drawImage(ditherLayer(.8, '#000'), 0, 0)); ring(R * 1.42, () => rect(0, 0, W, H, '#000')); };
 // the curse portal's reroll: it costs 1 maximum health now (you need at least 3 to pay it)
-curseRerollOk = function () { return !G.curseQ.rr && G.p.maxHp > 2; };
+curseRerollOk = function () { return !!(G.curseQ && !G.curseQ.rr && G.p.maxHp > 2 && curseHasReplacement()); };
 const _updateCurseC2 = updateCurse; updateCurse = function (rdt) { const q = G.curseQ, rr0 = q && q.rr, hp0 = G.p.hp; _updateCurseC2(rdt);
-  if (q && !rr0 && q.rr) { G.p.hp = hp0; G.mhpLoss = (G.mhpLoss || 0) + 1; recomputeStats(); G.p.hp = Math.min(G.p.hp, G.p.maxHp); notify(L('n_mhpLoss'), CURSE_C); } };
+  if (q && !rr0 && q.rr) { G.p.hp = hp0; G.mhpLoss = (G.mhpLoss || 0) + 1; recomputeStats(); G.p.hp = Math.min(G.p.hp, G.p.maxHp); saveRun(); notify(L('n_mhpLoss'), CURSE_C); } };
 Object.assign(STR, { cu_rr: ['REROLL: -1 MAX HEALTH', '以生命上限刷新', '最大HPで引き直す', '以生命上限刷新'], n_mhpLoss: ['MAXIMUM HEALTH -1', '生命上限 -1', '最大HP -1', '生命上限 -1'] });
 // a resumed run applies the given-up health once its save is read (the save is read after the stats are first worked out)
 const _resumeRunC2 = resumeRun; resumeRun = function (...a) { const r = _resumeRunC2(...a); if (G && G.p && G.mhpLoss) recomputeStats(); return r; };

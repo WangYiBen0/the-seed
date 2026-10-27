@@ -76,6 +76,7 @@ function ivWaveEffects(){
   for(let i=0;i<(iv.waveMods.lure||0)*2;i++){const [x,y]=ivFree(120),e=ivSpawn('looter',x,y);if(e)e.ivLoot=true;}
 }
 function ivWaveEndEffects(){const iv=G.iv;
+  if(iv.role==='loud')iv.base.harvest-=3;
   iv.base.hp+=3*ivCount('grind_s_magical_leaf')-ivCount('robot_arm');iv.base.regen+=ivCount('grind_s_magical_leaf');iv.base.steal+=ivCount('grind_s_magical_leaf');
   iv.base.melee+=3*ivCount('robot_arm');iv.base.eng+=3*ivCount('robot_arm');iv.base.dmg+=3*ivCount('vigilante_ring');iv.base.xp+=5*ivCount('celery_tea');
   iv.pets=[];iv.trees=[];iv.procQueue=[];iv.waveMods={};ivDirty();

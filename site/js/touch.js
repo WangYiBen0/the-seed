@@ -84,7 +84,7 @@ function touchPre(rdt) {
   if (!inPlay() || skillOn('teleport')) return;
   // auto-aim: the nearest visible foe (bosses favoured), otherwise the way you are moving
   const p = G.p; let bd = 250;
-  for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(p.x, p.y, e.x, e.y) - (e.boss ? 60 : 0); if (d < bd && los(p.x, p.y, e.x, e.y)) { bd = d; TOUCH.target = e; } }
+  for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(p.x, p.y, e.x, e.y) - (e.boss ? 60 : 0); if (d < bd && los(p.x, p.y, e.x, e.y)) { bd = d; TOUCH.target = e; } }
   if (TOUCH.jx || TOUCH.jy) TOUCH.lastA = Math.atan2(TOUCH.jy, TOUCH.jx);
   if (TOUCH.target) { Input.mx = TOUCH.target.x - G.cam.x; Input.my = TOUCH.target.y - G.cam.y; }
   else { Input.mx = p.x - G.cam.x + Math.cos(TOUCH.lastA) * 50; Input.my = p.y - G.cam.y + Math.sin(TOUCH.lastA) * 50; }
@@ -163,7 +163,7 @@ const _drawCursorT = drawCursor; drawCursor = function () { if (TOUCH.on && !(G.
 
 // ---- PC aim assist ----
 function assistTarget() { const p = G.p; let bd = 250, tg = null;
-  for (const e of G.enemies) { if (e.dead || e.spawnT > 0) continue; const d = dist(p.x, p.y, e.x, e.y) - (e.boss ? 60 : 0); if (d < bd && los(p.x, p.y, e.x, e.y)) { bd = d; tg = e; } } return tg; }
+  for (const e of G.enemies) { if (e.dead || e.deathFightLeft > 0 || e.spawnT > 0) continue; const d = dist(p.x, p.y, e.x, e.y) - (e.boss ? 60 : 0); if (d < bd && los(p.x, p.y, e.x, e.y)) { bd = d; tg = e; } } return tg; }
 function assistPre() {
   TOUCH.target = null;
   if (pcAssist() && inPlay() && !skillOn('teleport')) { TOUCH.target = assistTarget(); if (G.p && !(window.BOSS_TEST && BOSS_TEST.on)) markAssisted(); }

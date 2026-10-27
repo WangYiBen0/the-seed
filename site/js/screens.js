@@ -128,7 +128,7 @@ function drawBtn(x, y, w, h, label, on, acc) {
 
 // ---------------- leaderboard ----------------
 // tabs: 0 the normal top 100, 1 the endless top 100, 2 your own recent runs
-const bTop = () => true, bData = () => NET[['board', 'eboard', 'iboard'][BOARD.tab] || 'board'], bMode = () => ['', 'e', 'i'][BOARD.tab] || '';
+const bTop = () => true, bData = () => NET[['board', 'eboard', 'iboard', 'ieboard'][BOARD.tab] || 'board'], bMode = () => ['', 'e', 'i', 'ie'][BOARD.tab] || '';
 const BOARD = { tab: 0, scroll: 0, target: 0, sel: -1, detail: null, detT: 0, hits: [], drag: null, lmx: 0, lmy: 0 };
 const BL = { x: 34, y: 58, w: W - 72, rh: 14, rows: 11 };
 RELAYOUT.push(() => { BL.w = W - 72; });
@@ -138,7 +138,7 @@ function openBoard() { BOARD.tab = 0; BOARD.scroll = BOARD.target = 0; BOARD.det
 function boardRows() { if (bTop()) return (bData() && bData().top) || []; return Array.isArray(NET.mine) ? NET.mine : []; }
 function openDetail(row) { if (!row) return; AU.play('menuOk'); BOARD.detT = 0; scrollReset(RSC); RSC.r = null; RUNDET.R = null; BOARD.detail = bTop() ? { id: row.id, rank: row.rank } : { run: row }; }
 const inR = (r, x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-function setTab(i) { if (BOARD.tab === i) return; BOARD.tab = i; BOARD.scroll = BOARD.target = 0; BOARD.sel = -1; AU.play('menu'); loadBoard(false, ['', 'e', 'i'][i] || ''); }
+function setTab(i) { if (BOARD.tab === i) return; BOARD.tab = i; BOARD.scroll = BOARD.target = 0; BOARD.sel = -1; AU.play('menu'); loadBoard(false, ['', 'e', 'i', 'ie'][i] || ''); }
 function updateBoard(rdt) {
   blFit();
   const mx = Input.mx, my = Input.my, back = { x: W / 2 - 46, y: H - 34, w: 92, h: 16 };
@@ -153,7 +153,7 @@ function updateBoard(rdt) {
   if (Input.clicked && BOARD.backHov) { backPage(); return; }
   if (Input.clicked) for (const h of BOARD.hits) if (inR(h, mx, my)) { Input.clicked = false; h.f(); return; }
   if (pressed('KeyA') || pressed('ArrowLeft') || pressed('KeyQ')) setTab(Math.max(0, BOARD.tab - 1));
-  if (pressed('KeyD') || pressed('ArrowRight') || pressed('KeyE')) setTab(Math.min(2, BOARD.tab + 1));
+  if (pressed('KeyD') || pressed('ArrowRight') || pressed('KeyE')) setTab(Math.min(3, BOARD.tab + 1));
   const rows = boardRows(), vis = BL.rows, maxS = Math.max(0, rows.length - vis), ly0 = BL.y + 12;
   if (Input.wheel) BOARD.target = clamp(BOARD.target + Math.sign(Input.wheel) * 3, 0, maxS);
   if (pressed('KeyW') || pressed('ArrowUp')) { BOARD.sel = Math.max(0, BOARD.sel - 1); AU.play('menu'); }
@@ -174,7 +174,7 @@ const MEDAL = () => [C.gold, '#e8e8ec', C.orange];
 function slowNote(y, x = W / 2, w = W - 80, al = 'center') { if (!ONDZ()) return; wrapW(L('net_slow'), w).forEach((l, i) => text(l, x, y + i * lineH(), '#6e675c', 1, al)); }
 function drawBoard(t) {
   if (BOARD.detail) { drawBoardDetail(t); return; }
-  panel(L(['bd_top', 'bd_endless', 'bd_invade'][BOARD.tab]), TH.gold, { stripes: false }); BOARD.hits = []; blFit();
+  panel(L(['bd_top', 'bd_endless', 'bd_invade', 'bd_invadeE'][BOARD.tab]), TH.gold, { stripes: false }); BOARD.hits = []; blFit();
   if (bTop() && bData() && bData().players) text(L('bd_players', bData().players), W - 52, 23, TH.faint, 1, 'right');
   const x0 = BL.x, y0 = BL.y, w = BL.w, rows = boardRows(), ly0 = y0 + 12, vis = BL.rows, cs = Math.min(1, w / 408), cx = v => x0 + Math.round(v * cs);
   const msg = (k, c) => text(L(k), W / 2, ly0 + 54, c || '#57524a', 1, 'center');
@@ -191,7 +191,7 @@ function drawBoard(t) {
   }
   if (rows.length) {
     // header
-    const H0 = bTop() ? [[L('bd_rank'), x0 + 4, 'left'], [L('bd_player'), x0 + 42, 'left'], [L('bd_diff'), cx(222), 'left'], [L(BOARD.tab === 1 ? 'bd_depth' : BOARD.tab === 2 ? 'bd_wave' : 'bd_time'), cx(330), 'right'], [L('bd_score'), x0 + w - 8, 'right']]
+    const H0 = bTop() ? [[L('bd_rank'), x0 + 4, 'left'], [L('bd_player'), x0 + 42, 'left'], [L('bd_diff'), cx(222), 'left'], [L(BOARD.tab === 1 ? 'bd_depth' : BOARD.tab >= 2 ? 'bd_wave' : 'bd_time'), cx(330), 'right'], [L('bd_score'), x0 + w - 8, 'right']]
       : [[L('bd_date'), x0 + 8, 'left'], [L('bd_diff'), cx(130), 'left'], [L('bd_time'), cx(290), 'right'], [L('bd_score'), x0 + w - 8, 'right']];
     H0.forEach(([s, x, al]) => text(s, x, y0, '#57524a', 1, al)); rect(x0, y0 + 9, w, 1, '#27231f');
     ctx.save(); ctx.beginPath(); ctx.rect(x0 - 4, ly0, w + 8, vis * BL.rh); ctx.clip();
@@ -207,7 +207,7 @@ function drawBoard(t) {
         const nm = fitText(r.user.name || r.user.username, Math.round(150 * cs)); text(nm, x0 + 56, ty - (isCJK(nm) ? 1 : 0), mine ? TH.cyan : '#e8e8ec');
         if (mine) text(L('bd_you'), x0 + 60 + textW(nm), ty - (isCJK(L('bd_you')) ? 1 : 0), '#4a8c94');
         drawDiffIcon(d.id, cx(222), y + 1, 1, t); text(fitText(tr(d.nm), cx(330) - cx(222) - 48), cx(222) + 14, ty - (isCJK(tr(d.nm)) ? 1 : 0), d.c());
-        text(BOARD.tab === 1 ? L('endlessShort', r.depth | 0) : BOARD.tab === 2 ? L('iv_wave', r.wave | 0) : fmtTime(r.runT), cx(330), ty - (BOARD.tab !== 0 && SET.lang !== 'en' ? 1 : 0), BOARD.tab === 1 ? TH.orange : BOARD.tab === 2 ? '#8ed872' : '#aaa293', 1, 'right');
+        text(BOARD.tab === 1 ? L('endlessShort', r.depth | 0) : BOARD.tab >= 2 ? L('iv_wave', r.wave | 0) : fmtTime(r.runT), cx(330), ty - (BOARD.tab !== 0 && SET.lang !== 'en' ? 1 : 0), BOARD.tab === 1 ? TH.orange : BOARD.tab === 2 ? '#8ed872' : '#aaa293', 1, 'right');
         text(fmtNum(r.score), x0 + w - 8, ty, r.rank <= 3 ? MEDAL()[r.rank - 1] : '#e8e1d3', 1, 'right');
       } else {
         text(fmtDate(r.at), x0 + 8, ty, '#c9c1b2'); drawDiffIcon(d.id, cx(130), y + 1, 1, t); text(fitText(tr(d.nm), cx(290) - cx(130) - 50), cx(130) + 14, ty - (isCJK(tr(d.nm)) ? 1 : 0), d.c());
@@ -220,7 +220,7 @@ function drawBoard(t) {
     const me2 = bTop() && bData() && bData().me; if (me2 && (me2.rank > 100 || me2.rank - 1 < Math.floor(BOARD.scroll) || me2.rank - 1 >= Math.floor(BOARD.scroll) + vis)) {
       const y = ly0 + vis * BL.rh + 3; rect(x0 - 2, y, w + 4, BL.rh - 1, '#0e1719'); rect(x0 - 2, y, 2, BL.rh - 1, TH.cyan);
       text(me2.over ? '100+' : String(me2.rank), x0 + 6, y + 4, TH.cyan); drawAvatar(me2.user, x0 + 42, y + 2, 9, TH.cyan); text(fitText(me2.user.name || me2.user.username, Math.round(150 * cs)), x0 + 56, y + 4 - (isCJK(me2.user.name || '') ? 1 : 0), TH.cyan);
-      text(BOARD.tab === 1 ? L('endlessShort', me2.depth | 0) : BOARD.tab === 2 ? L('iv_wave', me2.wave | 0) : fmtTime(me2.runT), cx(330), y + 4 - (BOARD.tab !== 0 && SET.lang !== 'en' ? 1 : 0), '#aaa293', 1, 'right'); text(fmtNum(me2.score), x0 + w - 8, y + 4, TH.cyan, 1, 'right');
+      text(BOARD.tab === 1 ? L('endlessShort', me2.depth | 0) : BOARD.tab >= 2 ? L('iv_wave', me2.wave | 0) : fmtTime(me2.runT), cx(330), y + 4 - (BOARD.tab !== 0 && SET.lang !== 'en' ? 1 : 0), '#aaa293', 1, 'right'); text(fmtNum(me2.score), x0 + w - 8, y + 4, TH.cyan, 1, 'right');
       BOARD.hits.push({ x: x0, y, w, h: BL.rh, f: () => openDetail(me2) }); }
   }
   drawBtn(W / 2 - 46, H - 34, 92, 16, L('back'), BOARD.backHov, '#e8e1d3');

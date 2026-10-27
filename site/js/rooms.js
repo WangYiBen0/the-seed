@@ -92,39 +92,118 @@ function shadowBox(x, y, w) { ctx.globalAlpha = .45; rect(x + 1, y, w - 2, 1, co
 // the black market's table: a sheet of scrap on trestles with a dirty cloth
 function drawStall(x, y) { rect(x - 11, y + 2, 22, 3, RMC.wood); rect(x - 11, y + 2, 22, 1, RMC.wood2); rect(x - 9, y + 5, 2, 6, col(2)); rect(x + 7, y + 5, 2, 6, col(2)); rect(x - 8, y + 1, 16, 1, '#5a4a3a'); rect(x - 8, y + 2, 1, 3, '#5a4a3a'); rect(x + 7, y + 2, 1, 2, '#5a4a3a'); }
 
-// ---------------- the dialysis machine: filters one serum out of the blood. 50 parts for a random one, 200 to choose; both double with every use ----------------
-const DIA = { t: 0, mode: 0, sel: 0, hits: [], lmx: 0, lmy: 0 };
-const diaCost = k => (k ? 200 : 50) * Math.pow(2, G.diaN || 0);
-function openDialysis() { if (!Object.keys(G.p.shards).length) { notify(L('diaNone'), C.red); AU.play('locked'); return; } Object.assign(DIA, { t: 0, mode: 0, sel: 0 }); G.state = 'dialysis'; AU.play('menuOk'); }
-function purgeShard(id) {
-  const p = G.p, s = SHARD[id]; if (!s) return; delete p.shards[id]; recomputeStats(); computeTints(); p.hp = Math.min(p.hp, p.maxHp); G.diaN = (G.diaN || 0) + 1;
-  AU.play('dialysis'); notify(L('n_dia', sname(s)), '#a4cfe0'); burst(p.x, p.y, 24, '#8a1820', 120, .6, 2, { grav: 200 }); ringFx(p.x, p.y, 34, '#a4cfe0', .5, 2); G.state = 'play'; saveRun();
+// ---------------- the dialysis machine (floors 5, 15, 45, 75): free, once each; one serum or one curse out of the blood for 1 maximum armor ----------------
+const DIA = { t: 0, mode: 0, sel: 0, hits: [], lmx: 0, lmy: 0, pointerId: null, scroll: mkScroll() };
+const exploreDepth = () => G.endless ? FLOORS.length + G.endless : G.floor + 1;
+// the machine is free: one serum or one curse goes, and it costs 1 maximum armor; what goes is barred for the rest of the run
+const DIA_KINDS = ['s', 'c'];
+const diaIds = () => DIA.kind === 'c' ? (G.curses || []).filter(id => CURSE[id]) : Object.keys(G.p.shards).filter(id => SHARD[id]);
+const diaCanPay = () => (G.p.maxArmor | 0) >= 1;
+function openDialysis(it) { if ((it && it.used) || (G.diaUsed || []).includes(exploreDepth())) { notify(L('diaUsed'), C.red); AU.play('locked'); return; }
+  if (!Object.keys(G.p.shards).length && !(G.curses || []).length) { notify(L('diaNone'), C.red); AU.play('locked'); return; }
+  Object.assign(DIA, { t: 0, mode: 0, kind: 's', sel: 0, it: it || null, hits: [], lmx: Input.mx, lmy: Input.my, pointerId: null }); scrollReset(DIA.scroll); G.state = 'dialysis'; AU.play('menuOk'); }
+function diaLayout(n) {
+  const w = DIA.mode ? 300 : 240, ch = Math.ceil(n / 3) * 18, h = DIA.mode ? Math.min(H - 24, 90 + ch) : 132;
+  const x = Math.round((W - w) / 2), y = Math.round((H - h) / 2), cw = Math.floor((w - 20) / 3);
+  return { x, y, w, h, cw, ch, list: { x: x + 10, y: y + 26, w: cw * 3 - 4, h: h - 72 } };
 }
+function diaShardAt(lay, n, x, y) {
+  const c = Math.floor(x / lay.cw), row = Math.floor(y / 18), i = row * 3 + c;
+  return x >= 0 && y >= 0 && c < 3 && x % lay.cw < lay.cw - 4 && y % 18 < 16 && i < n ? i : -1;
+}
+// Keep the gesture's origin and movement even if all browser events arrive between two game frames.
+function diaPointerPos(e) { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; }
+addEventListener('pointerdown', e => {
+  if (G.state !== 'dialysis' || !DIA.mode || !e.isPrimary || e.button !== 0 || e.target !== view) return;
+  const p = diaPointerPos(e), lay = diaLayout(diaIds().length), S = DIA.scroll;
+  if (!inR(lay.list, p.x, p.y)) return;
+  S.pos = S.target = Math.round(S.pos); S.drag = { x: p.x, y: p.y, s: S.pos, moved: false }; DIA.pointerId = e.pointerId;
+});
+for (const type of ['pointermove', 'pointerup', 'pointercancel']) addEventListener(type, e => {
+  if (e.pointerId !== DIA.pointerId || !DIA.scroll.drag) return;
+  const d = DIA.scroll.drag;
+  if (type === 'pointercancel') { d.moved = true; Input.down = Input.clicked = false; }
+  else { const p = diaPointerPos(e), lay = diaLayout(diaIds().length);
+    if (Math.abs(p.x - d.x) > 4 || Math.abs(p.y - d.y) > 4 || !inR(lay.list, p.x, p.y)) d.moved = true;
+    Input.mx = p.x; Input.my = p.y;
+  }
+  if (type !== 'pointermove') DIA.pointerId = null;
+});
+function purgeItem(kind, id) {
+  const p = G.p, cur = kind === 'c', it = cur ? CURSE[id] : SHARD[id];
+  if (G.state !== 'dialysis' || !DIA.mode || (DIA.it && DIA.it.used) || (G.diaUsed || []).includes(exploreDepth()) || !it || !(cur ? hasCurse(id) : p.shards[id]) || !diaCanPay()) return;
+  if (cur) { G.curses = (G.curses || []).filter(k => k !== id); (G.curseBan = G.curseBan || []).push(id); }
+  else { delete p.shards[id]; (G.svBan = G.svBan || []).push(id); }
+  G.armorLoss = (G.armorLoss || 0) + 1; G.diaN = (G.diaN || 0) + 1; if (DIA.it) DIA.it.used = true;
+  (G.diaUsed = G.diaUsed || []).push(exploreDepth());
+  recomputeStats(); computeTints(); p.hp = Math.min(p.hp, p.maxHp); p.armor = Math.min(p.armor, p.maxArmor);
+  scrollReset(DIA.scroll); DIA.pointerId = null; DIA.hits = []; DIA.it = null; Input.clicked = Input.down = false;
+  AU.play('dialysis'); notify(L('n_dia', cur ? tr(it.n) : sname(it)), '#a4cfe0'); notify(L('diaPaid'), C.red); burst(p.x, p.y, 24, '#8a1820', 120, .6, 2, { grav: 200 }); ringFx(p.x, p.y, 34, '#a4cfe0', .5, 2); G.state = 'play'; saveRun();
+}
+// what the machine took out never comes back this run (curses: here; serums: the sieve's ban list, js/sieve.js)
+const _recomputeDia = recomputeStats; recomputeStats = function () { _recomputeDia(); const p = G && G.p; if (p && G.armorLoss > 0) { p.maxArmor = Math.max(0, p.maxArmor - G.armorLoss); p.armor = Math.min(p.armor, p.maxArmor); } };
 function updateDialysis(rdt) {
-  DIA.t += rdt; const ids = Object.keys(G.p.shards), mx = Input.mx, my = Input.my;
+  DIA.t += rdt; const ids = diaIds(), mx = Input.mx, my = Input.my, moved = mx !== DIA.lmx || my !== DIA.lmy;
+  DIA.lmx = mx; DIA.lmy = my;
   if (pressed('Escape')) { diaBack(); return; }
-  if (Input.clicked) { for (const h of DIA.hits) if (inR(h, mx, my)) { Input.clicked = false; h.f(); return; } }
-  if (DIA.mode) { const n = ids.length, cols = 3; if (pressed('KeyA') || pressed('ArrowLeft')) DIA.sel = (DIA.sel + n - 1) % n; if (pressed('KeyD') || pressed('ArrowRight')) DIA.sel = (DIA.sel + 1) % n;
+  if (Input.clicked && !DIA.scroll.drag) { for (const h of DIA.hits) if (h.kind !== 'serum' && inR(h, mx, my)) { Input.clicked = false; h.f(); return; } }
+  if (DIA.mode) {
+    const n = ids.length, cols = 3, lay = diaLayout(n), S = DIA.scroll, inside = inR(lay.list, mx, my);
+    // Stop wheel easing at press-down, so a stationary tap cannot select a moving row.
+    if (Input.clicked && inside && !S.drag) S.pos = S.target = Math.round(S.pos);
+    if (S.drag && (Math.abs(mx - S.drag.x) > 4 || !inside || Input.wheel)) S.drag.moved = true;
+    const tap = scrollUpd(S, lay.list, lay.ch, 36);
+    if (Input.clicked && inside) Input.clicked = false;
+    if (tap && inside) {
+      const i = diaShardAt(lay, n, tap.x, tap.y), end = diaShardAt(lay, n, mx - lay.list.x, my - lay.list.y + Math.round(S.pos));
+      if (i >= 0 && i === end) { DIA.sel = i; diaPick(ids[i]); return; }
+    }
+    if (!TOUCH.on && moved && inside && !S.drag) { const i = diaShardAt(lay, n, mx - lay.list.x, my - lay.list.y + Math.round(S.pos)); if (i >= 0) DIA.sel = i; }
+    if (!n) { diaBack(); return; }
+    const prev = DIA.sel;
+    if (pressed('KeyA') || pressed('ArrowLeft')) DIA.sel = (DIA.sel + n - 1) % n; if (pressed('KeyD') || pressed('ArrowRight')) DIA.sel = (DIA.sel + 1) % n;
     if (pressed('KeyW') || pressed('ArrowUp')) DIA.sel = Math.max(0, DIA.sel - cols); if (pressed('KeyS') || pressed('ArrowDown')) DIA.sel = Math.min(n - 1, DIA.sel + cols);
+    if (DIA.sel !== prev) { const top = Math.floor(DIA.sel / cols) * 18; if (top < S.pos) S.target = top; else if (top + 16 > S.pos + lay.list.h) S.target = top + 16 - lay.list.h; S.pos = S.target = clamp(S.target, 0, S.max); }
     if (pressed('Enter') || pressed('Space') || pressed('KeyE')) diaPick(ids[DIA.sel]); return; }
   if (pressed('KeyW') || pressed('ArrowUp') || pressed('KeyS') || pressed('ArrowDown')) { DIA.sel = 1 - DIA.sel; AU.play('menu'); }
   if (pressed('Enter') || pressed('Space') || pressed('KeyE')) diaOption(DIA.sel);
 }
-function diaBack() { if (DIA.mode) { DIA.mode = 0; AU.play('menu', .8); } else { G.state = 'play'; Input.clicked = false; AU.play('menu', .8); } }
-function diaOption(k) { const c = diaCost(k); if (G.ink < c) { notify(L('n_noInk'), C.red); AU.play('locked'); return; }
-  if (k === 0) { G.ink -= c; purgeShard(choice(Object.keys(G.p.shards))); } else { DIA.mode = 1; DIA.sel = 0; AU.play('menuOk'); } }
-function diaPick(id) { const c = diaCost(1); if (!id) return; if (G.ink < c) { notify(L('n_noInk'), C.red); AU.play('locked'); return; } G.ink -= c; purgeShard(id); }
+function diaBack() { scrollReset(DIA.scroll); DIA.pointerId = null; DIA.hits = []; DIA.sel = 0; if (DIA.mode) { DIA.mode = 0; AU.play('menu', .8); } else { G.state = 'play'; Input.clicked = false; AU.play('menu', .8); } }
+function diaOption(k) { const kind = DIA_KINDS[k] || 's', n = kind === 'c' ? (G.curses || []).length : Object.keys(G.p.shards).length;
+  if (!diaCanPay()) { notify(L('diaNoArmor'), C.red); AU.play('locked'); return; }
+  if (!n) { notify(L(kind === 'c' ? 'diaNoCurse' : 'diaNone'), C.red); AU.play('locked'); return; }
+  DIA.kind = kind; DIA.mode = 1; DIA.sel = 0; DIA.hits = []; scrollReset(DIA.scroll); AU.play('menuOk'); }
+function diaPick(id) { if (G.state !== 'dialysis' || !DIA.mode || !diaIds().includes(id)) return; if (!diaCanPay()) { notify(L('diaNoArmor'), C.red); AU.play('locked'); return; } purgeItem(DIA.kind, id); }
 function drawDialysisUI() {
-  const ids = Object.keys(G.p.shards), k = easeOut(clamp(DIA.t / .25, 0, 1)); DIA.hits = []; ctx.globalAlpha = k; ctx.drawImage(ditherLayer(.7, col(0)), 0, 0);
-  const pw = DIA.mode ? 300 : 220, rows = Math.ceil(ids.length / 3), ph = (DIA.mode ? 46 + rows * 18 + 10 : 96) + 24, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
-  frame2(px, py, pw, ph, '#a4cfe0', DIA.mode ? L('diaTitle') : L('dia'));
+  const ids = diaIds(), k = easeOut(clamp(DIA.t / .25, 0, 1)), cur = DIA.kind === 'c'; DIA.hits = []; ctx.globalAlpha = k; ctx.drawImage(ditherLayer(.7, col(0)), 0, 0);
+  const lay = diaLayout(ids.length), { x: px, y: py, w: pw, h: ph, cw } = lay, pay = diaCanPay();
+  frame2(px, py, pw, ph, '#a4cfe0', DIA.mode ? L(cur ? 'diaTitleC' : 'diaTitle') : L('dia'));
   if (!DIA.mode) { text(L('diaSub'), px + 10, py + 22, TH.dim, 1);
-    [0, 1].forEach(i => { const c = diaCost(i), b = { x: px + 10, y: py + 36 + i * 24, w: pw - 20, h: 20, f: () => diaOption(i) }, hv = !TOUCH.on && inR(b, Input.mx, Input.my); if (hv) DIA.sel = i; DIA.hits.push(b);
-      drawBtn(b.x, b.y, b.w, b.h, '', DIA.sel === i, '#a4cfe0'); const s = L(i ? 'diaPick' : 'diaRand', c); text(s, b.x + 10, b.y + 7 - (isCJK(s) ? 2 : 0), G.ink >= c ? TH.bone : C.red, 1); }); }
-  else ids.forEach((id, i) => { const s = SHARD[id], cw = Math.floor((pw - 20) / 3), x = px + 10 + (i % 3) * cw, y = py + 26 + Math.floor(i / 3) * 18, b = { x, y, w: cw - 4, h: 16, f: () => diaPick(id) }, hv = !TOUCH.on && inR(b, Input.mx, Input.my); if (hv) DIA.sel = i; DIA.hits.push(b);
-    const on = DIA.sel === i; rect(x, y, cw - 4, 16, on ? 'rgba(164,207,224,.12)' : 'rgba(0,0,0,.3)'); box(x, y, cw - 4, 16, null, on ? '#a4cfe0' : '#2d2925'); icon(s.icon, x + 4, y + 4, shardColor(s)); const nm = fitText(sname(s), cw - 30); text(nm, x + 15, y + 5 - (isCJK(nm) ? 2 : 0), on ? TH.bone : TH.bone2); text(String(G.p.shards[id]), x + cw - 8, y + 5, TH.dim, 1, 'right'); });
+    [0, 1].forEach(i => { const n = i ? (G.curses || []).length : Object.keys(G.p.shards).length, can = pay && n > 0, b = { x: px + 10, y: py + 36 + i * 24, w: pw - 20, h: 20, f: () => diaOption(i) }, hv = !TOUCH.on && inR(b, Input.mx, Input.my); if (hv) DIA.sel = i; DIA.hits.push(b);
+      drawBtn(b.x, b.y, b.w, b.h, '', DIA.sel === i, i ? CURSE_C : '#a4cfe0'); const s = L(i ? 'diaOptC' : 'diaOptS', n); text(s, b.x + 10, b.y + 7 - (isCJK(s) ? 2 : 0), can ? TH.bone : '#57524a', 1); }); }
+  else {
+    scrollClip(lay.list);
+    ids.forEach((id, i) => { const it = cur ? CURSE[id] : SHARD[id], x = lay.list.x + (i % 3) * cw, y = lay.list.y + Math.floor(i / 3) * 18 - Math.round(DIA.scroll.pos);
+      if (y + 16 <= lay.list.y || y >= lay.list.y + lay.list.h) return;
+      // Controller focus uses fully visible cards; pointer taps use the clipped list's coordinates.
+      if (y >= lay.list.y && y + 16 <= lay.list.y + lay.list.h) DIA.hits.push({ x, y, w: cw - 4, h: 16, kind: 'serum', id, f: () => diaPick(id) });
+      const on = DIA.sel === i, ac = cur ? CURSE_C : '#a4cfe0'; rect(x, y, cw - 4, 16, on ? thA(ac, .12) : 'rgba(0,0,0,.3)'); box(x, y, cw - 4, 16, null, on ? ac : '#2d2925');
+      icon(it.icon, x + 4, y + 4, cur ? CURSE_C : shardColor(it)); const nm = fitText(cur ? tr(it.n) : sname(it), cw - 30); text(nm, x + 15, y + 5 - (isCJK(nm) ? 2 : 0), on ? TH.bone : TH.bone2);
+      if (!cur) text(String(G.p.shards[id]), x + cw - 8, y + 5, TH.dim, 1, 'right'); });
+    ctx.restore(); scrollBar(DIA.scroll, lay.list);
+  }
+  // the price, always in view
+  { const s = L('diaCost', G.p.maxArmor | 0); text(s, px + 10, py + ph - 36, pay ? '#c9a07a' : C.red, 1); }
   // a way out on every screen (a phone has no Esc): back to the two choices, or away from the machine
   { const b = { x: px + pw / 2 - 45, y: py + ph - 22, w: 90, h: 16, f: diaBack }; DIA.hits.push(b); drawBtn(b.x, b.y, b.w, b.h, L(DIA.mode ? 'back' : 'nm_cancel'), !TOUCH.on && inR(b, Input.mx, Input.my), TH.bone2); }
-  if (DIA.mode) { const s = L('diaPick', diaCost(1)); text(s, px + pw - 10, py + ph - 36, G.ink >= diaCost(1) ? TH.dim : C.red, 1, 'right'); }
   ctx.globalAlpha = 1;
 }
+Object.assign(STR, {
+  diaSub: ['TAKE ONE SERUM OR ONE CURSE OUT OF THE BLOOD', '從血裡濾掉一個血清或一個詛咒', '血清か呪いを一つ血から濾す', '从血里滤掉一个血清或一个诅咒'],
+  diaOptS: ['REMOVE A SERUM ({0})', '去除一個血清（{0}）', '血清を一つ除去（{0}）', '去除一个血清（{0}）'], diaOptC: ['CLEAR A CURSE ({0})', '清除一個詛咒（{0}）', '呪いを一つ解く（{0}）', '清除一个诅咒（{0}）'],
+  diaTitleC: ['CHOOSE A CURSE TO CLEAR', '選擇要清除的詛咒', '解く呪いを選べ', '选择要清除的诅咒'],
+  diaCost: ['FREE · COSTS 1 MAX ARMOR (NOW {0}); IT NEVER COMES BACK THIS RUN', '免費 · 代價：護甲上限 -1（目前 {0}），本局不再出現', '無料・代償：最大アーマー-1（現在{0}）、この出撃中は再出現しない', '免费 · 代价：护甲上限 -1（当前 {0}），本局不再出现'],
+  diaNoArmor: ['NO MAXIMUM ARMOR LEFT TO PAY WITH', '護甲上限不足', '支払う最大アーマーがない', '护甲上限不足'], diaNoCurse: ['NO CURSE TO CLEAR', '沒有可清除的詛咒', '解ける呪いがない', '没有可清除的诅咒'],
+  diaUsed: ['THIS MACHINE HAS BEEN USED', '這台透析機已經用過了', 'この装置は使用済み', '这台透析机已经用过了'], diaPaid: ['MAX ARMOR -1', '護甲上限 -1', '最大アーマー-1', '护甲上限 -1'],
+  diaSub2: ['FREE · 1 MAX ARMOR', '免費 · 護甲上限 -1', '無料・最大アーマー-1', '免费 · 护甲上限 -1'],
+});
