@@ -40,6 +40,7 @@
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
+      goalGiveUp: 40,                                        // explore: seconds before abandoning ANY stuck objective
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -1286,7 +1287,23 @@
 
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
-      const tgt = pickObjective(G, p);
+      let tgt = pickObjective(G, p);
+      // ---- 通用目标放弃 ---------------------------------------------------
+      // Any objective the bot keeps re-choosing but never completes pins the whole
+      // run (measured: forge for 960s with 10/11 rooms already cleared).  The forge
+      // case got its own timeout; this is the general net for shrine/treasure/camp/
+      // boss/… so a single unreachable special can never freeze a run again.
+      if (tgt) {
+        const gk = tgt.label + '|' + (tgt.room ? (tgt.room.cx + ':' + tgt.room.cy) : (tgt.pt || []).join(','));
+        if (A._goalKey !== gk) { A._goalKey = gk; A._goalSince = G.time; }
+        else if (G.time - (A._goalSince || 0) > (A.opts.goalGiveUp || 40)) {
+          benchFor(tgt.room || tgt.pt, 90);
+          A._goalSince = G.time; A._goalKey = null;
+          A.status.note = '放弃目标 ' + tgt.label + ' 90s';
+          A.metrics.navStall = (A.metrics.navStall | 0) + 1;
+          tgt = pickObjective(G, p);      // re-pick immediately, now without that one
+        }
+      }
       if (tgt) {
         const path = navPath(G, p, tgt.room ? tgt.room.id : null);
         let wp = tgt.pt;
