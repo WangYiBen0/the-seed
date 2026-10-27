@@ -1218,7 +1218,7 @@
           A.status.note = '导航兜底：强制移动';
         }
       }
-      if (A._forceUntil && G.time < A._forceUntil && A._forceDir) { mx = A._forceDir[0]; my = A._forceDir[1]; }
+      A._forceActive = (A._forceUntil && G.time < A._forceUntil) ? A._forceDir : null;
     }
 
     // ---------- navigation (no active fight) ----------
@@ -1293,6 +1293,8 @@
       }
     } else { lastPos = { x: p.x, y: p.y, t: G.time }; wiggle.n = 0; }
 
+    // the hard nav fallback must win over whatever pickDir decided this tick
+    if (A._forceActive) { mx = A._forceActive[0]; my = A._forceActive[1]; }
     moveKeys(mx, my);
     A._dbg = [mx, my];
     Input.down = !!wantFire && A.mode !== 'off' && !A.opts.noFire;
