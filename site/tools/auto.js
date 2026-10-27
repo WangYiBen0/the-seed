@@ -1092,6 +1092,17 @@
         const anyFoe = nearestEnemy(p.x, p.y, 2000, false);
         if (anyFoe) {
           A._hunt = (A._hunt || 0) + 1;
+          // Abort hunting if this floor still has an uncollected prism: serums are
+          // the damage growth (measured 12 vs 2.9 for over-clearing runs), so a
+          // pickup is worth more than chasing an unreachable straggler.
+          const nearPrism = (G.inter || []).find((i) => i.kind === 'prism');
+          if (nearPrism && A._hunt > 60) {
+            // go take the serum instead of chasing an unreachable straggler
+            const gx = nearPrism.x - p.x, gy = nearPrism.y - p.y, gl = Math.hypot(gx, gy) || 1;
+            mx += gx / gl * 1.2; my += gy / gl * 1.2;
+            A.status.note = '弃追：先去拿棱镜';
+            A._hunt = 0;
+          }
           if (A._hunt > 30) {                       // ~0.5s of no shot: commit to hunting
             // Straight chase: keeps aim/DPS live.  (A BFS "walk to a shootable
             // tile" variant was measured over 3 seeds: 284s/54.7 kills vs
@@ -1215,6 +1226,9 @@
         active: !!(active && active.id !== undefined), trial: !!G.trial, near: near | 0,
         state: G.state, obj: A.status.target, note: A.status.note,
         inter: (G.inter || []).length,
+        orbs: (G.floorOrbs | 0) + '/' + (G.bonusOrbs | 0),
+        prisms: (G.inter || []).filter((i) => i.kind === 'prism').length,
+        shardN: Object.keys((G.p && G.p.shards) || {}).length,
         px: Math.round(p.x), py: Math.round(p.y),
         vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
         wp: A._lastWp ? [Math.round(A._lastWp[0]), Math.round(A._lastWp[1])] : null,
