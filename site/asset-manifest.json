@@ -1,11 +1,405 @@
 {
+ "base": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/",
+ "updatedAt": 1792319600579,
  "assets": {
+  "assets/portraits/chishima.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/chishima.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 174494,
+   "sha256": "0b06a20eb5349224"
+  },
+  "assets/portraits/ling.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/ling.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 138376,
+   "sha256": "ece3a7efb450dd15"
+  },
+  "assets/portraits/miko.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/miko.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 157990,
+   "sha256": "9d4c7499dc621207"
+  },
+  "assets/portraits/rin.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/rin.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 142388,
+   "sha256": "8b751eb92159d284"
+  },
+  "assets/portraits/seye.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/seye.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 187666,
+   "sha256": "e21a6f0e2c3d04c9"
+  },
+  "assets/portraits/yoru.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/yoru.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 142664,
+   "sha256": "c4dcd7e22903c7f0"
+  },
+  "assets/portraits/yuexun.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/portraits/yuexun.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 163454,
+   "sha256": "be53334b68475879"
+  },
+  "assets/private/chishima.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/chishima.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3356135,
+   "sha256": "b0fe0cb0353354a4"
+  },
+  "assets/private/ling.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/ling.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3422487,
+   "sha256": "29db55ce3996d16f"
+  },
+  "assets/private/miko.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/miko.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3451690,
+   "sha256": "ee7a2ecad190154c"
+  },
+  "assets/private/rin.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/rin.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3490805,
+   "sha256": "634de9b30cbee6f0"
+  },
+  "assets/private/seye.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/seye.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3443593,
+   "sha256": "525b78acd9b6cb09"
+  },
+  "assets/private/yoru.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/yoru.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3425875,
+   "sha256": "01cc8fa607165619"
+  },
+  "assets/private/yuexun.png": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/private/yuexun.png",
+   "from": "scan",
+   "present": true,
+   "bytes": 3737152,
+   "sha256": "6bfe4706536ec5a7"
+  },
+  "assets/stories/chishima-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/chishima-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 90796,
+   "sha256": "b2236d073bbdb7be"
+  },
+  "assets/stories/chishima-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/chishima-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 92080,
+   "sha256": "3661d94ca8acd30e"
+  },
+  "assets/stories/chishima-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/chishima-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 90214,
+   "sha256": "d93bfee301f14646"
+  },
+  "assets/stories/chishima-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/chishima-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 76612,
+   "sha256": "40b1baa7733a7a82"
+  },
+  "assets/stories/chishima-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/chishima-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 102386,
+   "sha256": "4aebda39faf9117d"
+  },
+  "assets/stories/chishima-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/chishima-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 103624,
+   "sha256": "ac725c51180581de"
+  },
+  "assets/stories/ling-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/ling-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 76208,
+   "sha256": "66ec935ed5582433"
+  },
+  "assets/stories/ling-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/ling-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 61546,
+   "sha256": "c80962ec7b04b290"
+  },
+  "assets/stories/ling-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/ling-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 113546,
+   "sha256": "00813ce3d99a8efe"
+  },
+  "assets/stories/ling-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/ling-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 68856,
+   "sha256": "e04e9e99ad4bee2f"
+  },
+  "assets/stories/ling-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/ling-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 60096,
+   "sha256": "cf3360f7493949e3"
+  },
+  "assets/stories/ling-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/ling-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 98332,
+   "sha256": "ad072963c1747f29"
+  },
+  "assets/stories/miko-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/miko-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 89606,
+   "sha256": "71e98bc554c70387"
+  },
+  "assets/stories/miko-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/miko-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 89252,
+   "sha256": "a4863ce61b73b815"
+  },
+  "assets/stories/miko-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/miko-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 80472,
+   "sha256": "1207c8ddd6dd0abe"
+  },
+  "assets/stories/miko-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/miko-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 80704,
+   "sha256": "8fc062f146e3600f"
+  },
+  "assets/stories/miko-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/miko-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 69886,
+   "sha256": "d6b84ac192ae7e73"
+  },
+  "assets/stories/miko-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/miko-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 98902,
+   "sha256": "d18317f9cebab15c"
+  },
+  "assets/stories/rin-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/rin-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 84582,
+   "sha256": "0d811a27aed8c67a"
+  },
+  "assets/stories/rin-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/rin-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 100414,
+   "sha256": "911b57558750dada"
+  },
+  "assets/stories/rin-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/rin-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 97296,
+   "sha256": "8d43cd8753a36afc"
+  },
+  "assets/stories/rin-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/rin-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 68848,
+   "sha256": "c5e59b2f747d50ff"
+  },
+  "assets/stories/rin-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/rin-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 73426,
+   "sha256": "9d8d3465cc96c8ed"
+  },
+  "assets/stories/rin-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/rin-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 96388,
+   "sha256": "828a9178e8a2fae7"
+  },
+  "assets/stories/seye-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/seye-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 110928,
+   "sha256": "8110c687dc779fae"
+  },
+  "assets/stories/seye-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/seye-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 108764,
+   "sha256": "2f7ebb85fc6a5761"
+  },
+  "assets/stories/seye-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/seye-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 129152,
+   "sha256": "f72de67d558298c1"
+  },
+  "assets/stories/seye-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/seye-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 84344,
+   "sha256": "37df8576d74dbed4"
+  },
+  "assets/stories/seye-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/seye-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 88294,
+   "sha256": "18c097f9d714fac8"
+  },
+  "assets/stories/seye-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/seye-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 107882,
+   "sha256": "275af2602ec903e7"
+  },
+  "assets/stories/yoru-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yoru-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 84600,
+   "sha256": "1fa2af74cf513ad8"
+  },
+  "assets/stories/yoru-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yoru-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 83922,
+   "sha256": "e8c059355e140559"
+  },
+  "assets/stories/yoru-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yoru-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 89918,
+   "sha256": "176d0617957e4bc1"
+  },
+  "assets/stories/yoru-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yoru-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 82426,
+   "sha256": "4e8def8d97d5b624"
+  },
+  "assets/stories/yoru-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yoru-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 89198,
+   "sha256": "32e835f7a2cd216e"
+  },
+  "assets/stories/yoru-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yoru-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 108700,
+   "sha256": "44d94a685db2ddb5"
+  },
+  "assets/stories/yuexun-p1.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yuexun-p1.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 84422,
+   "sha256": "995183cf203d0cca"
+  },
+  "assets/stories/yuexun-p2.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yuexun-p2.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 89552,
+   "sha256": "cd15543e84d128c7"
+  },
+  "assets/stories/yuexun-p3.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yuexun-p3.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 76186,
+   "sha256": "7894a0bde5d63b46"
+  },
+  "assets/stories/yuexun-p4.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yuexun-p4.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 85870,
+   "sha256": "78f33c10800c8185"
+  },
+  "assets/stories/yuexun-p5.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yuexun-p5.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 79404,
+   "sha256": "feeaacec248ce397"
+  },
+  "assets/stories/yuexun-p6.webp": {
+   "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/assets/stories/yuexun-p6.webp",
+   "from": "scan",
+   "present": true,
+   "bytes": 109836,
+   "sha256": "3c1849b6faf13efd"
+  },
   "favicon.svg": {
    "url": "https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/favicon.svg",
+   "from": "scan",
+   "present": true,
    "bytes": 4807,
-   "sha256": "c4f47e42e64f546e",
-   "at": 1792296831519
+   "sha256": "c4f47e42e64f546e"
   }
- },
- "updatedAt": 1792296831519
+ }
 }

@@ -72,7 +72,7 @@
     if (fillTo) { cx.lineTo(x + w, y + h); cx.lineTo(x, y + h); cx.closePath(); cx.fillStyle = color; cx.globalAlpha = .13; cx.fill(); cx.globalAlpha = 1; }
   }
 
-  let visible = TSW.settings.get('hudVisible', true);
+  let visible = TSW.settings.get('hudVisible', false);
   TSW.hud = {
     get visible() { return visible; },
     toggle(v) {
@@ -96,7 +96,8 @@
     + 'user-select:none;-webkit-user-select:none;';
   xbtn.onmouseenter = () => { xbtn.style.color = '#efb94a'; xbtn.style.background = '#2d2925'; };
   xbtn.onmouseleave = () => { xbtn.style.color = '#8e877b'; xbtn.style.background = '#1d1a17'; };
-  xbtn.addEventListener('click', (e) => { e.stopPropagation(); TSW.hud.toggle(false); });
+  xbtn.addEventListener('click', (e) => { e.stopPropagation(); TSW.hud.toggle(); }); // toggles: never a dead button
+  xbtn.style.display = visible ? '' : 'none'; // stays in sync when the HUD starts hidden
   document.body.appendChild(xbtn);
 
   function draw() {
@@ -138,6 +139,7 @@
     if (TSW.perf.active) st.push('PERF');
     if (TSW.rng.on) st.push('SEED');
     L(st.length ? st.join('  ') : '×1 手动', st.length ? PAL.violet : PAL.dim, true);
+    if (TSW.cheats && TSW.cheats.on()) L('⚠ CHEAT · ' + TSW.cheats.label(), PAL.red, true);
 
     requestAnimationFrame(draw);
   }

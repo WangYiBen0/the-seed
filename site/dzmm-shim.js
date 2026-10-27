@@ -61,13 +61,14 @@
     },
 
     capabilities: {
-      // caps gates: kvBatch enables batch reads/writes; fn/draw/completions off
-      // puts boards, events and AI calls into the same "offline" state the game
-      // already has outside DZMM; log keeps frame-error reporting as console logs.
+      // caps gates: kvBatch enables batch reads/writes; fn/draw off puts boards,
+      // events and image generation into the same "offline" state the game already
+      // has outside DZMM.  completions flips ON when the user configured an
+      // OpenAI-compatible endpoint in the workshop panel (AI 设置).
       async get() {
         return {
           kvBatch: true,
-          fn: false, completions: false, draw: false, drawStatus: false, drawPresentation: false,
+          fn: false, completions: !!aiCfg()?.endpoint, draw: false, drawStatus: false, drawPresentation: false,
           loading: true, log: true, gamepad: true,
           environment: { type: 'web', name: 'offline-mirror', version: VERSION, offline: true },
         };
@@ -94,9 +95,53 @@
       async action(req) { const rs = await Promise.all(this._handlers.map((f) => f(req))); return rs[rs.length - 1] ?? { ok: false, code: 'unsupported' }; },
     },
 
-    // ---- platform AI / server functions: honest offline rejections ----
-    models: { async list() { return fail('offline', 'model list needs the DZMM platform'); } },
-    completions(_opts, _onChunk) { return fail('offline', 'AI completions need the DZMM platform'); },
+    // ---- platform AI: squad/girls chat bridge ----------------------------------
+    // Without configuration these reject with 'offline' (the game handles it).
+    // The workshop panel (AI 设置) can point them at ANY OpenAI-compatible
+    // endpoint; config lives in localStorage 'theseed.ai':
+    //   { endpoint: 'https://api.openai.com/v1', key: 'sk-…', model: 'gpt-4o-mini' }
+    models: {
+      async list() {
+        const c = aiCfg(); if (!c || !c.endpoint) return fail('offline', '未配置 AI 接口（工坊 → AI 设置）');
+        return { models: [{ internalName: c.model || 'default', displayName: '自定义接口 · ' + (c.model || 'default') }] };
+      },
+    },
+    async completions(opts, onChunk) {
+      const c = aiCfg(); if (!c || !c.endpoint) return fail('offline', '未配置 AI 接口（工坊 → AI 设置）');
+      const base = c.endpoint.replace(/\/+$/, '');
+      const rsp = await fetch(base + '/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(c.key ? { authorization: 'Bearer ' + c.key } : {}) },
+        body: JSON.stringify({
+          model: c.model || opts?.model || 'default',
+          messages: opts?.messages || [],
+          max_tokens: opts?.maxTokens || 300,
+          stream: true,
+        }),
+      });
+      if (!rsp.ok || !rsp.body) throw Object.assign(new Error('AI endpoint HTTP ' + rsp.status), { code: 'AI_HTTP' });
+      const reader = rsp.body.getReader(), dec = new TextDecoder();
+      let buf = '', full = '';
+      const emit = (done) => { try { onChunk(full, done); } catch (e) { } };
+      for (;;) {
+        const { done, value } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') { emit(true); continue; }
+          try {
+            const j = JSON.parse(data);
+            const piece = j.choices?.[0]?.delta?.content || '';
+            if (piece) { full += piece; emit(false); }
+          } catch (e) { }
+        }
+      }
+      emit(true);
+      return full;
+    },
     draw: {
       generateModels() { return fail('offline', 'draw models need the DZMM platform'); },
       generate(_o) { return fail('offline', 'image generation needs the DZMM platform'); },
@@ -111,6 +156,7 @@
     },
   };
 
+  function aiCfg() { try { return JSON.parse(localStorage.getItem('theseed.ai') || 'null'); } catch (e) { return null; } }
   window.dzmm = dzmm;
 
   // ---- save management helpers (used by the tools panel and the console) ----

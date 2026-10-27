@@ -67,7 +67,7 @@ async function main() {
   if (args.smoke) { /* just load */ }
   else {
     q.set('autotest', args.kind || 'throughput');
-    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build })) if (v != null) q.set(k, v);
+    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff })) if (v != null) q.set(k, v);
   }
   const url = `http://127.0.0.1:${port}/` + (q.toString() ? '?' + q.toString() : '');
   const shot = args.screenshot ? resolve(String(args.screenshot)) : null;
