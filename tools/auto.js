@@ -37,6 +37,7 @@
       weaponSwap: TSW.settings.get('autoWeaponSwap', true),// swap to the sidearm during a reload
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
+      weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -121,11 +122,24 @@
   };
   A.goal = { weapon: () => goal('weapon'), skill: () => goal('skill'), radio: () => goal('radio'), mate: () => goal('mate') };
   const GOAL_W = 1.9;                                  // how strongly a match pulls
+  // Real DPS of an explore weapon = damage x shots-per-second x projectiles.
+  // The table below was previously the ONLY input, so the bot could hold a
+  // 30-DPS-while-preferred peashooter over a much stronger gun.
+  const wDps = (id) => {
+    try {
+      const w = WEAPONS[id]; if (!w) return 0;
+      const rate = w.rate || (w.melee ? 1 : 1);
+      const n = w.n || 1;
+      return (w.dmg || 0) * rate * n;
+    } catch (e) { return 0; }
+  };
   const wScore = (id) => {
     try {
       let v = (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
       const g = A.goal && A.goal.weapon ? A.goal.weapon() : '';
       if (id && g && id === g) v += GOAL_W;             // target weapon wins ties
+      // optional DPS term (A/B: A.opts.weaponDps)
+      if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
       return v;
     } catch (e) { return 2.5; }
   };
