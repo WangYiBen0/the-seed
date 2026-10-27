@@ -54,6 +54,7 @@
       pickupOrder: 'eager',                                  // explore: 'eager' | 'clear-first' (defer loose drops)
       invadeBossSafe: true,                                  // invade: keep clear of the boss's contact damage
       bossOrder: 'early',                                    // explore: 'early' | 'late' (clear rooms before the boss)
+      shopShardBar: 2,                                       // explore: minimum scoreShard to buy a shop serum
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -1067,7 +1068,10 @@
         if (it.kind === 'forge' && A.opts.forge) { const lv = p.wlv[w.id] || 0, cost = 30 + lv * 25; if (lv < 3 && G.ink >= cost + 15) { A.status.note = '锻造 +' + (lv + 1); tap('KeyE'); } break; }
         if (it.kind === 'shop' && A.opts.shop && !it.sold) {
           if (it.what === 'heart' && p.hp < p.maxHp && G.ink >= it.price) { tap('KeyE'); break; }
-          if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= 2) { tap('KeyE'); break; }
+          {   // configurable bar (the earlier attempt never landed — verified by grep this time)
+            const bar = (A.opts.shopShardBar === undefined) ? 2 : A.opts.shopShardBar;
+            if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= bar) { tap('KeyE'); break; }
+          }
           if (it.what === 'weapon' && G.ink >= it.price && p.weapons.length < wCap() && wScore(it.id) > wScore(w.id) + .5) { tap('KeyE'); break; }
           if (it.what === 'chip' && G.ink >= it.price && !p.skill) { tap('KeyE'); break; }
           continue;
