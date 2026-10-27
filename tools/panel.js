@@ -97,8 +97,29 @@
   bSeed.onclick = () => { const v = parseInt(seedInp.value, 10); if (v) { TSW.rng.seed(v); note('RNG seed = ' + v + '（复现用，重开一局生效）'); } };
   const bSeedClear = btn('清除'); seedRow.append(bSeedClear);
   bSeedClear.onclick = () => { TSW.rng.clear(); note('RNG 恢复随机'); };
-  const updSpeed = () => { speedVal.textContent = `速度 ×${TSW.speed.get()} （热键 - / ＝）`; };
+  // draggable speed slider (0.25x steps up to 16x, log-ish feel via a stepped range)
+  const spRow = row(sState);
+  const spSlider = el('input', 'flex:1;min-width:120px;accent-color:#8ed872');
+  spSlider.type = 'range'; spSlider.min = '0'; spSlider.max = '11'; spSlider.step = '1';
+  spSlider.value = '0';
+  const spOut = el('span', 'color:#a07ad8;min-width:34px;text-align:right');
+  spRow.append(spSlider, spOut);
+  // slider index 0..11 -> 1,2,3,4,5,6,7,8,10,12,14,16 (game max is 16)
+  const SLIDER_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16];
+  const sliderToSpeed = (v) => SLIDER_STEPS[Math.max(0, Math.min(SLIDER_STEPS.length - 1, +v | 0))];
+  const speedToSlider = (x) => {
+    let best = 0, bd = 1e9;
+    SLIDER_STEPS.forEach((v, i) => { const d = Math.abs(v - x); if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  const updSlider = () => { spSlider.value = String(speedToSlider(TSW.speed.get())); spOut.textContent = `×${TSW.speed.get()}`; };
+  spSlider.oninput = () => { const v = sliderToSpeed(spSlider.value); TSW.speed.set(v); spOut.textContent = `×${v}`; };
+  spSlider.onchange = () => updSlider();
+  TSW.bus.on('speed', updSlider);
+
+  const updSpeed = () => { speedVal.textContent = `速度 ×${TSW.speed.get()} （热键 - / ＝，或拖动上面的滑块）`; };
   TSW.bus.on('speed', updSpeed); updSpeed();
+  updSlider();
   TSW.bus.on('auto', () => { modeSel.value = TSW.auto.mode; polSel.value = TSW.auto.policy; });
   [b1, b2, b4, b8, b16].forEach((b) => { const v = +b.textContent.slice(0, -1); b.onclick = () => TSW.speed.set(v); });
   bSlow.onclick = () => TSW.speed.nudge(-1); bFast.onclick = () => TSW.speed.nudge(1);
