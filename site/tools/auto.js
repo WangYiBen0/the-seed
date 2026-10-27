@@ -51,6 +51,8 @@
       invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       exploreOrder: 'fight',                                  // explore: 'fight' | 'resources' (specials before combat rooms)
       forgeMode: 'held',                                     // explore: 'held' | 'any' (upgrade any equipped weapon)
+      pickupOrder: 'eager',                                  // explore: 'eager' | 'clear-first' (defer loose drops)
+      invadeBossSafe: true,                                  // invade: keep clear of the boss's contact damage
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -755,7 +757,30 @@
     //    between the swarm and the wall.
     if (tgt) {
       const ux = (tgt.x - p.x) / (bd || 1), uy = (tgt.y - p.y) / (bd || 1);
-      const band = iv.wave % 5 === 0 ? [80, 150] : [60, 120];      // boss waves: keep further
+      // boss waves (5/10/15/20): the boss has contact:1 (any touch hurts) plus a
+      // larger radius, so keep well outside its reach instead of trading bodies.
+      const bossWave = (iv.wave % 5) === 0;
+      // G.boss may be null between spawns; fall back to iv.bosses so the repel
+      // still fires the moment a boss exists.
+      let boss = (G.boss && !G.boss.dead) ? G.boss : null;
+      if (!boss && iv.bosses && iv.bosses.length) boss = iv.bosses.find((b) => b && !b.dead) || null;
+      if (!boss && iv.champs && iv.champs.length === 0 && (iv.wave % 5) === 0 && foes.length) {
+        // boss wave but no boss object yet: treat a big foe (r>=12) as the boss
+        boss = foes.find((e) => (e.r || 0) >= 12) || null;
+      }
+      const band = bossWave ? [130, 200] : [60, 120];
+      // never let the boss bait us into contact: repel hard when it closes in
+      if (A.opts.invadeBossSafe !== false && boss) {
+        const bd2 = Math.hypot(boss.x - p.x, boss.y - p.y);
+        if (bd2 < (boss.r || 13) + 46) {
+          const ax = (p.x - boss.x) / (bd2 || 1), ay = (p.y - boss.y) / (bd2 || 1);
+          [mx, my] = pickDir(p, ax * 1.4, ay * 1.4);
+          moveKeys(mx, my);
+          A.status.note = '入侵：躲首领接触';
+          if (A.opts.dash && p.dashCd <= 0 && typeof dashSafe === 'function' && dashSafe(p, mx, my) && spotDanger(p.x, p.y, p) >= 1.0) { tap('Space'); A.metrics.dash++; }
+          A.status.target = 'invade'; return;
+        }
+      }
       if (A._ivWave !== iv.wave) { A._ivWave = iv.wave; A._ivSpin = Math.random() < .5 ? 1 : -1; }
       if (A.opts.invadeCircle === false) {            // A/B: plain backoff/approach
         if (bd < band[0]) { mx = -ux; my = -uy; A.status.note = '入侵：拉开距离'; }
@@ -976,7 +1001,7 @@
       if (TSW.trace) {
         const iv0 = G.iv || {};
         try {
-          A.dbg = { t: G.time | 0, mode: 'invade', state: G.state, wave: iv0.wave | 0, phase: iv0.phase || '',
+          A.dbg = { t: G.time | 0, mode: 'invade', state: G.state, wave: iv0.wave | 0, phase: iv0.phase || '', bosses: (iv0.bosses || []).length, bossTT: Math.round((iv0.bossT || -1) * 10) / 10,
             t_: Math.round(iv0.t || 0), lv: iv0.lv | 0, lvPend: iv0.lvPend | 0, ink: G.ink | 0,
             foes: (G.enemies || []).filter((e) => !e.dead).length, note: A.status.note, px: Math.round(p.x), py: Math.round(p.y) };
           if ((G.time | 0) % 3 === 0 && A._dbgT !== (G.time | 0)) { A._dbgT = G.time | 0; TSW.log('DBG ' + JSON.stringify(A.dbg)); }
@@ -1315,7 +1340,13 @@
         return { pt: [it.x, it.y], label: '透析机', room: roomAt(it.x, it.y) };
     if (A.opts.labSerum) for (const it of G.inter) if (it.kind === 'labvial' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
       return { pt: [it.x, it.y], label: '实验血清', room: roomAt(it.x, it.y) };
-    if (A.opts.pickups) for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
+    // 'clear-first' (A/B): during the first pass we push combat rooms before
+    // walking back for loose drops; prisms are picked up once rooms are cleared.
+    const deferLoose = A.opts.pickupOrder === 'clear-first';
+    const combatLeft = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+    if (A.opts.pickups && !(deferLoose && combatLeft))
+      for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+        return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
     // 1b) weapon/chip drops on the floor worth walking to
     let bw = null, bwd = 1e9;
     for (const it of G.inter) {
@@ -1338,7 +1369,17 @@
       const forgeMode = A.opts.forgeMode || 'held';
       for (const r of rooms) {
         if (r.type !== 'forge' || unreachable(r)) continue;
-        const ids = forgeMode === 'any' ? (p.weapons || []) : [p.weapons[p.wi]];
+        // 'held'  = current weapon (default)
+        // 'main'  = the weapon we actually shoot most (highest wScore), even if a
+        //           weaker sidearm is the one currently drawn
+        // 'any'   = every equipped weapon  (measured NEGATIVE: pass-floor 0/5)
+        let ids;
+        if (forgeMode === 'any') ids = (p.weapons || []);
+        else if (forgeMode === 'main') {
+          let best = p.weapons[p.wi], bs = -1e9;
+          for (const id of p.weapons || []) { const sc = wScore(id); if (sc > bs) { bs = sc; best = id; } }
+          ids = [best];
+        } else ids = [p.weapons[p.wi]];
         for (const id of ids) {
           const lv = (p.wlv && p.wlv[id]) || 0;
           if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
