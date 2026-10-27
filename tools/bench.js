@@ -187,8 +187,10 @@
     // (soft-lock: unpickable state, geometry, …) end it as 'stuck' so experiment
     // matrices always complete.  hurtPlayer is the game's own damage entry point.
     let lastSig = '', lastSigT = performance.now();
+    let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
     const wd = setInterval(() => {
       const g = G(); if (!g || !g.p) return;
+      if ((g.floor | 0) > maxFloor) maxFloor = g.floor | 0;
       // NB: the player's position must be part of the signature.  Without it, a bot
       // that is walking (e.g. crossing a large floor to reach the next room) shows
       // NO observable change for 30s and gets killed as "stuck" — which is exactly
@@ -260,7 +262,7 @@
       modifiers: modsEarly,
       modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
       end: res.end, wall: +res.wall.toFixed(1),
-      gameT: +g.runT.toFixed(0), floor: g.floor, depth: g.endless | 0,
+      gameT: +g.runT.toFixed(0), floor: g.floor, maxFloor: maxFloor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
       orbs: (g.floorOrbs | 0), shardN: Object.keys((g.p && g.p.shards) || {}).length,
       // death causes: who actually took the last hits (pierce ignores armour, so
@@ -489,6 +491,7 @@
     const mon = setInterval(() => {
       const gg = window.__achroma.G;
       if (gg && gg.iv && (gg.iv.wave | 0) > peakWave) peakWave = gg.iv.wave | 0;
+      if (gg && (gg.floor | 0) > maxFloor) maxFloor = gg.floor | 0;
     }, 250);
     // Run until the player dies (or the wall budget expires) instead of a fixed
     // duration.  Fixed 60-150s windows always ended "alive" and hid the real
