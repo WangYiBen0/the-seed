@@ -459,21 +459,22 @@
       }
       let r;
       try {
-        if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: base.wave || 9 }, o));
+        if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 9) }, o));
         else r = await runFullRun(Object.assign({ speed, seed, policy: 'rounded', goalDepth, timeoutS, diff, mods }, o));
       } finally { for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v; }
       return r;
     };
     TSW.log('AB start: rounds=' + rounds + ' inner=' + K + ' diff=' + diff);
     for (let i = 0; i < rounds; i++) {
-      TSW.log('AB round ' + (i + 1) + ' A...');
-      const a = await exec(A);                       // A first
-      TSW.log('AB round ' + (i + 1) + ' B...');
-      const b = await exec(B);                       // then B — same session, adjacent in time
+      // order alternates: even rounds A→B, odd rounds B→A (cancels session drift)
+      const flip = i % 2 === 1;
+      TSW.log('AB round ' + (i + 1) + (flip ? ' B→A' : ' A→B'));
+      const a = await exec(flip ? B : A);
+      const b = await exec(flip ? A : B);
       const ka = (a && a[metricKey]) || 0;
       const kb = (b && b[metricKey]) || 0;
       const kk = 'kills';
-      pairs.push({ i: i + 1, a: ka, b: kb, da: (a && a[kk]) || 0, db: (b && b[kk]) || 0, d: +(kb - ka).toFixed(1), kd: (((b && b[kk]) || 0) - ((a && a[kk]) || 0)) });
+      pairs.push({ i: i + 1, order: flip ? 'B,A' : 'A,B', a: ka, b: kb, da: (a && a[kk]) || 0, db: (b && b[kk]) || 0, d: +(kb - ka).toFixed(1), kd: (((b && b[kk]) || 0) - ((a && a[kk]) || 0)) });
       TSW.log('AB pair ' + (i + 1) + ': ' + ka + ' vs ' + kb + ' (delta ' + (kb - ka) + ')');
     }
     const ds = pairs.map((p) => p.d);

@@ -40,6 +40,9 @@
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
+      invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
+      invadeLvStyle: 'dps',                                   // invade: 'dps' | 'tank' upgrade order
+      invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -797,24 +800,46 @@
     if (G.state === 'ivlv') {
       // pick the upgrade that best matches the goal build: damage first, then hp
       const opts = iv.lvOpts || [];
-      const pref = ['dmg', 'aspd', 'crit', 'range', 'hp', 'speed', 'eng', 'elem', 'melee', 'ranged', 'harvest', 'luck', 'armor', 'dodge', 'regen'];
+      // priority is switchable for A/B (A.opts.invadeLvPref)
+      const DPS_FIRST = ['dmg', 'aspd', 'crit', 'range', 'elem', 'melee', 'ranged', 'eng', 'hp', 'armor', 'dodge', 'speed', 'steal', 'regen', 'harvest', 'luck'];
+      const TANK_FIRST = ['hp', 'armor', 'regen', 'steal', 'dodge', 'dmg', 'aspd', 'crit', 'speed', 'range', 'elem', 'melee', 'ranged', 'eng', 'harvest', 'luck'];
+      const pref = Array.isArray(A.opts.invadeLvPref) ? A.opts.invadeLvPref
+        : (A.opts.invadeLvStyle === 'tank' ? TANK_FIRST : DPS_FIRST);
       let best = null, bw = -1e9;
-      for (const o of opts) { const w = pref.length - (pref.indexOf(o.id) >= 0 ? pref.indexOf(o.id) : pref.length); if (w > bw) { bw = w; best = o; } }
+      for (const o of opts) {
+        const idx = pref.indexOf(o.id);
+        const w = pref.length - (idx >= 0 ? idx : pref.length);
+        if (w > bw) { bw = w; best = o; }
+      }
       if (best && typeof ivLvPick === 'function') { ivLvPick(best); A.status.note = '入侵：升级 ' + best.id; return true; }
       tap('Enter'); A.status.note = '入侵：升级'; return true;
     }
     if (G.state === 'ivshop') {
+      // ---- 先合成升级：三件同名同阶 -> 一件 +1 阶（成长优先于数量） ----
+      // ivCombine 自带同阶检查与 t<3 上限，直接调用是安全的。绝境里「阶」比
+      // 「件数」重要得多：实测第 4 波后崩，缺的就是武器阶数。
+      if (A.opts.invadeCombine !== false && typeof ivCombine === 'function') {
+        const w = iv.w || [];
+        for (let i = 0; i < w.length; i++) {
+          const s0 = w[i]; if (!s0 || s0.t >= 3) continue;
+          const dup = w.findIndex((q, j) => j !== i && q && q.id === s0.id && q.t === s0.t);
+          if (dup >= 0) { try { ivCombine(i); A.status.note = '入侵：合成 ' + s0.id + ' → t' + (s0.t + 1); return true; } catch (e) { } }
+        }
+      }
       // buy affordable offers, most useful first, then start the next wave
       if (A.opts.invadeShop !== false) {
         const offers = iv.offers || [];
         const priceOf = (o) => { try { return ivPrice(o); } catch (e) { return 1e9; } };
+        // purchase priority is switchable for A/B (A.opts.invadeShopStyle)
+        const style = A.opts.invadeShopStyle || 'dps';
         const rank = (o) => {
           if (!o) return -1;
-          if (o.k === 'w') return 100 + (o.t || 0) * 10;         // weapons: strongest first
+          if (style === 'weapon') return o.k === 'w' ? 200 : 10;   // weapons only
+          if (o.k === 'w') return 100 + (o.t || 0) * 10;            // otherwise strongest weapon
           const id = o.id || '';
-          if (/dmg|crit|aspd|atk/.test(id)) return 90;
-          if (/hp|armor|regen|life/.test(id)) return 70;
-          if (/speed|dodge/.test(id)) return 60;
+          if (/dmg|crit|aspd|atk|power/.test(id)) return 90;
+          if (/hp|armor|regen|life|shield/.test(id)) return 70;
+          if (/speed|dodge|warp/.test(id)) return 60;
           return 40;
         };
         let bi = -1, bs = -1;

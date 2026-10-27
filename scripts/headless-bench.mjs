@@ -68,7 +68,7 @@ async function main() {
   else {
     q.set('autotest', args.kind || 'throughput');
     if (args.trace) q.set('trace', '1');
-    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff, mods: args.mods, engine: args.engine, role: args.role, wave: args.wave, rounds: args.rounds, optA: args.optA, optB: args.optB, abKind: args['ab-kind'] ?? args.abKind })) if (v != null) q.set(k, v);
+    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff, mods: args.mods, engine: args.engine, role: args.role, wave: args.wave, rounds: args.rounds, optA: args.optA, optB: args.optB, abKind: args['ab-kind'] ?? args.abKind, startWave: args['start-wave'] ?? args.startWave })) if (v != null) q.set(k, v);
   }
   const url = `http://127.0.0.1:${port}/` + (q.toString() ? '?' + q.toString() : '');
   const shot = args.screenshot ? resolve(String(args.screenshot)) : null;
