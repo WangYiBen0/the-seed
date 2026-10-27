@@ -7,6 +7,7 @@
 #   nix run .#serve      # serve site/ on http://127.0.0.1:8000
 #   nix run .#bench      # headless chromium benchmark (see scripts/headless-bench.mjs)
 #   nix run .#sync       # refresh site/js/ from a fresh browser "save page as"
+#   nix run .#source     # fetch assets the game asked for but we don't have (404s)
 #   nix build            # static site ready to upload (result/)
 #
 # NOTE: `nix run .#bench` needs a chromium on PATH (NixOS: usually
@@ -22,9 +23,10 @@
       forAll = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
       mkHelpers = pkgs: {
         seedServe = pkgs.writeShellScriptBin "seed-serve" ''
-          PORT="''${PORT:-8000}"
-          echo "serving $PWD/site at http://127.0.0.1:$PORT/"
-          exec ${pkgs.python3}/bin/python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$PWD/site"
+          exec ${pkgs.nodejs}/bin/node ${./scripts/serve.mjs} --port "''${PORT:-8000}"
+        '';
+        seedSource = pkgs.writeShellScriptBin "seed-source" ''
+          exec ${pkgs.nodejs}/bin/node ${./scripts/fetch-source.mjs} "$@"
         '';
         seedSync = pkgs.writeShellScriptBin "seed-sync" ''
           exec ${pkgs.nodejs}/bin/node ${./scripts/sync-upstream.mjs} "$@"
@@ -38,7 +40,7 @@
       devShells = forAll (pkgs:
         let h = mkHelpers pkgs; in {
           default = pkgs.mkShell {
-            packages = with pkgs; [ nodejs python3 chromium git gh jq ] ++ [ h.seedServe h.seedSync h.seedBench ];
+            packages = with pkgs; [ nodejs python3 chromium git gh jq ] ++ [ h.seedServe h.seedSync h.seedBench h.seedSource ];
             shellHook = ''
               echo "[TheSeed] mirror dev shell — $(node --version) · $(chromium --version 2>/dev/null | head -1)"
               echo "  seed-serve   static server for site/        (also: nix run .#serve)"
@@ -53,6 +55,7 @@
           serve = { type = "app"; program = "${h.seedServe}/bin/seed-serve"; };
           bench = { type = "app"; program = "${h.seedBench}/bin/seed-bench"; };
           sync = { type = "app"; program = "${h.seedSync}/bin/seed-sync"; };
+          source = { type = "app"; program = "${h.seedSource}/bin/seed-source"; };
         });
 
       # `nix build` produces the uploadable static site (including .nojekyll).

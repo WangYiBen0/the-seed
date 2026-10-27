@@ -12,7 +12,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { readFile, mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, mkdir, appendFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, extname, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -36,7 +36,11 @@ function serve() {
       try {
         const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
         let file = join(SITE, path === '/' ? 'index.html' : path);
-        if (!existsSync(file)) { rsp.writeHead(404); rsp.end('nope'); return; }
+        if (!existsSync(file)) {
+          rsp.writeHead(404); rsp.end('nope');
+          appendFile(join(ROOT, '.tmp', 'missing.log'), JSON.stringify({ path, at: Date.now() }) + '\n').catch(() => { });
+          return;
+        }
         const body = await readFile(file);
         rsp.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
         rsp.end(body);

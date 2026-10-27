@@ -75,9 +75,29 @@
   let visible = TSW.settings.get('hudVisible', true);
   TSW.hud = {
     get visible() { return visible; },
-    toggle(v) { visible = v === undefined ? !visible : !!v; cv.style.display = visible ? '' : 'none'; TSW.settings.set('hudVisible', visible); },
+    toggle(v) {
+      visible = v === undefined ? !visible : !!v;
+      cv.style.display = visible ? '' : 'none';
+      const xb = document.getElementById('tsw-hud-close'); if (xb) xb.style.display = visible ? '' : 'none';
+      TSW.settings.set('hudVisible', visible); TSW.bus.emit('hud', visible);
+    },
   };
   if (!visible) cv.style.display = 'none';
+
+  // a REAL button pinned on the HUD's top-right corner (canvas glyphs are too subtle)
+  const xbtn = document.createElement('button');
+  xbtn.type = 'button';
+  xbtn.id = 'tsw-hud-close';
+  xbtn.textContent = '✕';
+  xbtn.title = '隐藏测评 HUD（F9 也可切换）';
+  xbtn.style.cssText = 'position:fixed;top:6px;right:6px;z-index:41;width:22px;height:20px;'
+    + 'background:#1d1a17;color:#8e877b;border:none;border-left:1px solid #36322d;border-bottom:1px solid #36322d;'
+    + 'border-top-right-radius:6px;cursor:pointer;font:12px/1 monospace;padding:0;'
+    + 'user-select:none;-webkit-user-select:none;';
+  xbtn.onmouseenter = () => { xbtn.style.color = '#efb94a'; xbtn.style.background = '#2d2925'; };
+  xbtn.onmouseleave = () => { xbtn.style.color = '#8e877b'; xbtn.style.background = '#1d1a17'; };
+  xbtn.addEventListener('click', (e) => { e.stopPropagation(); TSW.hud.toggle(false); });
+  document.body.appendChild(xbtn);
 
   function draw() {
     cx.clearRect(0, 0, cv.width, cv.height);
@@ -118,6 +138,7 @@
     if (TSW.perf.active) st.push('PERF');
     if (TSW.rng.on) st.push('SEED');
     L(st.length ? st.join('  ') : '×1 手动', st.length ? PAL.violet : PAL.dim, true);
+
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);

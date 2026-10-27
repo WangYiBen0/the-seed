@@ -33,11 +33,13 @@ nix run .#serve          # 本地起服务 → http://127.0.0.1:8000
 python3 -m http.server -d site 8000
 ```
 
-打开页面后左侧是「[TheSeed] 工坊」面板：
+打开页面后左侧是「[TheSeed] 工坊」面板（**F8 收起成小挂钮 / 再按展开**，
+按住标题栏可拖动，位置与收起状态会记住；面板过高时内部滚动）：
 
 - **状态**：倍速（热键 `-` / `＝`）、性能模式、随机种子（复现用）
 - **宏**：● 录制 / ■ 停止 / 保存 / 回放 / 循环 / 导入导出（时间轴为游戏内时间，任意倍速下精确对齐）
 - **挂机**：战斗模式 / 全自动（探索·战斗·购物·无尽传送门），十种选卡流派预设（bloom / offense / balanced / survival / crit / dot / melee / ally / ammo / phase）
+  - 走位是**威胁场**：子弹弹道预测 + 地面预警圈（直接调用游戏自己的 `inMech` 判定，全类型通用）+ 虚空区 + 地刺，危险时自动冲刺脱离
 - **测评**：无尽流派对比跑分（策略 × 种子矩阵）
 - **基准**：引擎吞吐 / 宏+倍速 / 全自动一局，一键跑分并导出 Markdown
 - **存档**：导出/导入/清空（仅本镜像的 localStorage，不影响上游账号数据）
@@ -54,6 +56,19 @@ nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed
 
 > `.#bench` 需要环境里有 chromium（NixOS 通常已预装；没有就先 `nix develop`，
 > shell 里也提供了 `seed-bench` / `seed-serve` / `seed-sync` 三个命令）。
+
+## 缺资源（CG 等）自动拉取
+
+游戏向上游要的文件如果镜像里没有（比如部分 CG/立绘），本地服务器会把它记到
+`.tmp/missing.log`。跑一次拉取即可从上游补齐（base 从保存页自动识别）：
+
+```bash
+nix run .#serve      # 平时用它起服务：404 会被记录到 .tmp/missing.log
+nix run .#source     # 按 404 清单从上游拉取 → site/<原路径>，并写 asset-manifest.json
+nix run .#source img/cg/xxx.png   # 也可以手动指定路径
+```
+
+无头跑分的服务器同样会记录 404，所以挂机测评也能积累缺资源清单。
 
 ## 上游更新了怎么办
 

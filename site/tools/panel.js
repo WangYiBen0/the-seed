@@ -12,7 +12,7 @@
   const root = document.createElement('div');
   root.id = 'tsw-panel';
   root.style.cssText = [
-    'position:fixed', 'left:8px', 'top:8px', 'z-index:60', 'width:252px',
+    'position:fixed', 'left:8px', 'top:8px', 'z-index:60', 'width:252px', 'max-height:calc(100dvh - 16px)', 'overflow-y:auto', 'scrollbar-width:thin',
     'background:rgba(10,9,8,.94)', 'border:1px solid #36322d', 'border-radius:8px',
     'color:#e8e1d3', 'font:11px/1.5 ui-monospace,Menlo,Consolas,"Microsoft YaHei",monospace',
     'box-shadow:0 4px 18px rgba(0,0,0,.55)', 'user-select:none', '-webkit-user-select:none', 'cursor:default',
@@ -23,15 +23,36 @@
 
   let collapsed = TSW.settings.get('panelCollapsed', false);
   const head = document.createElement('div');
-  head.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #2d2925;cursor:default';
+  head.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #2d2925;cursor:move';
+  head.title = '拖动移动面板 · F8 收起/展开';
   root.appendChild(head);
   const title = document.createElement('span'); title.textContent = '⚙ [TheSeed] 工坊'; title.style.cssText = 'flex:1;color:#efb94a'; head.appendChild(title);
-  const colBtn = document.createElement('button'); colBtn.textContent = collapsed ? '▸' : '▾';
+  const colBtn = document.createElement('button'); colBtn.textContent = collapsed ? '⚙' : '▾'; colBtn.title = '收起/展开（F8）';
   colBtn.style.cssText = 'background:#151310;color:#efb94a;border:1px solid #36322d;border-radius:4px;width:22px;height:18px;cursor:pointer;font:11px monospace';
   head.appendChild(colBtn);
   const body = document.createElement('div'); root.appendChild(body);
-  if (collapsed) body.style.display = 'none';
-  colBtn.onclick = () => { collapsed = !collapsed; body.style.display = collapsed ? 'none' : ''; colBtn.textContent = collapsed ? '▸' : '▾'; TSW.settings.set('panelCollapsed', collapsed); };
+  function applyCollapsed() {
+    body.style.display = collapsed ? 'none' : '';
+    title.style.display = collapsed ? 'none' : '';
+    root.style.width = collapsed ? 'auto' : '252px';
+    colBtn.textContent = collapsed ? '⚙' : '▾';
+    colBtn.title = collapsed ? '展开工坊（F8）' : '收起工坊（F8）';
+  }
+  applyCollapsed();
+  TSW.panel = { toggle() { collapsed = !collapsed; applyCollapsed(); TSW.settings.set('panelCollapsed', collapsed); }, get collapsed() { return collapsed; } };
+  colBtn.onclick = () => TSW.panel.toggle();
+
+  // drag the panel by its header (position persists)
+  const savedPos = TSW.settings.get('panelPos', null);
+  if (savedPos && typeof savedPos.x === 'number') { root.style.left = Math.max(0, Math.min(innerWidth - 44, savedPos.x)) + 'px'; root.style.top = Math.max(0, Math.min(innerHeight - 22, savedPos.y)) + 'px'; }
+  let drag = null;
+  head.addEventListener('mousedown', (e) => { if (e.target === colBtn) return; drag = { dx: e.clientX - root.offsetLeft, dy: e.clientY - root.offsetTop }; e.preventDefault(); });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    root.style.left = Math.max(0, Math.min(innerWidth - 44, e.clientX - drag.dx)) + 'px';
+    root.style.top = Math.max(0, Math.min(innerHeight - 22, e.clientY - drag.dy)) + 'px';
+  }, true);
+  window.addEventListener('mouseup', () => { if (!drag) return; drag = null; TSW.settings.set('panelPos', { x: root.offsetLeft, y: root.offsetTop }); }, true);
 
   // ---------------- widgets ----------------
   const el = (tag, style, parent) => { const n = document.createElement(tag); if (style) n.style.cssText = style; (parent || body).appendChild(n); return n; };
@@ -50,7 +71,7 @@
   const b1 = btn('1×'), b2 = btn('2×'), b4 = btn('4×'), b8 = btn('8×'), b16 = btn('16×');
   row(sState).append(b1, b2, b4, b8, b16);
   const rPerf = row(sState);
-  const cbHud = check('测评 HUD', () => TSW.hud.visible, (v) => TSW.hud.toggle(v));
+  const cbHud = check('测评 HUD（F9 或 HUD 右上角 ✕ 隐藏）', () => TSW.hud.visible, (v) => TSW.hud.toggle(v));
   rPerf.append(cbHud);
   const rPerf2 = row(sState);
   const cbPerf = check('性能模式', () => TSW.perf.active, (v) => v ? TSW.perf.enable() : TSW.perf.disable());
