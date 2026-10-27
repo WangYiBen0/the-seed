@@ -522,7 +522,11 @@
     const metricKey = metric || (K === 'invade' ? 'survived' : 'gameT');
     const pick = (r) => {
       if (!r) return 0;
-      if (metricKey === 'reach') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
+      if (metricKey === 'reach') {
+        // binary: invade -> waves, explore -> floors (both bounded, low variance)
+        if (K === 'invade') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
+        return ((r.floor | 0) >= reachWave) ? 1 : 0;
+      }
       return r[metricKey] || 0;
     };
     const A = Object.assign({}, base, optA), B = Object.assign({}, base, optB);
