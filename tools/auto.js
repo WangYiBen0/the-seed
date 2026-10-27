@@ -499,7 +499,16 @@
       // for heading into open space: that made the bot drift around for no reason
       // instead of just refusing to hug walls.
       const margin = A.opts.wallMargin === undefined ? 12 : A.opts.wallMargin;
-      if (tooCloseToWallOrPit(p.x + dx * margin, p.y + dy * margin, p.r, margin)) s -= 2.5;
+      // Only penalise stepping CLOSER to a wall.  Testing the destination in
+      // isolation penalised almost every direction whenever we were already
+      // near a wall (the test reduces to "8 probe points hit something" for all
+      // but the outward one), which flattened the scores and left the bot
+      // oscillating horizontally without ever moving — measured on seed 1:
+      // px swinging 1029..1060 while py stayed pinned at 1165.
+      const nearNow = tooCloseToWallOrPit(p.x, p.y, p.r, margin);
+      const nearNext = tooCloseToWallOrPit(p.x + dx * margin, p.y + dy * margin, p.r, margin);
+      if (nearNext && !nearNow) s -= 2.5;          // refusing to enter the margin
+      else if (nearNext && nearNow) s -= .6;       // already inside: just prefer not sliding along it
       if (wl > .1) s += 2.2 * (dx * wx + dy * wy) / wl;
       s += .18 * (dx * ld[0] + dy * ld[1]);          // anti-jitter
       s += 1.15 * Math.min(1.6, laneClear(p, dx, dy) / 26);
