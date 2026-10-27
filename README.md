@@ -2,8 +2,8 @@
 
 > **声明 / Disclaimer**
 > 游戏《[TheSeed]》（内部代号 EMBER / ACHROMA）的**著作权归原作者所有**，
-> 游戏发布于 [dzmm.ai](https://www.dzmm.ai) 平台，上游游戏页面：
-> <https://www.dzmm.ai/api/gamefy/static/90e4b323-9859-482f-9eb0-7cba6f44a51b/__v1792075608601/>
+> 游戏发布于 [dzmm.ai](https://www.dzmm.ai) 平台，官网页面：
+> <https://www.dzmm.ai/character/3738712>
 > **本仓库不是、也不声称是这款游戏的原创作品** —— 它只是一个**非官方的、
 > 离线的镜像**，供在无法访问上游平台时游玩与学习使用。
 > 本镜像**未修改任何一行游戏源码**；仓库中 `site/js/` 内的全部游戏脚本是
@@ -22,7 +22,8 @@
 | `docs/*` | 无尽挂机流派指南（源码机制分析）、benchmark 方法与数据 |
 
 游戏本体、玩法、美术、文本均属原作者；本仓库新增的只有
-`index.html`、`dzmm-shim.js`、`tools/`、`docs/` 与部署脚本。
+`index.html`、`dzmm-shim.js`、`tools/`、`docs/`、`flake.nix` 与 `scripts/`
+（同步/跑分脚本）。
 
 ## 使用
 
@@ -36,22 +37,30 @@ python3 -m http.server -d site 8000
 
 - **状态**：倍速（热键 `-` / `＝`）、性能模式、随机种子（复现用）
 - **宏**：● 录制 / ■ 停止 / 保存 / 回放 / 循环 / 导入导出（时间轴为游戏内时间，任意倍速下精确对齐）
-- **挂机**：战斗模式 / 全自动（探索·战斗·购物·无尽传送门），四种选卡流派
+- **挂机**：战斗模式 / 全自动（探索·战斗·购物·无尽传送门），十种选卡流派预设（bloom / offense / balanced / survival / crit / dot / melee / ally / ammo / phase）
 - **测评**：无尽流派对比跑分（策略 × 种子矩阵）
 - **基准**：引擎吞吐 / 宏+倍速 / 全自动一局，一键跑分并导出 Markdown
 - **存档**：导出/导入/清空（仅本镜像的 localStorage，不影响上游账号数据）
 
+> 浏览器：**Chrome / Edge / Firefox（较新版本）均可游玩并使用全部工具**；
+> 游戏本体另需较新内核（`roundRect` 等）。无头跑分默认用 Chromium；
+> Firefox 自动化验证脚本见 `.tmp/wd-fullrun.py`（geckodriver）。
+
 命令行跑分（无头浏览器）：
 
 ```bash
-nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed 8
+nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed 8 --timeout 300
 ```
+
+> `.#bench` 需要环境里有 chromium（NixOS 通常已预装；没有就先 `nix develop`，
+> shell 里也提供了 `seed-bench` / `seed-serve` / `seed-sync` 三个命令）。
 
 ## 上游更新了怎么办
 
 游戏在上游持续更新，因此本镜像**从不改动**游戏脚本。上游版本更新后：
 
 ```bash
+# 0. 在仓库根目录执行（脚本默认读写 ./[TheSeed] 与 ./site）
 # 1. 浏览器打开上游游戏页面，Ctrl+S 保存为"网页，全部"，替换 ./[TheSeed]/
 nix run .#sync     # 把新脚本按字节同步进 site/js/（只改变化的文件）
 # 2. 校对 site/js/FILES.txt 的差异，提交

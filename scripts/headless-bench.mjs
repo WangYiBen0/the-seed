@@ -24,7 +24,10 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
-const SITE = join(ROOT, 'site');
+// when run via `nix run .#bench` this script lives in the nix store, so the
+// site must be resolved from the CWD (repo root) first; fall back to the
+// checkout next to the script for direct invocation.
+const SITE = [join(process.cwd(), 'site'), join(ROOT, 'site')].find((p) => existsSync(join(p, 'index.html'))) ?? join(process.cwd(), 'site');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.md': 'text/markdown' };
 
 function serve() {
