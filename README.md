@@ -58,6 +58,17 @@ nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed
 > `.#bench` 需要环境里有 chromium（NixOS 通常已预装；没有就先 `nix develop`，
 > shell 里也提供了 `seed-bench` / `seed-serve` / `seed-sync` 三个命令）。
 
+## 测试
+
+```bash
+nix run .#test          # 或 node --test "tests/*.test.mjs"
+```
+
+`tests/` 里是工具的单元测试：挂机决策的纯函数（威胁场 / 方向选择 / 胸墙绕行 /
+冲刺沟检测 / 视线目标筛选 / NaN 防护）与 benchmark 的记账逻辑（tick 归一化、
+无效样本判定、重启安全的受击计数）。测试通过内存注入的方式加载 `site/tools/auto.js`，
+**不改动任何游戏或工具源码**。
+
 ## 缺资源（CG 等）自动拉取
 
 游戏向上游要的文件如果镜像里没有（比如部分 CG/立绘），本地服务器会把它记到

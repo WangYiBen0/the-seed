@@ -67,7 +67,7 @@ async function main() {
   if (args.smoke) { /* just load */ }
   else {
     q.set('autotest', args.kind || 'throughput');
-    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff })) if (v != null) q.set(k, v);
+    for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff, engine: args.engine })) if (v != null) q.set(k, v);
   }
   const url = `http://127.0.0.1:${port}/` + (q.toString() ? '?' + q.toString() : '');
   const shot = args.screenshot ? resolve(String(args.screenshot)) : null;
@@ -99,8 +99,10 @@ async function main() {
       // [INFO:CONSOLE:34] "msg", source: …  (newer, parens → colon)
       const m = line.match(/CONSOLE[:()]?\d*\)?\] "(.*)", source/s);
       if (!m) continue;
-      const msg = m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
-      if (msg.startsWith('TSW_RESULT ')) { try { results.push(JSON.parse(msg.slice(11))); } catch (e) { } }
+      const raw = m[1].replace(/\\"/g, '"');
+      const msg = raw.replace(/\\n/g, '\n');
+      if (args.verbose) console.error('[page] ' + msg.slice(0, 300));
+      if (msg.startsWith('TSW_RESULT ')) { try { results.push(JSON.parse(msg.slice(11))); } catch (e) { try { results.push(JSON.parse(raw.slice(11))); } catch (e2) { } } }
       if (/\[ERROR:CONSOLE/.test(line)) errors.push(line.slice(line.indexOf(']"') + 2, 400));
     }
   });

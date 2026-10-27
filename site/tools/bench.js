@@ -155,14 +155,14 @@
   // N game-seconds and we report kills/dmg per game-minute at that depth.
   // This is the empirical leg of docs/endless-guide.md.
   async function runProbe({ depth = 5, seconds = 60, speed = 8, policy = 'bloom', seed = 7,
-    shards = { bloom: 3, shrap: 3 }, weapons = ['hail'], wlv = { hail: 3 }, skill = null, hp = null } = {}) {
+    shards = { bloom: 3, shrap: 3 }, weapons = ['hail'], wlv = { hail: 3 }, skill = null, hp = null, diff = 'classic' } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
     TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
     TSW.speed.set(speed, true);
     const M = TSW.metrics; M.reset();
     const save = {
-      v: 1, at: Date.now(), floor: 4, diff: opts.diff || 'classic', hp: hp ?? 5, armor: 3,
+      v: 1, at: Date.now(), floor: 4, diff: diff || 'classic', hp: hp ?? 5, armor: 3,
       weapons: weapons.slice(), wi: 0, wlv: Object.assign({}, wlv), shards: Object.assign({}, shards),
       skill: skill || null, ink: 400, kills: 0, runT: 0, hits: 0, endless: depth,
       rid: 'r' + Date.now().toString(36),
@@ -186,7 +186,7 @@
       }
       lastAct = act; lastDmg = M.dmgTotal; lastKills = g.kills | 0;
     });
-    await new Promise((res) => setTimeout(res, Math.max(3000, seconds * 1000 / Math.min(4, speed) + 2500)));
+    await new Promise((res) => setTimeout(res, Math.max(3000, seconds * 1000 / Math.min(4, speed) + 4000)));
     off();
     TSW.auto.setMode('off');
     TSW.speed.set(wasSpeed, true); TSW.auto.setPolicy(wasPolicy);
@@ -197,7 +197,7 @@
     const kills = (g.kills | 0) - k0, dmg = Math.round(M.dmgTotal - d0);
     const cTmax = Math.max(1, cT);
     return {
-      kind: 'probe', at: Date.now(), depth, seconds, policy, seed, speed, diff: opts.diff || 'classic',
+      kind: 'probe', at: Date.now(), depth, seconds, policy, seed, speed, diff: diff || 'classic',
       build: { weapons, wlv, shards, skill },
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1), combatS: +cT.toFixed(1),
@@ -207,6 +207,112 @@
       cDmg, cdpm: Math.round(cDmg / (cTmax / 60)),
       hits: g.hits | 0,
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
+    };
+  }
+
+  // ---------------- dodge benchmark (纯躲弹幕测评) ----------------
+  // Pure-evasion stress test: a real run at a given endless depth with FIRING
+  // DISABLED, so enemies never die and the barrage only gets denser.  We top the
+  // arena up with ranged attackers, then report hits taken per game-minute plus
+  // the autopilot's own evasion scorecard (danger exposure, worst-case bullet
+  // clearance, dash usage).  engine 'v2' vs 'simple' is an A/B of the dodge AI
+  // itself, so the number says something about the code and not just the seed.
+  async function runDodgeOne({ depth = 6, seconds = 45, speed = 8, policy = 'survival', seed = 11,
+    engine = 'v2', floor = 4, keep = 7, spawnEvery = 3, spawnN = 4, hp = 14, types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
+    const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
+    const wasNoFire = TSW.auto.opts.noFire, wasEngine = TSW.auto.opts.dodgeEngine;
+    TSW.rng.seed(seed);
+    TSW.auto.setPolicy(policy);
+    TSW.speed.set(speed, true);
+    TSW.auto.opts.noFire = true;              // stress: never shoot back
+    TSW.auto.opts.dodgeEngine = engine;
+    const M = TSW.metrics; M.reset(); TSW.auto.metrics.reset();
+    const save = {
+      v: 1, at: Date.now(), floor, diff: diff || 'classic', hp, armor: 3,
+      weapons: ['rivet'], wi: 0, wlv: { rivet: 1 }, shards: { plate: 1, vital: 1 },
+      skill: null, ink: 200, kills: 0, runT: 0, hits: 0, endless: depth,
+      rid: 'r' + Date.now().toString(36),
+    };
+    try { STORE.setItem('achroma_run', JSON.stringify(save)); resumeRun(); }
+    catch (e) { TSW.err('dodge resume', e); }
+    const t0 = performance.now();
+    while (performance.now() - t0 < 15000) { const g = window.__achroma.G; if (g && g.p && (g.state === 'play' || g.state === 'dead')) break; await new Promise((r) => setTimeout(r, 120)); }
+    TSW.auto.setMode('full');
+    const g1 = window.__achroma.G;
+    const runT0 = g1.runT || 0, h0 = g1.hits | 0;
+    // own hit counter for the window: immune to any reset elsewhere
+    let localHits = 0; const _hp = window.hurtPlayer;
+    try { window.hurtPlayer = function (...a) { const r = _hp.apply(this, a); if (r === true) localHits++; return r; }; } catch (e) { }
+    // keep the arena populated with ranged enemies so the barrage never dries up
+    let spawnAcc = 0, spawned = 0;
+    const off = TSW.hooks.beforeTick(() => {
+      const g = window.__achroma.G; if (!g || !g.p || g.state !== 'play') return;
+      const foes = g.enemies.filter((e) => !e.dead && e.spawnT <= 0);
+      const ranged = foes.filter((e) => e.ranged || e.shot || ['gunner', 'sniper', 'turret', 'mortar', 'echo'].includes(e.type)).length;
+      spawnAcc += 1;
+      if (ranged < keep && spawnAcc >= spawnEvery * 60) {
+        spawnAcc = 0;
+        for (let i = 0; i < spawnN; i++) {
+          const a = Math.random() * 6.283, x = g.p.x + Math.cos(a) * 120, y = g.p.y + Math.sin(a) * 100;
+          try { if (!collides(x, y, 6, false)) { spawnEnemy(types[i % types.length], x, y, { room: roomAt(x, y) }); spawned++; } } catch (e) { }
+        }
+      }
+    });
+    await new Promise((res) => setTimeout(res, Math.max(3000, seconds * 1000 / Math.min(4, speed) + 2500)));
+    off();
+    TSW.auto.setMode('off');
+    TSW.speed.set(wasSpeed, true); TSW.auto.setPolicy(wasPolicy);
+    TSW.auto.opts.noFire = wasNoFire; TSW.auto.opts.dodgeEngine = wasEngine;
+    if (wasMode !== 'off') TSW.auto.setMode(wasMode);
+    try { window.hurtPlayer = _hp; } catch (e) { }
+    TSW.rng.clear();
+    const g = window.__achroma.G, A = TSW.auto.metrics;
+    const gameS = Math.max(1, (g.runT || 0) - runT0);
+    const hits = localHits;                          // restart-proof (a new run resets G.hits)
+    const sorted = A.samples.slice().sort((a, b) => a - b);
+    const pct = (q) => sorted.length ? +sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))].toFixed(2) : 0;
+    // normalise on measured play ticks: G.runT resets when a run restarts, ticks do not
+    const mins = Math.max(1 / 60, (A.ticks || 0) / 3600);
+    return {
+      kind: 'dodge', at: Date.now(), engine, depth, floor, seconds, policy, seed, speed,
+      diff: diff || 'classic',
+      end: g.state === 'dead' ? 'death' : 'alive',
+      gameS: +gameS.toFixed(1),
+      hits, hitsPerMin: +(hits / mins).toFixed(2), hpLeft: Math.round(g.p ? g.p.hp : 0), gameMinutes: +mins.toFixed(2),
+      dangerAvg: +(A.ticks ? A.dangerSum / A.ticks : 0).toFixed(3),
+      hazardPct: +(A.ticks ? A.hazard / A.ticks * 100 : 0).toFixed(1),
+      clearAvg: +(A.ticks ? A.clearSum / A.ticks : 0).toFixed(2),
+      clearP5: pct(.05), clearP1: pct(.01), clearMin: A.clearMin === 1e9 ? 0 : +A.clearMin.toFixed(2),
+      dashes: A.dash, dashesPerMin: +(A.dash / mins).toFixed(2),
+      spawned, ticks: A.ticks, hitsMetric: M.hitsTaken | 0, hitsGame: (g.hits | 0) - h0,
+      // a run that never got into combat measures nothing: 0 hits would be a
+      // false win, so such a sample is flagged invalid and retried by runDodge.
+      valid: A.ticks >= 600,
+      ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
+    };
+  }
+  async function runDodge(o = {}) {
+    const eng = o.engine || 'both';
+    // retry a run whose arena never went live (ticks ≈ 0): reporting 0 hits/min
+    // there would look like a flawless dodge instead of a broken sample
+    const one = async (e) => {
+      let r = await runDodgeOne(Object.assign({}, o, { engine: e }));
+      for (let i = 0; i < 2 && r && !r.valid; i++) { TSW.log('dodge sample invalid (' + r.ticks + ' ticks), retry ' + (i + 1)); r = await runDodgeOne(Object.assign({}, o, { engine: e })); }
+      return r;
+    };
+    if (eng !== 'both') return one(eng);
+    const a = await one('v2');
+    const b = await one('simple');
+    const d = (k) => +(a[k] - b[k]).toFixed(2);
+    return {
+      kind: 'dodge-ab', at: Date.now(), depth: o.depth ?? 6, seconds: o.seconds ?? 45, seed: o.seed ?? 11,
+      v2: a, simple: b,
+      // lower is better for hits/danger; higher is better for clearance
+      delta: { hitsPerMin: d('hitsPerMin'), dangerAvg: d('dangerAvg'), hazardPct: d('hazardPct'), clearP5: d('clearP5'), clearMin: d('clearMin') },
+      verdict: (!a.valid || !b.valid)
+        ? ('样本无效：' + (!a.valid ? 'v2 ' : '') + (!b.valid ? 'simple ' : '') + '未进入战斗（ticks ≈ 0），不可作为结论')
+        : (a.hitsPerMin < b.hitsPerMin ? 'v2 受击更少' : (a.hitsPerMin > b.hitsPerMin ? 'simple 受击更少' : '打平')),
+      ua: a.ua,
     };
   }
 
@@ -220,6 +326,7 @@
       else if (kind === 'macro') r = await runMacro(opts);
       else if (kind === 'fullrun') r = await runFullRun(opts);
       else if (kind === 'probe') r = await runProbe(opts);
+      else if (kind === 'dodge') r = await runDodge(opts);
       else throw new Error('unknown kind ' + kind);
     } catch (e) { TSW.err('bench', e); B.running = null; TSW.bus.emit('bench'); return { kind: 'error', error: String(e && e.stack || e).slice(0, 500) }; }
     B.running = null;
