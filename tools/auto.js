@@ -39,6 +39,7 @@
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
+      forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -1246,6 +1247,9 @@
         state: G.state, obj: A.status.target, note: A.status.note,
         inter: (G.inter || []).length,
         orbs: (G.floorOrbs | 0) + '/' + (G.bonusOrbs | 0),
+        floorN: G.floor | 0,
+        roomsN: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.length : -1,
+        clearedN: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => r.cleared).length : -1,
         prisms: (G.inter || []).filter((i) => i.kind === 'prism').length,
         shardN: Object.keys((G.p && G.p.shards) || {}).length,
         px: Math.round(p.x), py: Math.round(p.y),
@@ -1407,6 +1411,17 @@
       const forgeMode = A.opts.forgeMode || 'held';
       for (const r of rooms) {
         if (r.type !== 'forge' || unreachable(r)) continue;
+        // A forge we keep committing to but never complete (e.g. the ink never
+        // reaches the price, or the room is sealed) used to hold the bot forever:
+        // measured seed 7 sat on obj=forge from t=240 to t=1200 with 10/11 rooms
+        // already cleared.  Bench it after a while so the run keeps moving.
+        A._forgeT = A._forgeT || {};
+        const fid = r.cx + ':' + r.cy;
+        if (A._forgeGoal !== fid) { A._forgeGoal = fid; A._forgeSince = G.time; }
+        else if (G.time - (A._forgeSince || 0) > (A.opts.forgeGiveUp || 25)) {
+          benchFor(r, 120); A._forgeSince = G.time; A.status.note = '放弃锻造 120s';
+          continue;
+        }
         // 'held'  = current weapon (default)
         // 'main'  = the weapon we actually shoot most (highest wScore), even if a
         //           weaker sidearm is the one currently drawn
