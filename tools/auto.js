@@ -1338,7 +1338,17 @@
       const forgeMode = A.opts.forgeMode || 'held';
       for (const r of rooms) {
         if (r.type !== 'forge' || unreachable(r)) continue;
-        const ids = forgeMode === 'any' ? (p.weapons || []) : [p.weapons[p.wi]];
+        // 'held'  = current weapon (default)
+        // 'main'  = the weapon we actually shoot most (highest wScore), even if a
+        //           weaker sidearm is the one currently drawn
+        // 'any'   = every equipped weapon  (measured NEGATIVE: pass-floor 0/5)
+        let ids;
+        if (forgeMode === 'any') ids = (p.weapons || []);
+        else if (forgeMode === 'main') {
+          let best = p.weapons[p.wi], bs = -1e9;
+          for (const id of p.weapons || []) { const sc = wScore(id); if (sc > bs) { bs = sc; best = id; } }
+          ids = [best];
+        } else ids = [p.weapons[p.wi]];
         for (const id of ids) {
           const lv = (p.wlv && p.wlv[id]) || 0;
           if (lv < 3 && G.ink >= 30 + lv * 25 + 10) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'forge', room: r };
