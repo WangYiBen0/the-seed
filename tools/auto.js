@@ -40,7 +40,7 @@
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
-      goalGiveUp: 40,                                        // explore: seconds before abandoning ANY stuck objective
+      goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
