@@ -43,6 +43,9 @@
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
       invadeLvStyle: 'dps',                                   // invade: 'dps' | 'tank' upgrade order
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
+      invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
+      invadeSets: true,                                      // invade: prefer weapons that complete a set
+      invadeEscape: TSW.settings.get('autoInvadeEscape', true), // invade: break toward the emptiest sector when surrounded
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
@@ -759,6 +762,34 @@
         }
         moveKeys(mx, my); A.status.target = 'invade'; return;
       }
+      // ---- 被围时向「最空的一侧」突围 -------------------------------------
+      // Circling inside a closed ring walks THROUGH the swarm.  When >=3 foes are
+      // close, score 8 escape sectors by how many enemies sit in them and run for
+      // the emptiest one (this is also what lets us leave a corner).
+      const near = foes.filter((e) => Math.hypot(e.x - p.x, e.y - p.y) < 95);
+      if (A.opts.invadeEscape !== false && near.length >= 3) {
+        let bestA2 = 0, bestCost = 1e9;
+        for (let k = 0; k < 8; k++) {
+          const a2 = k / 8 * Math.PI * 2, ex = Math.cos(a2), ey = Math.sin(a2);
+          let cost = 0;
+          for (const e of near) {
+            const ux2 = e.x - p.x, uy2 = e.y - p.y, d2 = Math.hypot(ux2, uy2) || 1;
+            const align = (ex * ux2 + ey * uy2) / d2;            // 1 = straight into it
+            if (align > 0) cost += align * (120 / Math.max(30, d2));
+          }
+          // avoid walls: sample 3 distances
+          for (const dd of [26, 52, 80]) {
+            if (typeof collides === 'function' && collides(p.x + ex * dd, p.y + ey * dd, p.r, false)) { cost += 3; break; }
+          }
+          if (cost < bestCost) { bestCost = cost; bestA2 = a2; }
+        }
+        mx = Math.cos(bestA2); my = Math.sin(bestA2);
+        A.status.note = '入侵：突围（' + near.length + ' 敌包围）';
+        [mx, my] = pickDir(p, mx, my);
+        moveKeys(mx, my);
+        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.3 && typeof dashSafe === 'function' && dashSafe(p, mx, my)) { tap('Space'); A.metrics.dash++; }
+        A.status.target = 'invade'; return;
+      }
       const tx = -uy * A._ivSpin, ty = ux * A._ivSpin;           // tangential (circle)
       if (bd < band[0]) { mx = tx * .8 - ux * 1.2; my = ty * .8 - uy * 1.2; A.status.note = '入侵：绕圈脱离'; }
       else if (bd > band[1]) { mx = tx * .5 + ux * .9; my = ty * .5 + uy * .9; A.status.note = '入侵：绕圈接近'; }
@@ -803,8 +834,13 @@
       // priority is switchable for A/B (A.opts.invadeLvPref)
       const DPS_FIRST = ['dmg', 'aspd', 'crit', 'range', 'elem', 'melee', 'ranged', 'eng', 'hp', 'armor', 'dodge', 'speed', 'steal', 'regen', 'harvest', 'luck'];
       const TANK_FIRST = ['hp', 'armor', 'regen', 'steal', 'dodge', 'dmg', 'aspd', 'crit', 'speed', 'range', 'elem', 'melee', 'ranged', 'eng', 'harvest', 'luck'];
+      // growth-first: harvest (per-wave materials) and luck (per-kill loot multiplier,
+      // invade-effects.js:116 -> lk = 1 + luck/100) compound into money+XP, which is
+      // what actually gates wave progression.
+      const GROWTH_FIRST = ['harvest', 'luck', 'dmg', 'aspd', 'hp', 'crit', 'range', 'armor', 'elem', 'melee', 'ranged', 'eng', 'speed', 'dodge', 'steal', 'regen'];
       const pref = Array.isArray(A.opts.invadeLvPref) ? A.opts.invadeLvPref
-        : (A.opts.invadeLvStyle === 'tank' ? TANK_FIRST : DPS_FIRST);
+        : (A.opts.invadeLvStyle === 'tank' ? TANK_FIRST
+          : (A.opts.invadeLvStyle === 'growth' ? GROWTH_FIRST : DPS_FIRST));
       let best = null, bw = -1e9;
       for (const o of opts) {
         const idx = pref.indexOf(o.id);
@@ -826,15 +862,53 @@
           if (dup >= 0) { try { ivCombine(i); A.status.note = '入侵：合成 ' + s0.id + ' → t' + (s0.t + 1); return true; } catch (e) { } }
         }
       }
+      // ---- 槽位满时卖弱换强 ------------------------------------------------
+      // ivBuy 在 6 槽且「非同阶可升」时直接拒绝（ivFlash('iv_full')），于是
+      // 满了以后成长完全停滞。这里在买之前腾位：卖掉当前最弱的一件武器，
+      // 但只在报价里确实有更强的武器时才卖（避免白卖）。
+      const wl = iv.w || [];
+      if (A.opts.invadeSell !== false && wl.length >= 6) {
+        const offers = iv.offers || [];
+        let bestOfferT = -1, bestOfferId = null;
+        for (const o of offers) {
+          if (!o || o.k !== 'w') continue;
+          const t = o.t | 0;
+          if (t > bestOfferT) { bestOfferT = t; bestOfferId = o.id; }
+        }
+        if (bestOfferT >= 0) {
+          // weakest = lowest tier, tie-break by fewest duplicates (can't combine)
+          let wi = -1, wt = 99, wdup = 99;
+          for (let i = 0; i < wl.length; i++) {
+            const s0 = wl[i]; if (!s0) continue;
+            const dup = wl.filter((q) => q && q.id === s0.id && q.t === s0.t).length;
+            const t = s0.t | 0;
+            if (t < wt || (t === wt && dup < wdup)) { wi = i; wt = t; wdup = dup; }
+          }
+          if (wi >= 0 && wt < bestOfferT && typeof ivSell === 'function') {
+            try { ivSell(wi); A.status.note = '入侵：卖弱换强 (t' + wt + '→可买t' + bestOfferT + ')'; return true; } catch (e) { }
+          }
+        }
+      }
       // buy affordable offers, most useful first, then start the next wave
       if (A.opts.invadeShop !== false) {
         const offers = iv.offers || [];
         const priceOf = (o) => { try { return ivPrice(o); } catch (e) { return 1e9; } };
         // purchase priority is switchable for A/B (A.opts.invadeShopStyle)
-        const style = A.opts.invadeShopStyle || 'dps';
+        const style = A.opts.invadeShopStyle || 'weapon';
+        // set completion: >=2 pieces of one set grants a real stat bonus
+        // (invade-effects.js), so a weapon that completes a set we already hold
+        // one of is worth extra.
+        const setOf = (id) => { try { const w = IV_W[id]; return (w && Array.isArray(w.set)) ? w.set : []; } catch (e) { return []; } };
+        const counts = (() => { const c = {}; for (const s2 of (iv.w || [])) for (const k of setOf(s2.id)) c[k] = (c[k] || 0) + 1; return c; })();
+        const setBonus = (id) => {
+          if (A.opts.invadeSets === false) return 0;
+          let b = 0;
+          for (const k of setOf(id)) { const n = counts[k] || 0; if (n >= 1) b += 40 + Math.min(4, n) * 15; }
+          return b;
+        };
         const rank = (o) => {
           if (!o) return -1;
-          if (style === 'weapon') return o.k === 'w' ? 200 : 10;   // weapons only
+          if (style === 'weapon') return o.k === 'w' ? 200 + setBonus(o.id) : 10;   // weapons only
           if (o.k === 'w') return 100 + (o.t || 0) * 10;            // otherwise strongest weapon
           const id = o.id || '';
           if (/dmg|crit|aspd|atk|power/.test(id)) return 90;
@@ -854,7 +928,20 @@
 
   function drivePlay(G, p, tap) {
     // invade runs its own arena logic (no rooms/doors/interactables at all)
-    if (G.mode === 'invade') { driveInvade(G, p, tap); return; }
+    if (G.mode === 'invade') {
+      driveInvade(G, p, tap);
+      // trace: invade state is invisible to the normal debug mirror (we return early)
+      if (TSW.trace) {
+        const iv0 = G.iv || {};
+        try {
+          A.dbg = { t: G.time | 0, mode: 'invade', state: G.state, wave: iv0.wave | 0, phase: iv0.phase || '',
+            t_: Math.round(iv0.t || 0), lv: iv0.lv | 0, lvPend: iv0.lvPend | 0, ink: G.ink | 0,
+            foes: (G.enemies || []).filter((e) => !e.dead).length, note: A.status.note, px: Math.round(p.x), py: Math.round(p.y) };
+          if ((G.time | 0) % 3 === 0 && A._dbgT !== (G.time | 0)) { A._dbgT = G.time | 0; TSW.log('DBG ' + JSON.stringify(A.dbg)); }
+        } catch (e) { }
+      }
+      return;
+    }
     // no floor yet: do nothing but keep the status honest (a stale objective here
     // used to strand the autopilot in an endless "walk to X" loop)
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) {
