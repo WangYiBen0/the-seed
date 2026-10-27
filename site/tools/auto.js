@@ -42,6 +42,7 @@
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
+      openSeals: true,                                       // explore: walk to the boss seal and open it
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -1489,6 +1490,19 @@
     const deferLoose = A.opts.pickupOrder === 'clear-first';
     const combatLeft = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
     if (A.opts.pickups && !(deferLoose && combatLeft))
+      // A boss seal must be approached as an objective, not just tapped when we
+      // happen to be near it: the boss room stays locked until the seal opens,
+      // and the bot used to hover at the door forever (seed 19: 10/11 rooms
+      // cleared, obj=boss, position oscillating in a 10x8 px box).
+      if (A.opts.openSeals !== false) {
+        for (const it of G.inter) {
+          if (it.kind !== 'seal') continue;
+          const locked = (typeof WORLD !== 'undefined' && WORLD && WORLD.bossLocked);
+          if (!locked) continue;
+          if (G.hasKey && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
+            return { pt: [it.x, it.y], label: 'seal', room: roomAt(it.x, it.y) };
+        }
+      }
       for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
         return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
     // 1b) weapon/chip drops on the floor worth walking to
