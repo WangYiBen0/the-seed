@@ -53,6 +53,7 @@
       forgeMode: 'held',                                     // explore: 'held' | 'any' (upgrade any equipped weapon)
       pickupOrder: 'eager',                                  // explore: 'eager' | 'clear-first' (defer loose drops)
       invadeBossSafe: true,                                  // invade: keep clear of the boss's contact damage
+      bossOrder: 'early',                                    // explore: 'early' | 'late' (clear rooms before the boss)
       fightSM: false,                                        // explore: three-state combat machine (measured: not significant, -33s, so off by default)
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
@@ -1394,8 +1395,15 @@
       for (const r of rooms) if (!r.visited && ['forge', 'shrine'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
     }
     const boss = rooms.find((r) => r.type === 'boss');
-    // 2) boss room once unlocked (or never locked)
-    if (boss && !boss.cleared && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss)) return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
+    // 2) boss room once unlocked (or never locked).
+    // 'late' mode: clear the combat rooms first (more prisms = more serums =
+    // more damage) before committing to the boss.  Measured: runs that reached
+    // 12 serums cleared 3 floors; runs with 2-3 serums died on floor 1 — and the
+    // trace showed the bot heading for the boss with 16 pickups still on the floor.
+    const bossLate = A.opts.bossOrder === 'late';
+    const combatLeft0 = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+    if (boss && !boss.cleared && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss) && !(bossLate && combatLeft0))
+      return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
     // 3) nearest unvisited combat room
     let best = null, bd = 1e9;
     for (const r of rooms) {

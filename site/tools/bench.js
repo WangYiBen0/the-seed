@@ -515,7 +515,15 @@
   async function runAB({ rounds = 5, abKind = null, kind = null, base = {}, optA = {}, optB = {},
     seconds = 60, speed = 8, seed = null, diff = 'despair', mods = null, goalDepth = 1, timeoutS = 200, metric = null, warmup = true } = {}) {
     const K = abKind || kind || 'fullrun';        // inner scenario
+    // 'reach' = 1/0 whether the run got at least `reachWave` waves (binary,
+    // low-variance).  'survived' (seconds) is too noisy on the invade side.
+    const reachWave = +((base && base.reachWave) ? base.reachWave : 6);   // default: reach wave 6
     const metricKey = metric || (K === 'invade' ? 'survived' : 'gameT');
+    const pick = (r) => {
+      if (!r) return 0;
+      if (metricKey === 'reach') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
+      return r[metricKey] || 0;
+    };
     const A = Object.assign({}, base, optA), B = Object.assign({}, base, optB);
     const pairs = [];
     const exec = async (o) => {
@@ -551,8 +559,8 @@
       // (a null A/B test proved it: identical arms still scored "A better" by -63s).
       const a = flip ? second : first;          // arm A result
       const b = flip ? first : second;          // arm B result
-      const ka = (a && a[metricKey]) || 0;
-      const kb = (b && b[metricKey]) || 0;
+      const ka = pick(a);
+      const kb = pick(b);
       const kk = 'kills';
       pairs.push({ i: i + 1, order: flip ? 'B,A' : 'A,B', a: ka, b: kb, da: (a && a[kk]) || 0, db: (b && b[kk]) || 0, d: +(kb - ka).toFixed(1), kd: (((b && b[kk]) || 0) - ((a && a[kk]) || 0)) });
       TSW.log('AB pair ' + (i + 1) + ': ' + ka + ' vs ' + kb + ' (delta ' + (kb - ka) + ')');
