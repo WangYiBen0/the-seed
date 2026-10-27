@@ -38,6 +38,7 @@
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
+      armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
@@ -1312,7 +1313,11 @@
             }
           }
           // 破甲后在门口等甲回满再进下一个战斗房（HARD+ 是生死差）
-          if (tgt.label === 'fight' && p.armor < p.maxArmor - 1 && p.lastHit > 1 && dl < 90) {
+          // Armor only STARTS regenerating once lastHit > 3 (see AGENTS.md §5), so
+          // waiting while lastHit is 1..3 stands still for nothing.  Configurable
+          // so the two thresholds can be compared directly.
+          const armorWait = A.opts.armorWaitT === undefined ? 1 : A.opts.armorWaitT;
+          if (tgt.label === 'fight' && p.armor < p.maxArmor - 1 && p.lastHit > armorWait && dl < 90) {
             mx = 0; my = 0; A.status.note = '等甲恢复 ' + p.armor + '/' + p.maxArmor;
           } else if (dl > 12) { [mx, my] = pickDir(p, dx, dy); }
           // stuck on this objective? bench it for a while so the run keeps moving
