@@ -24,12 +24,12 @@
       // ---- fine-grained "wire it up" switches (panel: 挂机 → 细项) ----
       chest: TSW.settings.get('autoChest', true),          // open chests
       labSerum: TSW.settings.get('autoLabSerum', true),    // inject the experimental serum in the lab
-      fount: TSW.settings.get('autoFount', true),          // drink from healing founts
+      fount: TSW.settings.get('autoFount', false),         // healing founts: off by default
       weaponPick: TSW.settings.get('autoWeaponPick', true),// walk to floor weapons / take better ones
       chipPick: TSW.settings.get('autoChipPick', true),    // pick skill chips
       pickups: TSW.settings.get('autoPickups', true),      // prisms & keys
       arsenal: TSW.settings.get('autoArsenal', true),      // visit the armory rack
-      dialysis: TSW.settings.get('autoDialysis', true),    // use the dialysis machine to purge a curse
+      dialysis: TSW.settings.get('autoDialysis', false),   // dialysis machine: off by default
       // ---- 战斗动作开关（用户要求可逐项禁用） ----
       skill: TSW.settings.get('autoSkill', true),          // cast the skill chip (E)
       reload: TSW.settings.get('autoReload', true),        // active reload to dodge the passive-reload damage

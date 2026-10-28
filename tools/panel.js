@@ -99,13 +99,15 @@
   bSeedClear.onclick = () => { TSW.rng.clear(); note('RNG 恢复随机'); };
   // draggable speed slider (0.25x steps up to 16x, log-ish feel via a stepped range)
   const spRow = row(sState);
-  const spSlider = el('input', 'flex:1;min-width:120px;accent-color:#8ed872');
-  spSlider.type = 'range'; spSlider.min = '0'; spSlider.max = '11'; spSlider.step = '1';
+  const spSlider = el('input', 'width:120px;flex:none;accent-color:#8ed872');
+  spSlider.type = 'range'; spSlider.min = '0'; spSlider.max = String(SLIDER_STEPS.length - 1); spSlider.step = '1';
   spSlider.value = '0';
   const spOut = el('span', 'color:#a07ad8;min-width:34px;text-align:right');
   spRow.append(spSlider, spOut);
   // slider index 0..11 -> 1,2,3,4,5,6,7,8,10,12,14,16 (game max is 16)
-  const SLIDER_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16];
+  // logarithmic: each notch is roughly a fixed ratio, and it reaches DOWN to
+  // slow-motion as well as up to 16x
+  const SLIDER_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 11, 16];
   const sliderToSpeed = (v) => SLIDER_STEPS[Math.max(0, Math.min(SLIDER_STEPS.length - 1, +v | 0))];
   const speedToSlider = (x) => {
     let best = 0, bd = 1e9;
@@ -228,13 +230,15 @@
   // ---------------- 躲弹幕测评 (pure-evasion stress test) ----------------
   const sDodge = section('躲弹幕测评 · DODGE BENCH');
   const dHelp = el('div', 'color:#8d867a');
-  dHelp.textContent = '禁止开火 + 持续补充远程敌人：敌人不会减少，弹幕只会更密。\n指标：受击/游戏分钟（越低越好）、危险值均值、暴露率、弹幕余量、冲刺频率。\n"对比"会依次跑 v2（当前）与 v1（旧算法）并给出差值。';
+  dHelp.textContent = '禁止开火 + 持续补充远程敌人：敌人不会减少，弹幕只会更密。\n' +
+    '指标：受击/游戏分钟（越低越好）、危险值均值、暴露率、弹幕余量、冲刺频率。';
   sDodge.appendChild(dHelp);
   const numIn = (ph, w) => { const n = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:' + w + 'px;font:11px monospace'); n.placeholder = ph; return n; };
+  const lab = (txt, node) => { const w = el('label', 'display:flex;align-items:center;gap:3px;color:#8d867a'); w.append(document.createTextNode(txt), node); return w; };
   const dR1 = row(sDodge);
-  const dSec = numIn('秒', 44), dDep = numIn('深度', 40), dSeed = numIn('种子', 44);
+  const dSec = numIn('45', 46), dDep = numIn('6', 34), dSeed = numIn('11', 46);
   dSec.value = '45'; dDep.value = '6'; dSeed.value = '11';
-  dR1.append(dSec, dDep, dSeed);
+  dR1.append(lab('时长(秒)', dSec), lab('起始深度', dDep), lab('随机种子', dSeed));
   const dR2 = row(sDodge);
   const dGo = btn('开始躲弹幕测评');
   dR2.append(dGo);
@@ -280,12 +284,14 @@
   const goalStore = (k, d) => TSW.settings.get('goal.' + k, d);
   const goalSet = (k, v) => { TSW.settings.set('goal.' + k, v); note('目标已保存：' + k); };
 
+  const goalSelects = [];
   const goalSel = (label, items, key) => {
     const r = row(sGoal);
     const lb = el('span', 'color:#8d867a;min-width:80px', r); lb.textContent = label;
     const s2 = sel(items);
     s2.value = goalStore(key, '');
     r.append(s2);
+    goalSelects.push({ sel: s2, key, label, items });
     const dd = el('div', 'color:#57534c;margin:0 0 3px 0;padding-left:4px');
     sGoal.appendChild(dd);
     const up = () => {
@@ -297,27 +303,46 @@
     return s2;
   };
 
+  // The panel is built synchronously at load time, when the game's data tables
+  // may not exist yet — that left every goal dropdown with only 不限.  Fill them
+  // once the game is ready instead.
   const wItems = [['', '（不限）', '']];
-  try {
-    const ids = (typeof WEAPON_IDS !== 'undefined') ? WEAPON_IDS : Object.keys(WEAPONS);
-    for (const id of ids) { const w = WEAPONS[id]; if (!w || !w.nm) continue; wItems.push([id, L1(w.nm) + ' · ' + id, L1(w.d) + '（' + (w.kind || '') + '）']); }
-  } catch (e) { }
+  if (wItems.length < 2) console.warn('[panel] weapon goal list empty; items=', wItems.length);
   goalSel('目标武器', wItems, 'weapon');
 
   const kItems = [['', '（不限）', '']];
-  try {
-    const ids = (typeof SKILL_IDS !== 'undefined') ? SKILL_IDS : Object.keys(SKILLS);
-    for (const id of ids) { const k = SKILLS[id]; if (!k) continue; kItems.push([id, String(k.nm || id), L1(k.d)]); }
-  } catch (e) { }
   goalSel('目标技能', kItems, 'skill');
 
   const svItems = [['', '（不限）', '']];
-  try {
-    const ids = (typeof SURV_IDS !== 'undefined') ? SURV_IDS : Object.keys(SURV);
-    for (const id of ids) { const m = SURV[id]; if (!m) continue; svItems.push([id, L1(m.nm) + ' · ' + id, L1(m.file || '')]); }
-  } catch (e) { }
+  if (svItems.length < 2) console.warn('[panel] squad goal list empty; items=', svItems.length);
   goalSel('电台搭档', svItems, 'radio');
   goalSel('战斗搭档', svItems, 'mate');
+
+  // ---- fill the goal dropdowns once the game data exists -------------------
+  TSW.whenGame().then(() => {
+    const fill = (items, ids, make) => { for (const id of ids) { const it = make(id); if (it) items.push(it); } };
+    try {
+      fill(wItems, (typeof WEAPON_IDS !== 'undefined') ? WEAPON_IDS : Object.keys(WEAPONS || {}),
+        (id) => { const w = WEAPONS[id]; return (w && w.nm) ? [id, L1(w.nm) + ' · ' + id, L1(w.d) + '（' + (w.kind || '') + '）'] : null; });
+    } catch (e) { console.error('[panel] goal weapons', e); }
+    try {
+      fill(kItems, (typeof SKILL_IDS !== 'undefined') ? SKILL_IDS : Object.keys(SKILLS || {}),
+        (id) => { const k = SKILLS[id]; return k ? [id, String(k.nm || id), L1(k.d)] : null; });
+    } catch (e) { console.error('[panel] goal skills', e); }
+    try {
+      fill(svItems, (typeof SURV_IDS !== 'undefined') ? SURV_IDS : Object.keys(SURV || {}),
+        (id) => { const m = SURV[id]; return m ? [id, L1(m.nm) + ' · ' + id, L1(m.file || '')] : null; });
+    } catch (e) { console.error('[panel] goal squad', e); }
+    for (const g of goalSelects) {
+      const keep = g.sel.value || goalStore(g.key, '');
+      while (g.sel.options.length > 1) g.sel.remove(1);
+      for (const [v, l] of g.items) {
+        if (!v) continue;
+        const o = document.createElement('option'); o.value = v; o.textContent = l; g.sel.appendChild(o);
+      }
+      g.sel.value = keep && g.sel.querySelector('option[value="' + CSS.escape(keep) + '"]') ? keep : '';
+    }
+  });
 
   const exLabel = el('div', 'color:#8d867a;margin-top:3px');
   exLabel.textContent = '目标排除血清（逗号分隔 id）';
