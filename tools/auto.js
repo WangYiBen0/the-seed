@@ -1341,6 +1341,16 @@
         openRooms: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => !r.cleared).map((r) => r.type + (r.active ? '*' : '')).join(',') : '',
         prisms: (G.inter || []).filter((i) => i.kind === 'prism').length,
         shardN: Object.keys((G.p && G.p.shards) || {}).length,
+        fightD: (function () {
+          try {
+            const es = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0 && e.deathFightLeft <= 0);
+            if (!es.length) return -1;
+            let d = 1e9;
+            for (const e of es) { const dd = Math.hypot(e.x - G.p.x, e.y - G.p.y); if (dd < d) d = dd; }
+            return Math.round(d);
+          } catch (err) { return -1; }
+        })(),
+        fightN: (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length,
         px: Math.round(p.x), py: Math.round(p.y),
         vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
         wp: A._lastWp ? [Math.round(A._lastWp[0]), Math.round(A._lastWp[1])] : null,
@@ -1596,6 +1606,16 @@
     // orphans it forever, because the combat branch below skips active rooms and
     // this branch used to ignore them too.  Measured: cleared=12/13 for 900s
     // with openRooms showing "combat,boss*".
+    // When the boss room is the LAST thing left on the floor, go finish it before
+    // picking up any remaining prisms.  End-of-run statistics over 12 seeds showed
+    // the single most common state was openRooms=boss with obj=prism (31 samples):
+    // the bot kept collecting serums while the floor could never be completed.
+    {
+      const onlyBossLeft = boss && !boss.cleared && !boss.active
+        && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss)
+        && !rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+      if (onlyBossLeft) return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
+    }
     if (boss && !boss.cleared && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss) && !(bossLate && combatLeft0))
       return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
     // An ACTIVE combat room we already entered but did not finish is an orphan:
