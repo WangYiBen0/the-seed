@@ -1774,13 +1774,23 @@
       // A floor should be entered at full HP: arriving low means the next fight
       // starts at a disadvantage.  Healing sources are only enabled by default
       // when this rule needs them, so it overrides the `fount`/heart defaults.
-      if (A.opts.fullHpGate !== false && p.hp < p.maxHp && !(G.exp && G.exp.id === 'a' && (G.exp.left | 0) > 0)) {
+      // Give the healing detour a hard deadline: if it has not helped within
+      // `hpGateGiveUp` seconds, drop it for the rest of this attempt so a
+      // reachable-but-unreachable fount can never pin the run (see the 700s stall).
+      if (A._hpGateFor !== (G.floor | 0)) { A._hpGateFor = G.floor | 0; A._hpGateSince = G.time; }
+      const hpGateStuck = (G.time - (A._hpGateSince || G.time)) > 45;
+      if (A.opts.fullHpGate !== false && !hpGateStuck && p.hp < p.maxHp && !(G.exp && G.exp.id === 'a' && (G.exp.left | 0) > 0)) {
         for (const it of (G.inter || [])) {
           if (it.used) continue;
           if (unreachable([it.x, it.y]) || unreachable(roomAt(it.x, it.y))) continue;
-          if (it.kind === 'fount' && ((G.ink | 0) >= (it.cost | 0)) && !hasCurse('drought'))
+          // A fount heals exactly 2 hp and is single-use (game.js:378), so it only
+          // pays off when that actually finishes the job; chasing it for 1 hp
+          // pinned a run in place for 700+ seconds (measured seed 31).
+          if (it.kind === 'fount' && ((G.ink | 0) >= (it.cost | 0)) && !hasCurse('drought')
+              && p.hp + 2 >= p.maxHp)
             return { pt: [it.x, it.y], label: 'fount', room: roomAt(it.x, it.y) };
-          if (it.kind === 'shop' && it.what === 'heart' && !it.sold && ((G.ink | 0) >= it.price))
+          if (it.kind === 'shop' && it.what === 'heart' && !it.sold && ((G.ink | 0) >= it.price)
+              && p.hp + 1 >= p.maxHp)
             return { pt: [it.x, it.y], label: 'heart', room: roomAt(it.x, it.y) };
         }
       }
@@ -1932,7 +1942,9 @@
     // the single most common state was openRooms=boss with obj=prism (31 samples):
     // the bot kept collecting serums while the floor could never be completed.
     {
-      const onlyBossLeft = boss && !boss.cleared && !boss.active
+      // NOTE: do NOT require !boss.active — once we have stepped in, the room is
+      // active and still unfinished, which is exactly when we must stay.
+      const onlyBossLeft = boss && !boss.cleared
         && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss)
         && !rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
       if (onlyBossLeft) return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
