@@ -188,9 +188,27 @@
     // matrices always complete.  hurtPlayer is the game's own damage entry point.
     let lastSig = '', lastSigT = performance.now();
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
+    // ---- run scoring -------------------------------------------------------
+    // Progress is DECISIVE.  Damage taken contributes a negative term integrated
+    // over time: the square of what was consumed, hp weighted heavier than armour.
+    let scorePenalty = 0, prevHp = null, prevArmor = null, prevT = 0;
+    const HP_W = 3.0, ARM_W = 1.0;      // hp loss hurts more than shield loss
     window.__forgeSeen = 0;
     const wd = setInterval(() => {
       const g = G(); if (!g || !g.p) return;
+      // integrate the squared loss-rate penalty (per second, dt-aware)
+      try {
+        const p = g.p;
+        if (p) {
+          const t = g.runT || 0, dtr = Math.max(.05, Math.min(2, t - prevT));
+          if (prevHp !== null) {
+            const dHp = Math.max(0, prevHp - p.hp);
+            const dAr = Math.max(0, prevArmor - p.armor);
+            if (dHp || dAr) scorePenalty += (HP_W * dHp * dHp + ARM_W * dAr * dAr) * dtr;
+          }
+          prevHp = p.hp; prevArmor = p.armor; prevT = t;
+        }
+      } catch (e) { }
       if ((g.floor | 0) > maxFloor) {
         maxFloor = g.floor | 0;
         try {
@@ -294,7 +312,11 @@
       // end-of-run room state: which rooms were left (and whether they were
       // active) tells us whether a floor was blocked by an orphan room, by a
       // boss, or simply ran out of time.
+      wcount: (function () { try { return (g.p && g.p.weapons ? g.p.weapons.length : 0); } catch (e) { return 0; } })(),
       endFloor: (g.floor | 0),
+      penalty: Math.round(scorePenalty * 10) / 10,
+      // decisive term first: floors cleared dominates any damage penalty
+      score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
       openRoomsAtEnd: (function () {
         try {
           const W = (typeof WORLD !== 'undefined') ? WORLD : null;
