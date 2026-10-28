@@ -3192,3 +3192,43 @@ A(格挡关) 66657.2 | B(格挡开) 33313.5
 
 输出上去了、过层没上去，意味着阻止通关的是**某一类具体障碍**（不是普遍性的生存不足）。
 下一轮应当定位「过层失败的最后 30 秒发生了什么」，而不是继续加保守度。
+
+## 83. 结论 67：满血门槛曾把整局钉在治疗泉上（700 秒零进度）
+
+### 用 trace 定位「击杀很高却过不了层」的失败局
+
+`seed 31`（五锁）trace（字段提取自 `DBG` 行，见下方解析坑）：
+
+```
+t=540 .. t=1260   clr=7/11   obj=''       ink=23   ← 整整 720 秒零进展
+t=1260 .. 结束     clr=8/11   obj=fount    ink=24   ← 卡在治疗泉
+```
+
+### 两个真 bug
+
+1. **治疗泉只回 2 点血且一次性**（`game.js:378` `healPlayer(2); it.used = true`）。
+   我的 `fullHpGate` 假设它能回满，于是差 1 点血也会去，结果**永远补不满**。
+   修复：仅当 `p.hp + 2 >= p.maxHp` 时才去；买心同理要求 `p.hp + 1 >= p.maxHp`。
+2. **治疗绕路没有截止时间**。修复：每层给 45 秒窗口，超时本层放弃该门槛
+   （`A._hpGateSince` 按楼层重置）。
+
+修复后 `seed 31` 不再卡在 fount（open 变成 `boss*`），击杀 209 → 112 但那局换了失败模式。
+
+### 第三个 bug：`onlyBossLeft` 要求 `!boss.active`
+
+trace 显示：
+
+```
+t=303  open=boss    obj=prism   ← 只剩 boss 房却去拿棱镜
+t=456  open=boss*   obj=hunt    ← 进过 boss 房后目标变成追击
+```
+
+`onlyBossLeft` 原本带 `!boss.active`，所以**一旦踏入 boss 房（房间变 active）这条规则就失效**，
+挂机转头去捡棱镜。已放宽为只看 `!boss.cleared`。
+
+### 解析坑（记下来，免得再踩）
+
+`--verbose --trace` 输出的 `DBG {...}` 行里含有**未转义控制字符**，
+`json.loads` 一律报 `Invalid control character`（`strict=False` 也无效）。
+可靠做法是**逐字段正则提取**（`"t":(\d+)` / `"openRooms":"([^"]*)"` 等），
+不要试图整行 `json.loads`。
