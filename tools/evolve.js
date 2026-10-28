@@ -16,7 +16,7 @@
   const TSW = window.__TSW;                 // core.js publishes it as __TSW
   if (!TSW || TSW.evolve) return;
   const EV = TSW.evolve = {};
-  console.info('[evolve] attached');
+
   const rnd = (a, b) => a + Math.random() * (b - a);
 
   // ---- genome helpers -----------------------------------------------------
@@ -98,7 +98,8 @@
       // seed the population with the incumbent (current defaults) plus mutants
       let population = [];
       const base = Object.assign({}, o.base || {});
-      population.push({ g: Object.assign({}, base), f: null });
+      // incumbent: the explicit defaults (empty genome = all GENE_DEF defaults)
+      population.push({ g: Object.assign({}, base), f: null, tag: 'incumbent' });
       for (let i = 1; i < pop; i++) population.push({ g: EV.randomGenome(base), f: null });
 
       for (let gen = 0; gen < gens; gen++) {
@@ -112,7 +113,10 @@
         }
         population.sort((x, y) => (y.f || -1e9) - (x.f || -1e9));
         const elite = population[0];
-        hist.push({ gen, best: +elite.f.toFixed(0), mean: +(population.reduce((a, b) => a + (b.f || 0), 0) / population.length).toFixed(0), genome: elite.g });
+        hist.push({ gen, best: +elite.f.toFixed(0), mean: +(population.reduce((a, b) => a + (b.f || 0), 0) / population.length).toFixed(0),
+          genome: elite.g, tag: elite.tag || 'mutant',
+          floors: +(elite.detail ? (elite.detail.rows.reduce((a, r) => a + Math.max(0, r.floor), 0) / Math.max(1, elite.detail.rows.length)).toFixed(2) : 0),
+          spread: +(population.map((p) => p.f || 0).reduce((a, b) => a + b, 0) / population.length).toFixed(0) });
         log.push(`gen ${gen}: best ${elite.f.toFixed(0)} (floors≈${((elite.detail && elite.detail.best) | 0) / 100000}), pop mean ${hist[hist.length - 1].mean}`);
         TSW.log('[evolve] ' + log[log.length - 1]);
         if (gen === gens - 1) break;
@@ -138,4 +142,21 @@
       running = false;
     }
   };
+
+  // Attaching is not enough: the gene table lives in auto.js, which may load
+  // later. Announce (and self-test the plumbing) once it exists.
+  const announce = () => {
+    if (TSW.auto && TSW.auto.geneDef) {
+      try {
+        const st = EV.selftest();
+        console.info('[evolve] attached; selftest ' + JSON.stringify({ ok: st.ok, genes: st.genes, applied: st.applied }));
+      } catch (e) { console.info('[evolve] attached; selftest threw ' + e.message); }
+      return true;
+    }
+    return false;
+  };
+  if (EV.selftest && !announce()) {
+    const t = setInterval(() => { if (announce()) clearInterval(t); }, 250);
+    setTimeout(() => clearInterval(t), 20000);
+  }
 })();
