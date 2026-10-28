@@ -41,6 +41,7 @@
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
+      specialsFirst: true,                                   // explore: detour to special rooms before combat
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
@@ -140,6 +141,8 @@
       return (w.dmg || 0) * rate * n;
     } catch (e) { return 0; }
   };
+  // room types that can yield supplies, upgrades or a companion
+  const SPECIAL_ROOM_TYPES = ['treasure', 'shop', 'camp', 'dialysis', 'barracks', 'forge', 'shrine', 'trial', 'idol', 'vault', 'arsenal'];
   const wScore = (id) => {
     try {
       let v = (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
@@ -1621,7 +1624,9 @@
     // 绝境里 输出/补给 往往比多打一个房间更值：先去商店/锻造/神龛/宝箱，
     // 再回头清战斗房。 默认保持原顺序（直接清房），可用 A/B 切换验证。
     if (A.opts.exploreOrder === 'resources') {
-      if (A.opts.shop) for (const r of rooms) if (!r.visited && ['treasure', 'shop', 'camp', 'dialysis', 'barracks'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
+      if (A.opts.specialsFirst !== false)
+        for (const r of rooms) if (!r.visited && SPECIAL_ROOM_TYPES.includes(r.type) && !unreachable(r))
+          return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
       for (const r of rooms) if (!r.visited && ['forge', 'shrine'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
     }
     const boss = rooms.find((r) => r.type === 'boss');
