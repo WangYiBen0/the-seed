@@ -1338,6 +1338,7 @@
         floorN: G.floor | 0,
         roomsN: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.length : -1,
         clearedN: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => r.cleared).length : -1,
+        openRooms: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => !r.cleared).map((r) => r.type + (r.active ? '*' : '')).join(',') : '',
         prisms: (G.inter || []).filter((i) => i.kind === 'prism').length,
         shardN: Object.keys((G.p && G.p.shards) || {}).length,
         px: Math.round(p.x), py: Math.round(p.y),
@@ -1591,8 +1592,25 @@
     // trace showed the bot heading for the boss with 16 pickups still on the floor.
     const bossLate = A.opts.bossOrder === 'late';
     const combatLeft0 = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+    // An ACTIVE boss room is one we already walked into; leaving it un-cleared
+    // orphans it forever, because the combat branch below skips active rooms and
+    // this branch used to ignore them too.  Measured: cleared=12/13 for 900s
+    // with openRooms showing "combat,boss*".
     if (boss && !boss.cleared && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss) && !(bossLate && combatLeft0))
       return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
+    // An ACTIVE combat room we already entered but did not finish is an orphan:
+    // the normal branch below skips `r.active`, so nothing ever returns to it and
+    // the floor can never be completed ("cleared=12/13" while standing around).
+    {
+      let orphan = null, orphD = 1e9;
+      for (const r of rooms) {
+        if (r.cleared || !r.active || unreachable(r)) continue;
+        if (r.type !== 'combat' && r.type !== 'boss') continue;
+        const dd = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
+        if (dd < orphD) { orphD = dd; orphan = r; }
+      }
+      if (orphan) return { pt: [orphan.cx * 16 + 8, orphan.cy * 16 + 8], label: orphan.type, room: orphan };
+    }
     // 3) nearest unvisited combat room
     let best = null, bd = 1e9;
     for (const r of rooms) {
