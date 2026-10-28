@@ -40,6 +40,7 @@
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
+      forgeFirst: true,                                      // explore: visit a forge before combat when affordable
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
@@ -1358,6 +1359,7 @@
         // filtered out, so every sample read -1)
         fightD: A._fdAvg ? Math.round(A._fdAvg) : -1,
         fightN: (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length,
+        ink: G.ink | 0,
         px: Math.round(p.x), py: Math.round(p.y),
         vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
         wp: A._lastWp ? [Math.round(A._lastWp[0]), Math.round(A._lastWp[1])] : null,
@@ -1562,6 +1564,26 @@
     // 武器等级（+25%/级，乘在基数上），应当尽早做而不是排在所有战斗房之后。
     // 'any' 模式检查**所有已装备武器**（原来只看手持，绝境里手持常是初始钉枪，
     // 条件经常不满足 → 等于从未用过锻造）。
+    // Weapon level is the only MULTIPLICATIVE damage term, and the end-of-run
+    // stats showed wlv={} on every run while ink peaked at 200+: the bot simply
+    // never visited a forge (obj=forge appeared 4 times vs 47 for fight).
+    // Promote the forge ahead of combat rooms when it is actually affordable.
+    if (A.opts.forgeFirst !== false) {
+      for (const r of rooms) {
+        if (r.type !== 'forge' || unreachable(r)) continue;
+        const cur = p.weapons[p.wi];
+        const lv = (p.wlv && p.wlv[cur]) || 0;
+        if (lv >= 3) continue;
+        if ((G.ink | 0) < 30 + lv * 25 + 15) continue;
+        // aim at the forge INTERACTABLE, not the room centre: the bench sits at
+        // a specific tile and the E prompt only appears within 24px of it, so
+        // walking to (cx,cy) never opened it (which is why wlv stayed {}).
+        const bench = (G.inter || []).find((i) => i.kind === 'forge' && !i.used
+          && roomAt(i.x, i.y) === r);
+        const tgt2 = bench ? [bench.x, bench.y] : [r.cx * 16 + 8, r.cy * 16 + 8];
+        return { pt: tgt2, label: 'forge', room: r };
+      }
+    }
     {
       const forgeMode = A.opts.forgeMode || 'held';
       for (const r of rooms) {

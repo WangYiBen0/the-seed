@@ -265,6 +265,23 @@
       gameT: +g.runT.toFixed(0), floor: g.floor, maxFloor: maxFloor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
       orbs: (g.floorOrbs | 0), shardN: Object.keys((g.p && g.p.shards) || {}).length,
+      // damage inputs: weapon levels are the multiplicative part of DPS, shard
+      // count is the additive part; totalDps is a cheap proxy used for ranking
+      wlvAtEnd: (function () { try { return Object.assign({}, g.p && g.p.wlv); } catch (e) { return {}; } })(),
+      dpsProxy: (function () {
+        try {
+          const p = g.p; if (!p || !p.weapons) return 0;
+          let dps = 0;
+          for (const id of p.weapons) {
+            const w = WEAPONS[id]; if (!w) continue;
+            const lv = (p.wlv && p.wlv[id]) | 0;
+            const rate = w.rate || 1, n = w.n || 1;
+            dps += (w.dmg || 0) * rate * n * (1 + .25 * lv);
+          }
+          for (const k in (p.shards || {})) dps *= 1.06;      // rough shard multiplier
+          return Math.round(dps);
+        } catch (e) { return 0; }
+      })(),
       // end-of-run room state: which rooms were left (and whether they were
       // active) tells us whether a floor was blocked by an orphan room, by a
       // boss, or simply ran out of time.
