@@ -1596,6 +1596,16 @@
     // orphans it forever, because the combat branch below skips active rooms and
     // this branch used to ignore them too.  Measured: cleared=12/13 for 900s
     // with openRooms showing "combat,boss*".
+    // When the boss room is the LAST thing left on the floor, go finish it before
+    // picking up any remaining prisms.  End-of-run statistics over 12 seeds showed
+    // the single most common state was openRooms=boss with obj=prism (31 samples):
+    // the bot kept collecting serums while the floor could never be completed.
+    {
+      const onlyBossLeft = boss && !boss.cleared && !boss.active
+        && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss)
+        && !rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
+      if (onlyBossLeft) return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
+    }
     if (boss && !boss.cleared && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss) && !(bossLate && combatLeft0))
       return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss', room: boss };
     // An ACTIVE combat room we already entered but did not finish is an orphan:

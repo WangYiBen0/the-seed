@@ -2625,3 +2625,70 @@ for (const r of rooms) {
 这条留在文档里作为**被数据否掉的假设**：
 `obj=hunt` 与 `openRooms=boss*` 共现**不等于**因果关系——boss 房处于 active
 但无人清，是 §69 孤儿房问题，与 hunt 的目标选择无关。
+
+## 71. 结论 55：**所有 12 局结束时都留着未清的 boss 房**——这才是进不了无尽的结构性原因
+
+### 方法改变：统计替代推测
+
+前两轮用 trace 推测因果，一次对一次错。本轮给结果行加了两个字段：
+- `endFloor`（结束时所在楼层）
+- `openRoomsAtEnd`（结束时仍未清的房间列表，`*` 表示 `active`）
+
+跑固定 12 种子后直接分类统计：
+
+| 结束时状态 | 局数 |
+|---|---|
+| 含 boss（未开门）| **8** |
+| 含 boss（已激活未清）| 2 |
+| 仅 combat 房 | 2 |
+| **清空本层** | **0** |
+
+**12 局里没有一局清完本层** → 传送门（尤其是无尽传送门）**永远不出现**。
+
+### 目标优先级：boss 被 prism 抢了
+
+统计 `obj` 与 `openRooms` 的共现，最高频组合是：
+
+```
+openRooms=boss   obj=prism       31 次
+```
+
+boss 房**已经解锁**，但挂机跑去捡棱镜而不去打 boss —— 因为 `prism` 分支排在 `boss` 之前。
+
+### 修复
+
+当「boss 房是本层唯一未清的」时，把 boss 提到 prism 之前：
+
+```js
+const onlyBossLeft = boss && !boss.cleared && !boss.active
+  && (!WORLD.bossLocked || G.hasKey) && !unreachable(boss)
+  && !rooms.some(r => r.type === 'combat' && !r.cleared && !unreachable(r));
+if (onlyBossLeft) return { ..., label: 'boss', room: boss };
+```
+
+实测（固定 12 种子）：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 过层率 | 8/12（67%）| **10/12（83%）** |
+| 最深层 | 第 4 层 | 第 4 层 |
+| 单局最高击杀 | 382 | **408** |
+
+### 但「清完本层」仍然是 0/12 —— 问题比调度更深
+
+即使修好优先级，`openRoomsAtEnd` 仍然普遍剩 **4–7 个 combat 房**：
+
+```
+seed 17: combat*,combat,combat,combat,combat,boss,combat   (7 个)
+seed 19: combat,combat,combat*,combat,combat,boss            (6 个)
+```
+
+每层房间数是 **11 → 13**（`world.js` 随楼层增加），而挂机的清房速度没有相应提高。
+所以真正的瓶颈是**单位时间清房数**，不是目标选择。
+
+### 下一步（明确）
+
+转向「清房效率」：
+1. 用 `roomClearMean` 比较过层局与失败局的实际清房耗时；
+2. 测试「房内贴身清怪」类改动（提高命中率、缩短击杀时间）；
+3. 目标从「调度正确」转向「每层能在死亡前清完」。
