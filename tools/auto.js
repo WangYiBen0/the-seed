@@ -43,6 +43,7 @@
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
       specialsFirst: true,                                   // explore: detour to special rooms before combat
       powerupFirst: true,                                    // explore: grab weapons/chips/serums before fights
+      meleeBlock: true,                                      // explore: swing to deflect incoming bullets with melee
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
@@ -423,6 +424,35 @@
     }
     return d;
   }
+  // Repulsion direction away from live rotating lasers.  Strafe AGAINST the
+  // sweep direction (the beam chases its rotation, so going the other way
+  // crosses it fastest), and if the beam is already on us, fall back to radial
+  // (duck inside r0 / back out past the tip).
+  function laserPush(p) {
+    const G = __achroma.G; let mx = 0, my = 0;
+    for (const L of G.lasers || []) {
+      if (!L || !L.owner || L.owner.dead || L.warn > 0) continue;
+      const ox = L.owner.x, oy = L.owner.y;
+      const dx = p.x - ox, dy = p.y - oy, dd = Math.hypot(dx, dy) || 1;
+      const r0 = L.r0 || 0, len = L.len || 420;
+      if (dd > len + 30) continue;
+      const ang0 = Math.atan2(dy, dx);
+      const off = ((ang0 - L.a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      const lat = Math.abs(off) * dd;
+      if (dd < r0 + 2) continue;                     // already safe inside the core
+      if (lat > (L.w / 2) + 26) continue;            // far from the axis, ignore
+      // tangential push, opposing the sweep
+      const tang = -(L.va >= 0 ? 1 : -1);
+      mx += -Math.sin(ang0) * tang * 1.4;
+      my += Math.cos(ang0) * tang * 1.4;
+      // plus radial: prefer the nearer exit (inward to r0 or outward past len)
+      const inward = (dd - r0) < (len - dd);
+      mx += (dx / dd) * (inward ? -1 : 1) * .9;
+      my += (dy / dd) * (inward ? -1 : 1) * .9;
+    }
+    return [mx, my];
+  }
+
   function spotDanger(x, y, p) {
     const G = __achroma.G; let d = 0;
     const h = hard(), horizon = h ? .95 : .7, wMul = h ? 1.3 : 1;
@@ -442,6 +472,27 @@
       if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
     }
     for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
+    // ---- rotating boss lasers (boss.js:634) --------------------------------
+    // A live laser is a SEGMENT from owner + cos(a)*r0 out to len, sweeping at va.
+    // Inside r0 there is no damage at all, so the two safe answers are "hug the
+    // boss" (< r0) or "get out of the swept band" (> len).  The bot used to walk
+    // straight into the beam because lasers were not modelled anywhere.
+    for (const L of G.lasers || []) {
+      if (!L || !L.owner || L.owner.dead) continue;
+      const live = !(L.warn > 0);
+      const r0 = L.r0 || 0, len = L.len || 420, half = (L.w / 2) + p.r + (live ? 1 : 6);
+      const ox = L.owner.x, oy = L.owner.y;
+      const dx = x - ox, dy = y - oy, distO = Math.hypot(dx, dy) || 1;
+      if (distO < r0 + 2) continue;                       // inside the safe core
+      if (distO > len) continue;                          // beyond the tip
+      // angular offset from the beam axis, converted to arc length at this radius
+      const off = Math.abs(((Math.atan2(dy, dx) - L.a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      const lat = off * distO;                            // distance to the beam line
+      // where the beam will be in .35s (it rotates at va)
+      const latSoon = Math.abs(((Math.atan2(dy, dx) - (L.a + (L.va || 0) * .35) + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * distO;
+      if (lat < half) d += 3.4;                           // in the beam right now
+      else if (latSoon < half + 6) d += 2.2;              // about to sweep onto us
+    }
     // in-room hazards (blades / flame pillars / poison pools)
     { const hz = hazardAt(x, y, Math.max(4, p.r - 1)); if (hz) d += hz; }
     // pits: walking in hurts and teleports back — never path through them
@@ -1328,6 +1379,22 @@
           mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
         }
         wantFire = !!neF && !retreat && d < (melee ? 90 : 450);   // 撤退时不输出
+        // Melee weapons destroy the bullets they swing through (deflectBullets,
+        // weapons.js:209) and reflect 35% of them back.  Swinging while bullets
+        // converge is therefore both defence and damage — do it even when no
+        // enemy is currently aimable.
+        if (A.opts.meleeBlock !== false && melee && !retreat) {
+          let incoming = 0;
+          for (const b of (G.ebullets || [])) {
+            if (b.delay > 0) continue;
+            const bd = Math.hypot(b.x - p.x, b.y - p.y);
+            if (bd > 96) continue;
+            const toMe = Math.atan2(p.y - b.y, p.x - b.x);
+            const vel = Math.atan2(b.vy, b.vx);
+            if (Math.abs(((toMe - vel + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < .6) incoming++;
+          }
+          if (incoming) { wantFire = true; if (!neF) A.status.note = '格挡弹幕'; }
+        }
       }
       // doorway funnel: on hard difficulties, fight from the room's door —
       // enemies arrive one by one from a narrow arc instead of surrounding us.
@@ -1343,6 +1410,8 @@
           A.status.note = 'doorfunnel';
         }
       }
+      // live rotating lasers get a dedicated escape vector (see laserPush)
+      { const [lx, ly] = laserPush(p); if (lx || ly) { mx += lx * 1.6; my += ly * 1.6; A.status.note = '躲激光扫射'; } }
       // threat field does the dodging: bullets, telegraph circles/lines, void zones, spikes
       [mx, my] = pickDir(p, mx, my);
       // ---- evasion scorecard (meaningful while a fight is live)
