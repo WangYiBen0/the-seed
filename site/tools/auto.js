@@ -143,6 +143,34 @@
     } catch (e) { return 0; }
   };
   // room types that can yield supplies, upgrades or a companion
+  // ---- evolvable genome ---------------------------------------------------
+  // Every tunable the evolution loop is allowed to touch lives here.  Values come
+  // from A.opts.genome when present (the loop injects a candidate), otherwise
+  // these defaults reproduce the hand-tuned behaviour exactly.
+  const GENE_DEF = {
+    dashDanger:   { def: 1.6,  min: .6,  max: 3.2 },   // dash when threat >= this
+    bandNearLo:   { def: 40,   min: 20,  max: 90  },   // focus band lower
+    bandNearHi:   { def: 90,   min: 50,  max: 160 },
+    bandFarLo:    { def: 90,   min: 50,  max: 170 },
+    bandFarHi:    { def: 150,  min: 90,  max: 260 },
+    meleeLo:      { def: 28,   min: 16,  max: 60  },
+    meleeHi:      { def: 49,   min: 30,  max: 90  },
+    retreatHi:    { def: 250,  min: 170, max: 340 },
+    goalGiveUp:   { def: 90,   min: 40,  max: 160 },
+    wallMargin:   { def: 12,   min: 4,   max: 28  },
+    hazardPad:    { def: 1,    min: .4,  max: 2.4 },   // risky-by-this-much pad
+    aimLead:      { def: 1,    min: .4,  max: 1.8 },   // target leading factor
+  };
+  function gene(k) {
+    const g = A.opts && A.opts.genome;
+    if (g && typeof g[k] === 'number' && isFinite(g[k])) {
+      const d = GENE_DEF[k];
+      return Math.min(d.max, Math.max(d.min, g[k]));
+    }
+    return GENE_DEF[k].def;
+  }
+  A.geneDef = GENE_DEF; A.gene = gene;
+
   const SPECIAL_ROOM_TYPES = ['treasure', 'shop', 'camp', 'dialysis', 'barracks', 'forge', 'shrine', 'trial', 'idol', 'vault', 'arsenal'];
   const wScore = (id) => {
     try {
@@ -516,7 +544,7 @@
       // the direction costs a FLAT amount.  There is deliberately no gradient bonus
       // for heading into open space: that made the bot drift around for no reason
       // instead of just refusing to hug walls.
-      const margin = A.opts.wallMargin === undefined ? 12 : A.opts.wallMargin;
+      const margin = gene('wallMargin');
       // Only penalise stepping CLOSER to a wall.  Testing the destination in
       // isolation penalised almost every direction whenever we were already
       // near a wall (the test reduces to "8 probe points hit something" for all
@@ -878,7 +906,7 @@
         else if (bd > band[1]) { mx = ux; my = uy; A.status.note = '入侵：接近'; }
         else { mx = -uy * A._ivSpin * .6; my = ux * A._ivSpin * .6; A.status.note = '入侵：绕行'; }
         moveKeys(mx, my); [mx, my] = pickDir(p, mx, my);
-        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.6) {
+        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= gene('dashDanger')) {
           const dd0 = dashDir(p, [mx, my]);
           if (dd0) { tap('Space'); A.metrics.dash++; }
         }
@@ -934,7 +962,7 @@
     }
     [mx, my] = pickDir(p, mx, my);
     // dash away when the local threat spikes
-    if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.6) {
+    if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= gene('dashDanger')) {
       const dd = dashDir(p, [mx, my]);
       if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
     }
@@ -1265,9 +1293,12 @@
         // regressed the runs badly (seed 5: 268 -> 45 kills).
         const wk = w ? w.kind : 'gun';
         const pierceK = (wk === 'rail' || (w && (w.pierce | 0) >= 0 && (w.pierce | 0) >= 1));
-        const band = (retreat ? [170, 250]
-          : focus ? (melee ? [26, 46] : pierceK ? [60, 110] : [40, 90])
-            : (melee ? [30, 52] : pierceK ? [80, 140] : [90, 150])).map((v) => Math.round(v * bs));
+        const gNL = gene('bandNearLo'), gNH = gene('bandNearHi');
+        const gFL = gene('bandFarLo'), gFH = gene('bandFarHi');
+        const gML = gene('meleeLo'), gMH = gene('meleeHi');
+        const band = (retreat ? [170, gene('retreatHi')]
+          : focus ? (melee ? [gML, gMH] : pierceK ? [gNL + 20, gNH + 20] : [gNL, gNH])
+            : (melee ? [gML, gMH] : pierceK ? [gFL - 10, gFH - 10] : [gFL, gFH])).map((v) => Math.round(v * bs));
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
@@ -1469,7 +1500,7 @@
       if (tgt) {
         const gk = tgt.label + '|' + (tgt.room ? (tgt.room.cx + ':' + tgt.room.cy) : (tgt.pt || []).join(','));
         if (A._goalKey !== gk) { A._goalKey = gk; A._goalSince = G.time; }
-        else if (G.time - (A._goalSince || 0) > (A.opts.goalGiveUp || 40)) {
+        else if (G.time - (A._goalSince || 0) > gene('goalGiveUp')) {
           benchFor(tgt.room || tgt.pt, 90);
           A._goalSince = G.time; A._goalKey = null;
           A.status.note = '放弃目标 ' + tgt.label + ' 90s';
