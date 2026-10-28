@@ -93,7 +93,9 @@ async function main() {
   const perRun = args.kind === 'evolve' ? (gens * popN * seedsN * (+args.timeout || 120))
     : args.kind === 'ab' ? (+args.timeout || 200) : (+args.timeout || 900);
   // one pair = 2 runs, and each run costs ~timeout + start/measure overhead
-  const work = args.kind === 'ab' ? rounds * 2 * perRun : perRun;
+  // AB spends (rounds*2 + warmup 2) runs of perRun seconds each; forgetting the
+  // warm-up pair made every AB invocation die on the hard timeout.
+  const work = args.kind === 'ab' ? (rounds * 2 + 2) * perRun : perRun;
   const hardTimeout = (args.smoke ? 40 : work + 150) * 1000;
   const child = spawn(chrome, chromeArgs, {
     stdio: ['ignore', 'ignore', 'pipe'],
