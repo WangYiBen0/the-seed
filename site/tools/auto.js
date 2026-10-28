@@ -1360,6 +1360,7 @@
         fightD: A._fdAvg ? Math.round(A._fdAvg) : -1,
         fightN: (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length,
         ink: G.ink | 0,
+        forgeRooms: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => r.type === 'forge').length : -1,
         px: Math.round(p.x), py: Math.round(p.y),
         vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
         wp: A._lastWp ? [Math.round(A._lastWp[0]), Math.round(A._lastWp[1])] : null,

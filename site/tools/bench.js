@@ -188,9 +188,16 @@
     // matrices always complete.  hurtPlayer is the game's own damage entry point.
     let lastSig = '', lastSigT = performance.now();
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
+    window.__forgeSeen = 0;
     const wd = setInterval(() => {
       const g = G(); if (!g || !g.p) return;
-      if ((g.floor | 0) > maxFloor) maxFloor = g.floor | 0;
+      if ((g.floor | 0) > maxFloor) {
+        maxFloor = g.floor | 0;
+        try {
+          const W = (typeof WORLD !== 'undefined') ? WORLD : null;
+          if (W && W.rooms) window.__forgeSeen += W.rooms.filter((r) => r.type === 'forge').length;
+        } catch (e) { }
+      }
       // NB: the player's position must be part of the signature.  Without it, a bot
       // that is walking (e.g. crossing a large floor to reach the next room) shows
       // NO observable change for 30s and gets killed as "stuck" — which is exactly
@@ -268,6 +275,8 @@
       // damage inputs: weapon levels are the multiplicative part of DPS, shard
       // count is the additive part; totalDps is a cheap proxy used for ranking
       wlvAtEnd: (function () { try { return Object.assign({}, g.p && g.p.wlv); } catch (e) { return {}; } })(),
+      forgeRoomsSeen: (window.__forgeSeen | 0),
+      upgradesDone: (function () { try { const p = g.p; let n = 0; for (const k in (p && p.wlv) || {}) n += p.wlv[k]; return n; } catch (e) { return 0; } })(),
       dpsProxy: (function () {
         try {
           const p = g.p; if (!p || !p.weapons) return 0;
