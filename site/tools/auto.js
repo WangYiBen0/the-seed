@@ -42,6 +42,7 @@
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
       specialsFirst: true,                                   // explore: detour to special rooms before combat
+      powerupFirst: true,                                    // explore: grab weapons/chips/serums before fights
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
@@ -1149,8 +1150,13 @@
           // Only swap when the held one is clearly worse AND we are not trading
           // away a second gun (measured: always-swap left seed 5 with one weapon
           // and dps 79, versus two weapons and dps 120).
+          // Picking up a gun while the held slot already has one REPLACES the held
+          // weapon — the count stays the same.  Refusing to swap at capacity (the
+          // previous behaviour) froze the starting `nail` in place forever: every
+          // one of 12 runs still carried nail, contributing 35 of a total 52-76 dps.
           const atCap = p.weapons.length >= wCap();
-          const worthSwap = A.opts.weaponSwapAtCap ? (nw > cur * 1.35) : !atCap;
+          const clearlyBetter = nw > cur + .5;
+          const worthSwap = clearlyBetter;              // count is preserved either way
           if (worthSwap || p.weapons.length < wCap()) {
             A.status.note = '拿武器 ' + it.id;
             tap('KeyE');
@@ -1513,6 +1519,41 @@
   }
 
   // choose the next room/point to walk to
+  // ---- room priority -------------------------------------------------------
+  // Reward rooms (chest/shop/arsenal/vault/camp/forge/…) come first; clearing the
+  // floor for the exit comes next.  Among combat rooms: harmless rooms cost 1,
+  // trapped rooms (blades/flames but no spawns) 2, unseen ones 3.  Only the ORDER
+  // matters, not the absolute numbers.
+  const REWARD_ROOMS = ['treasure', 'shop', 'arsenal', 'vault', 'camp', 'forge', 'dialysis', 'barracks', 'shrine', 'trial', 'idol'];
+  const TRAPPED_ROOMS = ['blades', 'flames', 'spikes'];
+  function roomWeight(r) {
+    if (r.cleared) return 99;
+    if (REWARD_ROOMS.includes(r.type)) return 0;          // reward first
+    if (TRAPPED_ROOMS.includes(r.type)) return 2;         // hazards, no spawns
+    if (r.type === 'combat') return r.visited ? 1 : 3;    // harmless already-seen vs unseen
+    if (r.type === 'boss') return 4;                      // locked behind the seal anyway
+    return 3;
+  }
+  // Does this floor still need work before we may leave?
+  //  - any uncleared room that is not the exit portal
+  //  - unless the reward pipeline is saturated (endless endgame) or the lab serum
+  //    lets us skip ahead (handled by the caller through A.opts)
+  function floorNeedsClear() {
+    try {
+      const rooms = (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms : [];
+      return rooms.some((r) => !r.cleared && r.type !== 'start');
+    } catch (e) { return false; }
+  }
+  // Lab serum drawback: G.exp.left counts the fights that must still be played
+  // before the side effect wears off.  Carrying it into the next floor is banned,
+  // so we deliberately pick extra fights while it is active.
+  function labDebuffLeft() {
+    try {
+      const x = G.exp;
+      return (x && x.left > 0) ? x.left | 0 : 0;
+    } catch (e) { return 0; }
+  }
+
   function pickObjective(G, p) {
     // The floor may not exist yet (right after launch, or a failed generation).
     // Without this guard the bot chases interactables that have no room, and the
@@ -1527,6 +1568,35 @@
         return { pt: [it.x, it.y], label: '透析机', room: roomAt(it.x, it.y) };
     if (A.opts.labSerum) for (const it of G.inter) if (it.kind === 'labvial' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
       return { pt: [it.x, it.y], label: '实验血清', room: roomAt(it.x, it.y) };
+
+    // ---- power-ups before fights -------------------------------------------
+    // Grabbing a weapon / chip / serum raises what the NEXT fight is worth, so
+    // upgrades outrank entering an unseen combat room.  Position them ahead of
+    // the room-weight sweep below (which is why this block sits here).
+    if (A.opts.powerupFirst !== false) {
+      const stops = [];
+      for (const it of (G.inter || [])) {
+        if (it.kind === 'weapon' && A.opts.weaponPick) {
+          // only chase a floor gun when it can actually be taken: capacity free,
+          // or the gun is stronger than what we hold
+          const held = (p.weapons || []).map((id) => WEAPONS[id] ? (WEAPONS[id].dmg || 0) * (WEAPONS[id].rate || 1) * (WEAPONS[id].n || 1) : 0);
+          const mine = (WEAPONS[it.id] ? (WEAPONS[it.id].dmg || 0) * (WEAPONS[it.id].rate || 1) * (WEAPONS[it.id].n || 1) : 0);
+          const canTake = (p.weapons || []).length < wCap() || mine > Math.max(0, ...held) + 5;
+          if (canTake) stops.push([it.x, it.y, 'weapon']);
+        }
+        else if (it.kind === 'chip' && A.opts.chipPick && !p.skill) stops.push([it.x, it.y, 'chip']);
+        else if (it.kind === 'prism' && A.opts.pickups) stops.push([it.x, it.y, 'prism']);
+        else if (it.kind === 'labvial' && A.opts.labSerum && !it.used) stops.push([it.x, it.y, 'labvial']);
+      }
+      let best = null, bd = 1e9;
+      for (const sp of stops) {
+        if (unreachable([sp[0], sp[1]])) continue;
+        if (!los(p.x, p.y, sp[0], sp[1])) continue;      // only ones we can walk straight to
+        const d = dist(p.x, p.y, sp[0], sp[1]);
+        if (d < bd) { bd = d; best = sp; }
+      }
+      if (best && bd < 260) return { pt: [best[0], best[1]], label: best[2], room: roomAt(best[0], best[1]) };
+    }
     // 'clear-first' (A/B): during the first pass we push combat rooms before
     // walking back for loose drops; prisms are picked up once rooms are cleared.
     const deferLoose = A.opts.pickupOrder === 'clear-first';
@@ -1645,6 +1715,31 @@
         for (const r of rooms) if (!r.visited && SPECIAL_ROOM_TYPES.includes(r.type) && !unreachable(r))
           return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
       for (const r of rooms) if (!r.visited && ['forge', 'shrine'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
+    }
+    // ---- reward rooms first, then finish the floor ---------------------------
+    // Rule: reward rooms (chest/shop/arsenal/vault/camp/forge/…) take priority
+    // over clearing, and the floor must be cleared before leaving unless the
+    // serum pipeline is saturated.  A lab-serum drawback forbids carrying the
+    // side effect downstairs, so while it is active we deliberately take unseen
+    // fights to burn it off.
+    {
+      const debuff = labDebuffLeft();
+      const portalReady = (G.inter || []).some((it) => it.kind === 'portal' && G.time - (it.born || 0) > .6);
+      if (portalReady && !floorNeedsClear() ) { /* fall through to portal branch */ }
+      else {
+        // candidate rooms, weighted by roomWeight (lower = more urgent)
+        let best = null, bw = 1e9, bd = 1e9;
+        for (const r of rooms) {
+          if (r.cleared || unreachable(r)) continue;
+          if (r.type === 'start') continue;
+          if (r.type === 'boss' && (WORLD.bossLocked && !G.hasKey)) continue;   // seal handler owns this
+          const w = roomWeight(r) - (debuff > 0 && r.type === 'combat' && !r.visited ? .5 : 0);
+          const d = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
+          if (w < bw || (w === bw && d < bd)) { bw = w; bd = d; best = r; }
+        }
+        if (best && !portalReady) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: best.type, room: best };
+        if (best && portalReady && bw <= 2) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: best.type, room: best };
+      }
     }
     const boss = rooms.find((r) => r.type === 'boss');
     // 2) boss room once unlocked (or never locked).
