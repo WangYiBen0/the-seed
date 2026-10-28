@@ -493,7 +493,10 @@
         else if (kind === 'invade') emit(await TSW.bench.run('invade', opts));
         else if (kind === 'ab') emit(await TSW.bench.run('ab', opts));
         else if (kind === 'evolve') {
+          // evolve runs many full games: each candidate gets timeoutS, not the
+          // dodge bench default of 12s (which scored every genome at zero floors)
           emit(await TSW.evolve.start(Object.assign({}, opts,
+            { seconds: +(q.get('seconds') || q.get('timeoutS') || 180) },
             q.get('gens') ? { generations: +q.get('gens') } : {},
             q.get('pop') ? { pop: +q.get('pop') } : {},
             q.get('seeds') ? { seeds: q.get('seeds').split(',').map(Number) } : {})));
