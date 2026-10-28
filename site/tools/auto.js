@@ -1365,6 +1365,16 @@
         const band = (retreat ? [170, gene('retreatHi')]
           : focus ? (melee ? [gML, gMH] : pierceK ? [gNL + 20, gNH + 20] : [gNL, gNH])
             : (melee ? [gML, gMH] : pierceK ? [gFL - 10, gFH - 10] : [gFL, gFH])).map((v) => Math.round(v * bs));
+        // 「close」shard multiplies damage by up to +40% (1.5x with demolition)
+        // inside 110px (shards2.js:102), but the default band sits at 90-150, so
+        // that multiplier is almost never collected.  When we own it, close in.
+        try {
+          const st = G.S || {};
+          if (st.close && !A._alphaMode) {
+            band[0] = Math.max(26, Math.round(band[0] * .45));
+            band[1] = Math.max(50, Math.round(Math.min(band[1], 110)));
+          }
+        } catch (e) { }
         // α serum active: widen the band so contact is less likely at all
         if (A._alphaMode) { band[0] = Math.round(band[0] * 1.5); band[1] = Math.round(band[1] * 1.45); }
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);

@@ -125,8 +125,27 @@ DZMM_PUBLISHED_AT=1792749394892 \
   现在 `dashSafe` 只查弧线地块 + **落点**一次；动态危险用 `hazDyn()` 每 tick 缓存一次。
 - **选项**都在 `A.opts`（持久化到 `theseed.tools.settings`）：`dash` `skill` `reload`
   `partner` `weaponSwap` `mate` `chest` `fount` `labSerum` `dialysis` `arsenal`
-  `weaponPick` `chipPick` `pickups` `manual` `dashHazards` `noFire`。
+  `weaponPick` `chipPick` `pickups` `manual` `dashHazards` `noFire`；
+  探索侧另有 `goalGiveUp` `wallMargin` `specialsFirst` `powerupFirst` `forgeFirst`
+  `meleeBlock` `fullHpGate` `weaponLateBias` `openSeals` `usePortals` `pickupOrder`。
 - **换弹空窗**：主武器换弹中且副武器就绪 → `KeyX` 切过去，装好再切回（评分更高时）。
+  **任一槽位是近战就完全不换枪**（近战无弹匣，换掉会连带丢失格挡能力）。
+- **武器策略**：见 `site/docs/weapons.md`（37 把武器的 baseDPS / 单发 / 穿透 / 走位）。
+  要点：穿墙武器（`saw`/`crescent` = pierce 999，`shuriken`/`longshot` = 1）
+  要**横向对齐敌群纵列**而不是盲目绕圈；近战贴身并主动挥击**格挡弹幕**
+  （`deflectBullets` 销毁子弹 + 35% 反弹 8×dmg）。
+- **boss 激光扫射**：`G.lasers` 是「从 `r0`(多为46) 到 `len`(420~460) 的线段」，
+  `a` 随 `va` 旋转；**`r0` 以内无伤害**。`laserPush()` 给逆向扫射的切向力 +
+  就近内缩/外撤。
+- **α 血清期**（`G.exp.id==='a' && left>0`）：受伤扣**血量上限**，不可逆。
+  该期间前瞻 1.35s、权重 ×1.9、交战带放大 1.5 倍。
+- **实验血清**：优先级最高（早于 powerup/seal/reward）。副作用是「接下来 3 场战斗」，
+  只在**真正打过有敌人的房间**时递减（`expBattle` 挂在 `unlockRoom`），
+  所以不许带着副作用下一层。
+- **满血过层门槛**：治疗泉只回 **2 点血且一次性**，所以只在
+  `p.hp+2 >= p.maxHp` 时才去；每层给 45 秒窗口，超时放弃。
+- **基因组**：`GENE_DEF`（12 个可调参数）经 `gene(k)` 读取，
+  未提供 `A.opts.genome` 时取默认值（= 手工调参）。进化循环见 `docs/evolution.md`。
 - **搭档技能**：`G.ptn.cd<=0` 时 `KeyF`（`usePartner`）。
 - **流派**：`POLICY_W` / `WEAPON_W` 的键 = 游戏自身 12 个入侵偏好
   （rounded/brawler/crazy/ranger/mage/chunky/old/lucky/engineer/doctor/mutant/loud）。
