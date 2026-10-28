@@ -98,16 +98,17 @@
   const bSeedClear = btn('清除'); seedRow.append(bSeedClear);
   bSeedClear.onclick = () => { TSW.rng.clear(); note('RNG 恢复随机'); };
   // draggable speed slider (0.25x steps up to 16x, log-ish feel via a stepped range)
+  // logarithmic: each notch is roughly a fixed ratio, and it reaches DOWN to
+  // slow-motion as well as up to 16x.  Declared before the slider so its max
+  // attribute can be computed (using it earlier threw a TDZ ReferenceError and
+  // took the whole panel down).
+  const SLIDER_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 11, 16];
   const spRow = row(sState);
   const spSlider = el('input', 'width:120px;flex:none;accent-color:#8ed872');
   spSlider.type = 'range'; spSlider.min = '0'; spSlider.max = String(SLIDER_STEPS.length - 1); spSlider.step = '1';
   spSlider.value = '0';
   const spOut = el('span', 'color:#a07ad8;min-width:34px;text-align:right');
   spRow.append(spSlider, spOut);
-  // slider index 0..11 -> 1,2,3,4,5,6,7,8,10,12,14,16 (game max is 16)
-  // logarithmic: each notch is roughly a fixed ratio, and it reaches DOWN to
-  // slow-motion as well as up to 16x
-  const SLIDER_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 11, 16];
   const sliderToSpeed = (v) => SLIDER_STEPS[Math.max(0, Math.min(SLIDER_STEPS.length - 1, +v | 0))];
   const speedToSlider = (x) => {
     let best = 0, bd = 1e9;
