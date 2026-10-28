@@ -314,6 +314,9 @@
       // boss, or simply ran out of time.
       wcount: (function () { try { return (g.p && g.p.weapons ? g.p.weapons.length : 0); } catch (e) { return 0; } })(),
       endFloor: (g.floor | 0),
+      // boss-room pipeline state at the end: did we ever hold a key / unlock?
+      hasKeyAtEnd: (function () { try { return !!g.hasKey; } catch (e) { return null; } })(),
+      bossLockedAtEnd: (function () { try { return (typeof WORLD !== 'undefined' && WORLD) ? !!WORLD.bossLocked : null; } catch (e) { return null; } })(),
       penalty: Math.round(scorePenalty * 10) / 10,
       // decisive term first: floors cleared dominates any damage penalty
       score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
