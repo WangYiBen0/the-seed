@@ -150,6 +150,17 @@
       const g = A.goal && A.goal.weapon ? A.goal.weapon() : '';
       if (id && g && id === g) v += GOAL_W;             // target weapon wins ties
       // optional DPS term (A/B: A.opts.weaponDps)
+      // Per-shot damage matters MORE than raw dps, because every upgrade level
+      // multiplies the base: a 26/shot hammer outgrows a 7/shot nail quickly.
+      // docs/weapons.md has the full table.
+      try {
+        const ww = WEAPONS[id];
+        if (ww && ww.dmg) {
+          const per = (Array.isArray(ww.dmg) ? ww.dmg[0] : ww.dmg) * (ww.n || 1);
+          v += Math.min(3, per / 12);                    // burst-ish bonus
+          if ((ww.pierce | 0) >= 1) v += 1.2;            // piercing is worth a slot
+        }
+      } catch (e) { }
       if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
       return v;
     } catch (e) { return 2.5; }
@@ -1247,12 +1258,40 @@
           focus = false;
         } else { retreat = st === 'RETREAT'; focus = st === 'FOCUS'; }
         const bs = hard() ? 1.2 : 1;                    // harder difficulties keep more distance
+        // ---- per-weapon-kind spacing ------------------------------------
+        // Only the PIERCING case is differentiated: those guns want standoff so a
+        // single shot threads a whole column (see docs/weapons.md).  Melee keeps
+        // the old melee-only band — widening that to every "short range" kind
+        // regressed the runs badly (seed 5: 268 -> 45 kills).
+        const wk = w ? w.kind : 'gun';
+        const pierceK = (wk === 'rail' || (w && (w.pierce | 0) >= 0 && (w.pierce | 0) >= 1));
         const band = (retreat ? [170, 250]
-          : focus ? (melee ? [26, 46] : [40, 90])
-            : (melee ? [30, 52] : [90, 150])).map((v) => Math.round(v * bs));
+          : focus ? (melee ? [26, 46] : pierceK ? [60, 110] : [40, 90])
+            : (melee ? [30, 52] : pierceK ? [80, 140] : [90, 150])).map((v) => Math.round(v * bs));
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
+        else if (pierceK) {
+          // Piercing weapons: slide sideways until the aim line threads through as
+          // many enemies as possible. A pierce shot that only touches the nearest
+          // body throws away most of its value.
+          let bestOff = 0, bestHits = -1;
+          for (const off of [-48, -30, -16, -8, 0, 8, 16, 30, 48]) {
+            const px2 = p.x - uy * off, py2 = p.y + ux * off;
+            let hits = 0;
+            for (const e of (G.enemies || [])) {
+              if (e.dead || e.spawnT > 0) continue;
+              const lx = e.x - px2, ly = e.y - py2;
+              const along = lx * ux + ly * uy;
+              if (along <= 0 || along > 420) continue;
+              if (Math.abs(lx * uy - ly * ux) < 16) hits++;
+            }
+            if (hits > bestHits) { bestHits = hits; bestOff = off; }
+          }
+          if (bestOff) { mx += -uy * Math.sign(bestOff) * .8; my += ux * Math.sign(bestOff) * .8; }
+          else { if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
+            mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS; }
+        }
         else {                                           // strafe — sign persists per target (no spinning)
           if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
           mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
