@@ -1295,7 +1295,28 @@
       const ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
       // aim at the closest foe WITH a clear shot (falls back to the closest so the
       // aim stays warm); firing is gated on that target actually existing
-      const neF = nearestEnemy(p.x, p.y, 900, true);
+      let neF = nearestEnemy(p.x, p.y, 900, true);
+      // 「sear」stacks need the SAME enemy hit again within 1s (shards2.js:103);
+      // switching targets resets the counter to 1.  When we own the shard, keep
+      // hammering the enemy already carrying stacks instead of the closest one.
+      try {
+        if (G.S && G.S.sear && neF) {
+          let best = null, bestScore = -1;
+          const now = G.time;
+          for (const e of (G.enemies || [])) {
+            if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0) continue;
+            if (!los(p.x, p.y, e.x, e.y)) continue;
+            const dd = Math.hypot(e.x - p.x, e.y - p.y);
+            if (dd > 900) continue;
+            const fresh = (now - (e.searT || -9)) < 1.0;
+            const n = fresh ? (e.searN | 0) : 0;
+            // strongly prefer stacked targets, then nearer ones
+            const sc = n * 100 - dd * .1 + (e.boss ? 30 : 0);
+            if (sc > bestScore) { bestScore = sc; best = e; }
+          }
+          if (best) neF = best;
+        }
+      } catch (e) { }
       // ---- 清房停滞：房间已激活但没有「能打到」的敌人 → 主动去找那一个漏网的 ----
       if (active && !neF) {
         const anyFoe = nearestEnemy(p.x, p.y, 2000, false);
@@ -1338,7 +1359,14 @@
         const foesN = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length;
         const nowT = G.time || 0;
         let st = A.opts.fightSM === false ? 'LEGACY' : (A._fightState || 'KITE');
-        const wantRetreat = (p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0);
+        // 「pristine」is a two-way shard: full armour is +20~35% damage, but any
+        // missing plate drops it to 0.75x (0.65x at lv2).  Losing the last point
+        // is therefore a big damage loss, so retreat BEFORE the plate breaks.
+        let pristineGuard = false;
+        try { pristineGuard = !!(G.S && G.S.pristine); } catch (e) { }
+        const wantRetreat = pristineGuard
+          ? ((p.armor <= 1 && p.lastHit < 3.6) || (p.hp <= 2))
+          : ((p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0));
         if (wantRetreat) { st = 'RETREAT'; A._stateHold = nowT + .6; }
         else if (st === 'RETREAT' && nowT < (A._stateHold || 0)) { /* hold the retreat a beat */ }
         else if (st === 'RETREAT') { st = foesN <= 3 ? 'FOCUS' : 'KITE'; A._stateHold = nowT + .8; }
