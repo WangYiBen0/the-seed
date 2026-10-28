@@ -1328,6 +1328,18 @@
 
     // debug mirror: what the bot *thinks* the world looks like this tick
     try {
+      // accumulate fight distance HERE: at the top of drivePlay the tick's
+      // enemies have not spawned yet, so that version always read -1
+      try {
+        const es = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0);
+        if (es.length) {
+          let d = 1e9;
+          for (const e of es) { const dd = Math.hypot(e.x - p.x, e.y - p.y); if (dd < d) d = dd; }
+          A._fdSum = (A._fdSum || 0) + d; A._fdN = (A._fdN || 0) + 1;
+        }
+        if ((A._fdN || 0) >= 30) { A._fdAvg = A._fdSum / A._fdN; A._fdSum = 0; A._fdN = 0; }
+        else if (A._fdN) A._fdAvg = A._fdSum / A._fdN;
+      } catch (e) { }
       A.dbg = {
         t: G.time | 0,
         world: (typeof WORLD !== 'undefined' && WORLD) ? (WORLD.w + 'x' + WORLD.h + ' rooms=' + (WORLD.rooms || []).length) : 'NO_WORLD',
@@ -1341,15 +1353,10 @@
         openRooms: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => !r.cleared).map((r) => r.type + (r.active ? '*' : '')).join(',') : '',
         prisms: (G.inter || []).filter((i) => i.kind === 'prism').length,
         shardN: Object.keys((G.p && G.p.shards) || {}).length,
-        fightD: (function () {
-          try {
-            const es = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0 && e.deathFightLeft <= 0);
-            if (!es.length) return -1;
-            let d = 1e9;
-            for (const e of es) { const dd = Math.hypot(e.x - G.p.x, e.y - G.p.y); if (dd < d) d = dd; }
-            return Math.round(d);
-          } catch (err) { return -1; }
-        })(),
+        // averaged over the last trace window (per-tick snapshots alias badly: the
+        // 3s trace tick kept landing on navigation frames, where enemies are
+        // filtered out, so every sample read -1)
+        fightD: A._fdAvg ? Math.round(A._fdAvg) : -1,
         fightN: (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length,
         px: Math.round(p.x), py: Math.round(p.y),
         vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
