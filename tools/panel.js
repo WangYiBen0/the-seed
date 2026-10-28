@@ -492,6 +492,12 @@
         else if (kind === 'dodge') emit(await TSW.bench.run('dodge', opts));
         else if (kind === 'invade') emit(await TSW.bench.run('invade', opts));
         else if (kind === 'ab') emit(await TSW.bench.run('ab', opts));
+        else if (kind === 'evolve') {
+          emit(await TSW.evolve.start(Object.assign({}, opts,
+            q.get('gens') ? { generations: +q.get('gens') } : {},
+            q.get('pop') ? { pop: +q.get('pop') } : {},
+            q.get('seeds') ? { seeds: q.get('seeds').split(',').map(Number) } : {})));
+        }
         else if (kind === 'explore') {
           const n = +(q.get('results') || 4);
           TSW.explore.start({ policies: [opts.policy], seeds: Array.from({ length: n }, (_, i) => 101 + i * 17), speed: opts.speed, goalDepth: opts.goalDepth, timeoutS: opts.timeoutS });
