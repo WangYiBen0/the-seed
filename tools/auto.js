@@ -46,6 +46,7 @@
       meleeBlock: true,                                      // explore: swing to deflect incoming bullets with melee
       weaponLateBias: 90,                                    // explore: ink level at which per-shot damage starts to weigh more
       shardFit: true,                                        // explore: score shards by fit to the held weapon
+      keyRoomFirst: true,                                    // explore: clear the key room before anything else
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1792,6 +1793,18 @@
     // run sits still: measured 80+ game-seconds with rooms:0 and kills:0.
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) return null;
     const rooms = WORLD.rooms;
+    // ---- 钥匙房间最高优先 ---------------------------------------------------
+    // The boss room stays locked until the key is collected, and the key sits in
+    // one of the FIRST HALF of candidate rooms and only spawns when that room is
+    // cleared (world.js:61, game.js:208).  `r.key` is a public field, so we can
+    // route straight at it instead of hoping to stumble on it — this shortens the
+    // unlock chain deterministically (see docs/benchmark.md §89).
+    if (A.opts.keyRoomFirst !== false && WORLD.bossLocked && !G.hasKey) {
+      for (const r of rooms) {
+        if (!r.key || r.cleared || unreachable(r)) continue;
+        return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'keyroom', room: r };
+      }
+    }
     // 1) loose pickups: prisms / keys (skip ones we failed to reach recently)
     if (A.opts.arsenal) for (const it of G.inter) if (it.kind === 'arsrack' && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
       return { pt: [it.x, it.y], label: '军械库', room: roomAt(it.x, it.y) };
