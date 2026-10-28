@@ -63,16 +63,22 @@
     }
     return scriptsReady();
   }
-  function startRunWith({ diff = 'classic', mods = null, policy = null } = {}) {
+  // `boost` lets a run START with better gear, so the damage threshold can be
+  // measured directly instead of inferred: { weapons, wlv, shards, ink }.
+  function startRunWith({ diff = 'classic', mods = null, policy = null, boost = null } = {}) {
     const d = (DIFF_BY && DIFF_BY[diff]) ? diff : (diff || 'classic');
     SET.diff = d; saveSettings();
     const useMods = Array.isArray(mods) && mods.length ? mods.slice() : null;
+    const b = boost || null;
     let resumed = false;
-    if (useMods) {
+    if (useMods || b) {
       const save = {
-        v: 1, at: Date.now(), floor: 0, diff: d, modifiers: useMods,
-        hp: 5, maxHp: 5, armor: 3, maxArmor: 3, weapons: ['nail'], wi: 0, wlv: {},
-        shards: {}, skill: null, ink: 0, kills: 0, runT: 0, hits: 0, curses: [],
+        v: 1, at: Date.now(), floor: 0, diff: d, modifiers: useMods || [],
+        hp: 5, maxHp: 5, armor: 3, maxArmor: 3,
+        weapons: (b && b.weapons) ? b.weapons.slice() : ['nail'], wi: 0,
+        wlv: (b && b.wlv) ? Object.assign({}, b.wlv) : {},
+        shards: (b && b.shards) ? Object.assign({}, b.shards) : {},
+        skill: null, ink: (b && b.ink) || 0, kills: 0, runT: 0, hits: 0, curses: [],
         rid: 'r' + Date.now().toString(36),
       };
       try {
@@ -141,7 +147,7 @@
     };
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null } = {}) {
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null } = {}) {
     const detMode = !!(TSW.det && TSW.det.on);
     const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
     // log every hurtPlayer call (dmg, pierce, mechHit) so death causes are visible
@@ -169,7 +175,7 @@
     // start a fresh run: either the game's own launchRun() or (with modifiers)
     // a crafted save resumed through the game's loader
     await waitScripts();
-    startRunWith({ diff, mods });
+    startRunWith({ diff, mods, boost });
     const G = () => window.__achroma.G;
     const t0 = performance.now();
     // the resume path needs a beat; without this the first ticks record the menu
