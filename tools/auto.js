@@ -1133,8 +1133,25 @@
           continue;
         }
         if (it.kind === 'weapon') {
-          const cur = wScore(w.id), nw = wScore(it.id);
-          if (nw > cur + .5 || p.weapons.length < wCap()) {
+          // Compare by real DPS when asked: the policy table alone lets the bot
+          // keep a preferred-but-weak gun over a much stronger pickup.
+          const rDps = (id) => {
+            try {
+              const ww = WEAPONS[id]; if (!ww) return 0;
+              const lv = (p.wlv && p.wlv[id]) | 0;
+              return (ww.dmg || 0) * (ww.rate || 1) * (ww.n || 1) * (1 + .25 * lv);
+            } catch (e) { return 0; }
+          };
+          const cur = A.opts.weaponDps ? rDps(w.id) : wScore(w.id);
+          const nw = A.opts.weaponDps ? rDps(it.id) : wScore(it.id);
+          // At capacity, picking up a different gun REPLACES the held one, so the
+          // count never grows and we can lose a weapon that was already firing.
+          // Only swap when the held one is clearly worse AND we are not trading
+          // away a second gun (measured: always-swap left seed 5 with one weapon
+          // and dps 79, versus two weapons and dps 120).
+          const atCap = p.weapons.length >= wCap();
+          const worthSwap = A.opts.weaponSwapAtCap ? (nw > cur * 1.35) : !atCap;
+          if (worthSwap || p.weapons.length < wCap()) {
             A.status.note = '拿武器 ' + it.id;
             tap('KeyE');
             const tries = (A._pickTries.get(it) || 0) + 1; A._pickTries.set(it, tries);
