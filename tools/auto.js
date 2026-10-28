@@ -45,6 +45,7 @@
       powerupFirst: true,                                    // explore: grab weapons/chips/serums before fights
       meleeBlock: true,                                      // explore: swing to deflect incoming bullets with melee
       weaponLateBias: 90,                                    // explore: ink level at which per-shot damage starts to weigh more
+      fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
@@ -461,7 +462,15 @@
 
   function spotDanger(x, y, p) {
     const G = __achroma.G; let d = 0;
-    const h = hard(), horizon = h ? .95 : .7, wMul = h ? 1.3 : 1;
+    const h = hard();
+    // α serum: for three fights every hit is taken from MAX HP permanently, so a
+    // single careless touch costs a permanent resource.  Switch to zero-tolerance
+    // while it is active: look further ahead and weight every danger higher.
+    let alpha = false;
+    try { alpha = !!(G.exp && G.exp.id === 'a' && (G.exp.left | 0) > 0); } catch (e) { }
+    A._alphaMode = alpha;
+    const horizon = alpha ? 1.35 : (h ? .95 : .7);
+    const wMul = alpha ? 1.9 : (h ? 1.3 : 1);
     if (typeof inMech === 'function' && G.mechs) for (const m of G.mechs) {
       const w = mechDanger(m); if (!w) continue;
       let inside = false;
@@ -1356,6 +1365,8 @@
         const band = (retreat ? [170, gene('retreatHi')]
           : focus ? (melee ? [gML, gMH] : pierceK ? [gNL + 20, gNH + 20] : [gNL, gNH])
             : (melee ? [gML, gMH] : pierceK ? [gFL - 10, gFH - 10] : [gFL, gFH])).map((v) => Math.round(v * bs));
+        // α serum active: widen the band so contact is less likely at all
+        if (A._alphaMode) { band[0] = Math.round(band[0] * 1.5); band[1] = Math.round(band[1] * 1.45); }
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
@@ -1759,6 +1770,20 @@
       // appears after the last floor).  Like the seal, they used to exist ONLY in
       // the interaction branch, so the bot never walked to one: it would clear a
       // floor, watch the portal spawn, and wander until it died.
+      // ---- don't descend while hurt ------------------------------------------
+      // A floor should be entered at full HP: arriving low means the next fight
+      // starts at a disadvantage.  Healing sources are only enabled by default
+      // when this rule needs them, so it overrides the `fount`/heart defaults.
+      if (A.opts.fullHpGate !== false && p.hp < p.maxHp && !(G.exp && G.exp.id === 'a' && (G.exp.left | 0) > 0)) {
+        for (const it of (G.inter || [])) {
+          if (it.used) continue;
+          if (unreachable([it.x, it.y]) || unreachable(roomAt(it.x, it.y))) continue;
+          if (it.kind === 'fount' && ((G.ink | 0) >= (it.cost | 0)) && !hasCurse('drought'))
+            return { pt: [it.x, it.y], label: 'fount', room: roomAt(it.x, it.y) };
+          if (it.kind === 'shop' && it.what === 'heart' && !it.sold && ((G.ink | 0) >= it.price))
+            return { pt: [it.x, it.y], label: 'heart', room: roomAt(it.x, it.y) };
+        }
+      }
       if (A.opts.usePortals !== false) {
         // Only take a portal once this floor has nothing left worth clearing —
         // otherwise walking to it skips rooms, prisms and serums, and the run
