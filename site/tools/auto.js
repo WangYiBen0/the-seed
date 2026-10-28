@@ -44,6 +44,7 @@
       specialsFirst: true,                                   // explore: detour to special rooms before combat
       powerupFirst: true,                                    // explore: grab weapons/chips/serums before fights
       meleeBlock: true,                                      // explore: swing to deflect incoming bullets with melee
+      weaponLateBias: 90,                                    // explore: ink level at which per-shot damage starts to weigh more
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
@@ -188,6 +189,11 @@
           const per = (Array.isArray(ww.dmg) ? ww.dmg[0] : ww.dmg) * (ww.n || 1);
           v += Math.min(3, per / 12);                    // burst-ish bonus
           if ((ww.pierce | 0) >= 1) v += 1.2;            // piercing is worth a slot
+          // Late-game scaling: every upgrade multiplies the BASE damage, so
+          // a heavy single-shot weapon outgrows a fast peashooter.  Only bias
+          // toward that when upgrades are actually reachable (ink in hand).
+          const lvl = (A.opts.weaponLateBias === undefined) ? 90 : A.opts.weaponLateBias;
+          if (lvl && (G.ink | 0) >= lvl) v += Math.min(2.5, per / 24);
         }
       } catch (e) { }
       if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
@@ -1443,7 +1449,11 @@
       // we swap back so the better weapon keeps the DPS.
       if (A.opts.weaponSwap && p.weapons.length > 1 && p.dashT <= 0) {
         const curW = WEAPONS[p.weapons[p.wi]], othW = WEAPONS[p.weapons[1 - p.wi]];
-        if (curW && othW && usesAmmo(curW) && usesAmmo(othW)) {
+        // Melee carries no magazine, so "wait for a reload" does not apply: if
+        // either slot is a melee weapon the swap window is meaningless, and
+        // swapping steals the melee blocking/deflection the bot relies on.
+        const anyMelee = isMelee(curW && curW.id) || isMelee(othW && othW.id);
+        if (curW && othW && !anyMelee && usesAmmo(curW) && usesAmmo(othW)) {
           const curA = ammoOf(p, curW.id), othA = ammoOf(p, othW.id);
           const curBusy = curA.rl > 0 || curA.n <= 0;
           const othReady = othA.rl <= 0 && othA.n > 0;
