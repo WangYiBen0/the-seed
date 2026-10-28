@@ -45,6 +45,7 @@
       powerupFirst: true,                                    // explore: grab weapons/chips/serums before fights
       meleeBlock: true,                                      // explore: swing to deflect incoming bullets with melee
       weaponLateBias: 90,                                    // explore: ink level at which per-shot damage starts to weigh more
+      shardFit: true,                                        // explore: score shards by fit to the held weapon
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -213,6 +214,39 @@
     try { if (typeof synergyHint === 'function' && synergyHint(id)) v *= 1.8; } catch (e) { }
     // never make yourself squishier while idle
     if (id === 'glass') v *= A.mode === 'full' ? .4 : 1;
+    // ---- fit to the weapon actually held --------------------------------
+    // A fixed rarity/policy table ignores what the gun can convert into damage:
+    // AMMO shards are dead weight on a melee kit, ELEMENT/POWER shards are weak
+    // on a 3-damage hose, FORM/CRIT shine on high-rate guns.  With only 2-4 cards
+    // per run, spending them on mismatched shards is the whole problem.
+    try {
+      if (A.opts.shardFit === false) throw 0;
+      const tag = s.tag || '';
+      const p2 = G.p;
+      const wid = p2 && p2.weapons ? p2.weapons[p2.wi] : null;
+      const w = wid && WEAPONS[wid] ? WEAPONS[wid] : null;
+      if (w) {
+        const meleeW = isMelee(wid);
+        const fast = (w.rate || 1) >= 8;              // spray weapons
+        const slowBig = (w.dmg || 0) >= 18;           // heavy single-shot
+        const elems = (w.sc && w.sc.elem) || w.burn || w.slow || w.chain || w.proc > .5;
+        const mult = (f) => { v *= f; };
+        if (tag === 'AMMO' && meleeW) mult(.25);      // no magazine at all
+        if (tag === 'AMMO' && !meleeW) mult(1.1);
+        if (tag === 'ELEMENT' && !elems) mult(.6);    // gun cannot apply it
+        if (tag === 'ELEMENT' && elems) mult(1.35);
+        if (tag === 'FORM' && fast) mult(1.25);       // copies on every shot
+        if (tag === 'FORM' && slowBig) mult(.8);
+        if (tag === 'CRIT' && fast) mult(1.2);        // more rolls per second
+        if (tag === 'CRIT' && slowBig) mult(1.15);
+        if (tag === 'POWER' && slowBig) mult(1.3);    // multiply a big base
+        if (tag === 'POWER' && !slowBig) mult(.85);
+        if (tag === 'KILL' && fast) mult(1.2);        // on-kill procs scale with dps
+        if (tag === 'HUNT' && slowBig) mult(1.2);
+        if (tag === 'MOVE' || tag === 'SURVIVE' || tag === 'ALLY') mult(1);   // neutral
+        if (meleeW && (tag === 'CRIT' || tag === 'POWER')) mult(1.1);
+      }
+    } catch (e) { }
     return v;
   }
 
