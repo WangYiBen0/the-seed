@@ -437,6 +437,8 @@
       hurtPierce: (function () { try { return (window.__hurtLog || []).filter((x) => x.p && !x.m).length; } catch (e) { return 0; } })(),
       hurtPlain: (function () { try { return (window.__hurtLog || []).filter((x) => !x.p && !x.m).length; } catch (e) { return 0; } })(),
       hurtDmg: (function () { try { return Math.round((window.__hurtLog || []).reduce((a, x) => a + (x.d || 0), 0)); } catch (e) { return 0; } })(),
+      navFail: (function () { try { return TSW.auto._navFail || {}; } catch (e) { return {}; } })(),
+      navFailWhy: (function () { try { return TSW.auto._navFailWhy || []; } catch (e) { return []; } })(),
       orbs: (g.floorOrbs | 0), shardN: Object.keys((g.p && g.p.shards) || {}).length,
       // damage inputs: weapon levels are the multiplicative part of DPS, shard
       // count is the additive part; totalDps is a cheap proxy used for ranking

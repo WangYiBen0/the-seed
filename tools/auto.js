@@ -320,8 +320,11 @@
   const exclList = (k) => { const v = TSW.settings.get(k, []); return Array.isArray(v) ? v : []; };
   const excluded = (id) => exclList('serumExclude').includes(id);
   // BFS over the tile grid: real path around walls/pits instead of random wiggling
+  // Every null return records WHY: start blocked, goal blocked, no route, or the
+  // world not being ready.  Guessing at these was costing whole rounds.
+  const navFail = (why) => { A._navFail = A._navFail || {}; A._navFail[why] = (A._navFail[why] || 0) + 1; return null; };
   function gridPath(p, tx, ty) {
-    if (typeof WORLD === 'undefined' || !WORLD || !WORLD.tiles || typeof TL === 'undefined') return null;
+    if (typeof WORLD === 'undefined' || !WORLD || !WORLD.tiles || typeof TL === 'undefined') return navFail('noWorld');
     const Wd = WORLD.w, Ht = WORLD.h, tiles = WORLD.tiles;
     const walkable = (gx, gy) => { if (gx < 0 || gy < 0 || gx >= Wd || gy >= Ht) return false; const t = tiles[gy * Wd + gx]; return t === TL.FLOOR || t === TL.SLUDGE; };
     // prefer routes that do not cross a live hazard; fall back to plain walkable
@@ -339,7 +342,25 @@
     // collapsed runs to 15-154 seconds: with a hazard-tolerant start node the
     // search happily routes THROUGH hazardous tiles, so the bot walks into
     // poison/void and dies at the first room.  Keep the strict test.
-    if (!okT(sx, sy) || !okT(gx2, gy2)) return null;
+    if (!okT(sx, sy)) return navFail('startBlocked');
+    // A blocked goal is usually a room CENTRE that happens to be a pillar or a
+    // closed door — the objective coordinate is geometric, not walkable.  Rather
+    // than failing the whole search, slide the goal to the nearest walkable tile.
+    let gxx = gx2, gyy = gy2;
+    if (!okT(gxx, gyy)) {
+      let bestG = null, bestGD = 1e9;
+      for (let r = 1; r <= 6 && !bestG; r++) {
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;   // ring only
+          const nx2 = gx2 + dx, ny2 = gy2 + dy;
+          if (!okT(nx2, ny2)) continue;
+          const dd2 = dx * dx + dy * dy;
+          if (dd2 < bestGD) { bestGD = dd2; bestG = [nx2, ny2]; }
+        }
+      }
+      if (bestG) { gxx = bestG[0]; gyy = bestG[1]; }
+      else return navFail('goalBlocked');
+    }
     const okT2 = okT;
     const start = sy * Wd + sx, goal = gy2 * Wd + gx2;
     if (start === goal) return [];
@@ -361,7 +382,23 @@
       A._plainPath = true;
       try { return gridPath(p, tx, ty); } finally { A._plainPath = false; }
     }
-    if (!prev.has(goal)) return null;
+    if (!prev.has(goal)) {
+      // record the geometry so we can see WHERE it fails, not just how often
+      A._navFailWhy = (A._navFailWhy || []);
+      const key = (gxx * 16 + 8) + ',' + (gyy * 16 + 8);
+      if (A._navFailWhy.length < 8) A._navFailWhy.push(
+        Math.round(p.x) + ',' + Math.round(p.y) + '->' + key);
+      // A target that is unreachable from several different starts is inside a
+      // sealed pocket; no search algorithm will ever reach it.  Count per target
+      // point and blacklist it for a long while so the bot stops re-picking it.
+      A._navNoRoute = A._navNoRoute || {};
+      A._navNoRoute[key] = (A._navNoRoute[key] | 0) + 1;
+      if (A._navNoRoute[key] >= 3) {
+        A._deadPoint = A._deadPoint || {};
+        A._deadPoint[key] = G_time() + 300;           // 5 minutes of game time
+      }
+      return navFail('noRoute');
+    }
     const path = []; let cur = goal;
     while (cur !== start) { path.push([(cur % Wd) * 16 + 8, ((cur / Wd) | 0) * 16 + 8]); cur = prev.get(cur); }
     path.reverse(); return path;
@@ -1890,6 +1927,14 @@
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
       let tgt = pickObjective(G, p);
+      // If the chosen point is known-unreachable, drop it and re-pick once.  The
+      // dead list is populated by gridPath, so this self-heals: a point that
+      // genuinely cannot be reached stops being chosen for five minutes.
+      if (tgt && deadPoint(tgt.pt)) {
+        if (tgt.room) { A._skipRoom = A._skipRoom || {}; A._skipRoom[tgt.room.id] = G.time + 120; }
+        tgt = pickObjective(G, p);
+        if (tgt && deadPoint(tgt.pt)) tgt = null;
+      }
       A._tgtPt = (tgt && tgt.pt) ? tgt.pt.slice(0, 2) : null;
       // ---- 通用目标放弃 ---------------------------------------------------
       // Any objective the bot keeps re-choosing but never completes pins the whole
@@ -2039,12 +2084,43 @@
     } catch (e) { return 0; }
   }
 
+  // Rooms are addressed by their geometric centre, but a centre can be a pillar
+  // or sit behind a closed door.  When walking ACROSS the floor, approach the
+  // nearest doorway instead — that is the only real entrance.
+  function approachPoint(r, p) {
+    if (!r) return null;
+    if (r.active && r.doors && r.doors.length) {
+      let best = null, bd = 1e9;
+      for (const pair of r.doors) {
+        const px = pair[0] * 16 + 8, py = pair[1] * 16 + 8;
+        const dd = dist(p.x, p.y, px, py);
+        if (dd < bd) { bd = dd; best = [px, py]; }
+      }
+      if (best) return best;
+    }
+    return [r.cx * 16 + 8, r.cy * 16 + 8];
+  }
+
+  // helper: is this objective point known-unreachable?  (filled by gridPath when
+  // the same coordinate fails to route three times)
+  function deadPoint(t) {
+    if (!t || !A._deadPoint) return false;
+    const k = Math.round(t[0]) + ',' + Math.round(t[1]);
+    const until = A._deadPoint[k];
+    if (!until) return false;
+    if (G_time() >= until) { delete A._deadPoint[k]; return false; }
+    return true;
+  }
+  // wrap the objective picker so unreachable targets are skipped automatically,
+  // without editing each of its twenty-odd return statements
+  const pickObjectiveRaw = null;
+
   function pickObjective(G, p) {
     // The floor may not exist yet (right after launch, or a failed generation).
     // Without this guard the bot chases interactables that have no room, and the
     // run sits still: measured 80+ game-seconds with rooms:0 and kills:0.
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) return null;
-    const rooms = WORLD.rooms;
+    const rooms = WORLD.rooms.filter((r) => !(A._skipRoom && A._skipRoom[r.id] && G.time < A._skipRoom[r.id]));
     // ---- 钥匙房间最高优先 ---------------------------------------------------
     // The boss room stays locked until the key is collected, and the key sits in
     // one of the FIRST HALF of candidate rooms and only spawns when that room is
@@ -2322,7 +2398,18 @@
         const dd = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
         if (dd < orphD) { orphD = dd; orphan = r; }
       }
-      if (orphan) return { pt: [orphan.cx * 16 + 8, orphan.cy * 16 + 8], label: orphan.type, room: orphan };
+      if (orphan) {
+        // An active room's doors are closed (setDoors(r,true) in lockRoom), so its
+        // CENTRE is unreachable from outside and pathfinding reports noRoute.  Aim
+        // at the nearest doorway instead, which is the only way in.
+        let dp = null, dd0 = 1e9;
+        for (const pair of (orphan.doors || [])) {
+          const px2 = pair[0] * 16 + 8, py2 = pair[1] * 16 + 8;
+          const d0 = dist(p.x, p.y, px2, py2);
+          if (d0 < dd0) { dd0 = d0; dp = [px2, py2]; }
+        }
+        return { pt: dp || [orphan.cx * 16 + 8, orphan.cy * 16 + 8], label: orphan.type, room: orphan };
+      }
     }
     // 3) nearest unvisited combat room
     let best = null, bd = 1e9;
