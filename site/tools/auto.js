@@ -867,6 +867,9 @@
                 if (dd < bdd) { bdd = dd; best = [px2, py2]; }
               }
               if (best) { travel.path = [best]; travel.adv = now; }
+              // measure whether the fallback actually rescues movement
+              A._roomFb = (A._roomFb || 0) + 1;
+              A._roomFbRef = [p.x, p.y];
             }
           }
         } catch (e) { }
@@ -1947,6 +1950,16 @@
         }
       }
       A._forceActive = (A._forceUntil && G.time < A._forceUntil) ? A._forceDir : null;
+      // did a room-graph rescue actually get us moving?  This is the metric that
+      // was missing: no-route counts gridPath failures, not rescues.
+      if (A._roomFbRef) {
+        if (A._roomFbT === undefined) A._roomFbT = G.time;
+        if (G.time - A._roomFbT > 4) {
+          const moved2 = Math.hypot(p.x - A._roomFbRef[0], p.y - A._roomFbRef[1]);
+          A._roomFbOK = (A._roomFbOK || 0) + (moved2 > 40 ? 1 : 0);
+          A._roomFbRef = null; A._roomFbT = undefined;
+        }
+      }
     }
 
     // ---------- navigation (no active fight) ----------
