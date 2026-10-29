@@ -57,6 +57,12 @@
       bossPrepHeal: true,                                    // explore: heal up before opening the boss seal
       focusFire: true,                                       // explore: keep hitting one target until it dies
       fireWhileRetreat: true,                                // explore: keep firing while backing off
+      powerupRange: 700,                                     // explore: how far to walk for a loose weapon/chip
+      vault: true,                                           // explore: open the vault when ink allows
+      idol: true,                                            // explore: take an idol wish with a curse
+      altar: true,                                           // explore: use blood altars
+      altarPact: true,                                       // explore: trade 1 hp for a card at an altar
+      trial: true,                                           // explore: start trial totems
       fireWithoutLos: false,                                 // explore: shoot point-blank without clear sight
       noLosRange: 150,                                       // explore: range at which sight is not required
       fullHpGate: true,                                      // explore: heal to full before descending
@@ -972,8 +978,18 @@
   }
 
   function driveCards(G, tap) {
+    // NOTE: A._cardsT is reset by drivePlay whenever the state is not 'cards'.
     const cd = G.cards; if (!cd || cd.pick >= 0 || cd.t < .7) return;
-    if (cd.skipT !== undefined || cd.ban) return;   // sieve animation in progress
+    // Sieve animation and 无尽's re-roll window can leave the card panel waiting
+    // indefinitely; without a watchdog a run freezes with no note.  Track how long
+    // the panel has been open and force a pick once it overruns.
+    A._cardsT = (A._cardsT || 0) + 1;
+    if (A._cardsT < 3) return;                       // let the animation start
+    if (cd.skipT !== undefined || cd.ban) {
+      // still animating: wait, but never forever
+      if (A._cardsT < 90) return;
+      A.status.note = '血清面板超时强制选择';
+    }
     const ex = exclList('serumExclude'), prio = exclList('serumPriority');
     const hasSv = (typeof svData === 'function') ? svData() : { ban: 0, skip: 0 };
     const exIdx = cd.opts.map((id, i) => (ex.includes(id) ? i : -1)).filter((i) => i >= 0);
@@ -1326,8 +1342,37 @@
     if (A.mode === 'full' && !active) {
       for (const it of G.inter) {
         const d = dist(p.x, p.y, it.x, it.y); if (d > 24) continue;
+        if (A.opts.interDebug) console.info('[inter] ' + it.kind + ' d=' + d.toFixed(0) + ' used=' + !!it.used);
         if (it.kind === 'fount' && A.opts.fount && !it.used && p.hp < p.maxHp - 1 && !hasCurse('drought') && G.ink >= it.cost) { A.status.note = '治疗'; tap('KeyE'); break; }
-        if (it.kind === 'chest' && A.opts.chest && !it.used) { A.status.note = '开箱'; tap('KeyE'); break; }
+        if (it.kind === 'chest' && A.opts.chest && !it.used) { A.metrics.interChest = (A.metrics.interChest || 0) + 1; A.status.note = '开箱'; tap('KeyE'); break; }
+        // ---- every remaining interactable kind --------------------------------
+        // Enumerated from game.js: 19 kinds exist and the bot used to handle eight,
+        // which is why chests/inks/altars were walked past and no ink ever
+        // accumulated for forging.
+        if (it.kind === 'vault' && A.opts.vault && !it.used && (G.ink | 0) >= (it.cost | 0) + 20) {
+          A.status.note = '保险柜'; tap('KeyE'); break;
+        }
+        if (it.kind === 'idol' && A.opts.idol && !it.used && (G.curses || []).length < 2) {
+          A.status.note = '偶像祈愿'; tap('KeyE'); break;
+        }
+        if (it.kind === 'altar' && A.opts.altar && !it.used && p.hp > 2 && A.opts.altarPact) {
+          A.status.note = '祭坛立约'; tap('KeyE'); break;
+        }
+        if (it.kind === 'totem' && A.opts.trial && !it.used && G.time > 12) {
+          A.status.note = '开始试炼'; tap('KeyE'); break;
+        }
+        if (it.kind === 'forge' && A.opts.forge) {
+          const fid = p.weapons[p.wi], flv = (p.wlv && p.wlv[fid]) | 0, fcost = 30 + flv * 25;
+          if (flv < 3 && (G.ink | 0) >= fcost + 15) { A.status.note = '锻造 +' + (flv + 1); tap('KeyE'); break; }
+        }
+        if (it.kind === 'shop' && A.opts.shop && !it.sold) {
+          if (it.what === 'heart' && p.hp < p.maxHp && (G.ink | 0) >= it.price) { A.status.note = '买心'; tap('KeyE'); break; }
+          if (it.what === 'shard' && (G.ink | 0) >= it.price) { A.status.note = '买血清'; tap('KeyE'); break; }
+          if (it.what === 'chip' && !p.skill && (G.ink | 0) >= it.price) { A.status.note = '买技能'; tap('KeyE'); break; }
+          if (it.what === 'weapon' && (G.ink | 0) >= it.price && (p.weapons || []).length < wCap()) { A.status.note = '买武器'; tap('KeyE'); break; }
+          continue;
+        }
+        if (it.kind === 'ink' && A.opts.pickups) { A.status.note = '捡墨水'; break; }   // walk over
         if (it.kind === 'survivor' && A.opts.mate && !it.used) {
           const wantMate = !A.goal.mate() || it.id === A.goal.mate() || it.id === A.goal.radio();
           if (wantMate) { A.status.note = '招募搭档 ' + it.id; tap('KeyE'); break; }
@@ -1768,6 +1813,11 @@
         forgeRooms: (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => r.type === 'forge').length : -1,
         px: Math.round(p.x), py: Math.round(p.y),
         vial: (function () { const v = (G.inter || []).find((i) => i.kind === 'labvial' && !i.used); return v ? Math.round(Math.hypot(v.x - p.x, v.y - p.y)) : -1; })(),
+        iMin: (function () {
+          let m = 999, k = '';
+          for (const it of (G.inter || [])) { if (it.used) continue; const dd = Math.round(Math.hypot(it.x - p.x, it.y - p.y)); if (dd < m) { m = dd; k = it.kind; } }
+          return k ? (k + '@' + m) : '';
+        })(),
         wp: A._lastWp ? [Math.round(A._lastWp[0]), Math.round(A._lastWp[1])] : null,
       };
       // trace mode: with ?trace=1 print the mirror so headless runs can see it
@@ -1987,13 +2037,20 @@
         else if (it.kind === 'labvial' && A.opts.labSerum && !it.used) stops.push([it.x, it.y, 'labvial']);
       }
       let best = null, bd = 1e9;
+      // Pathing can route around walls, so requiring a straight line hid most
+      // floor guns: the bot walked past them and "never picked anything up".  Prefer
+      // visible ones, but accept a reachable one at range too.
+      let bestAny = null, bdAny = 1e9;
       for (const sp of stops) {
         if (unreachable([sp[0], sp[1]])) continue;
-        if (!los(p.x, p.y, sp[0], sp[1])) continue;      // only ones we can walk straight to
+        const straight = los(p.x, p.y, sp[0], sp[1]);
         const d = dist(p.x, p.y, sp[0], sp[1]);
-        if (d < bd) { bd = d; best = sp; }
+        if (straight && d < bd) { bd = d; best = sp; }
+        if (d < bdAny) { bdAny = d; bestAny = sp; }
       }
-      if (best && bd < 260) return { pt: [best[0], best[1]], label: best[2], room: roomAt(best[0], best[1]) };
+      const reach = A.opts.powerupRange || 700;
+      if (best && bd < reach) return { pt: [best[0], best[1]], label: best[2], room: roomAt(best[0], best[1]) };
+      if (!best && bestAny && bdAny < reach) return { pt: [bestAny[0], bestAny[1]], label: bestAny[2], room: roomAt(bestAny[0], bestAny[1]) };
     }
     // 'clear-first' (A/B): during the first pass we push combat rooms before
     // walking back for loose drops; prisms are picked up once rooms are cleared.

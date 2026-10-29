@@ -618,8 +618,13 @@
   // the autopilot's own evasion scorecard (danger exposure, worst-case bullet
   // clearance, dash usage).  engine 'v2' vs 'simple' is an A/B of the dodge AI
   // itself, so the number says something about the code and not just the seed.
+  // The dodge test used to run on an EXPLORE floor, where the bot could step into
+  // a closed room and leave the enemies outside — the measurement then reported a
+  // near-perfect rate that meant nothing.  The invade arena is a single open
+  // rectangle with no rooms and no doors (ivArena), so that escape cannot happen.
   async function runDodgeOne({ depth = 6, seconds = 45, speed = 8, policy = 'survival', seed = 11,
-    floor = 4, keep = 7, spawnEvery = 3, spawnN = 4, hp = 14, types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
+    arena = true, keep = 9, spawnEvery = 2.2, spawnN = 4, hp = 14,
+    types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
     const wasNoFire = TSW.auto.opts.noFire;
     TSW.rng.seed(seed);
@@ -628,15 +633,32 @@
     TSW.auto.opts.noFire = true;              // stress: never shoot back
     const M = TSW.metrics; M.reset(); TSW.auto.metrics.reset();
     const save = {
-      v: 1, at: Date.now(), floor, diff: diff || 'classic', hp, armor: 3,
+      v: 1, at: Date.now(), floor: 4, diff: diff || 'classic', hp, armor: 3,
       weapons: ['rivet'], wi: 0, wlv: { rivet: 1 }, shards: { plate: 1, vital: 1 },
       skill: null, ink: 200, kills: 0, runT: 0, hits: 0, endless: depth,
       rid: 'r' + Date.now().toString(36),
     };
-    try { STORE.setItem('achroma_run', JSON.stringify(save)); resumeRun(); }
-    catch (e) { TSW.err('dodge resume', e); }
+    let arenaOk = false;
+    if (arena && typeof ivBegin === 'function' && typeof ivArena === 'function') {
+      try {
+        // Build the open arena directly: one walled rectangle, no rooms, no doors,
+        // so enemies can never be shut out and the barrage is continuous.
+        ivBegin();
+        const p2 = window.__achroma.G.p;
+        p2.hp = p2.maxHp = hp; p2.armor = 3; p2.maxArmor = 3;
+        p2.weapons = ['rivet']; p2.wi = 0; p2.wlv = { rivet: 1 };
+        p2.shards = { plate: 1, vital: 1 };
+        window.__achroma.G.state = 'play';
+        recomputeStats(); p2.hp = p2.maxHp;
+        arenaOk = true;
+      } catch (e) { TSW.err('dodge arena', e); }
+    }
+    if (!arenaOk) {
+      try { STORE.setItem('achroma_run', JSON.stringify(save)); resumeRun(); }
+      catch (e) { TSW.err('dodge resume', e); }
+    }
     const t0 = performance.now();
-    // the floor may not be built yet after resumeRun(); the game itself then
+    // the floor may not be built yet after resume/arena(); the game itself then
     // throws every frame on WORLD.spikeT (game.js:608) and nothing progresses
     while (performance.now() - t0 < 15000) {
       const g = window.__achroma.G;
