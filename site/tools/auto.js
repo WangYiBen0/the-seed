@@ -50,6 +50,8 @@
       mainHandBest: true,                                    // explore: hold the strongest weapon in the main hand
       arsenalByDps: true,                                    // explore: pick the armoury weapon by measured dps
       shopByDps: true,                                       // explore: rank shop weapons by measured dps
+      deathfightHazard: true,                                // explore: treat death-fight corpses as hazard
+      bossCriticalRetreat: true,                             // explore: disengage at 1 hp in a boss room
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -539,7 +541,7 @@
     // straight through a corpse field; four of six runs died within about 100 hp
     // of finishing a boss.  Treat them as standing hazard, at body radius + a
     // margin, for both the sampled point and the direction we are heading.
-    for (const e of G.enemies || []) {
+    if (A.opts.deathfightHazard !== false) for (const e of G.enemies || []) {
       if (e.dead || !(e.deathFightLeft > 0) || e.spawnT > 0) continue;
       const rr = (e.r || 6) + p.r + 16;
       const dd = dist(x, y, e.x, e.y);
@@ -1520,7 +1522,7 @@
         // 11-118 hp, i.e. a fraction of a second short.  When almost dead, break
         // off entirely and let armour regenerate (armour only comes back after
         // 3s without a hit) instead of trading the last hit for the boss's.
-        const bossCritical = !!(bossRoom && p.hp <= 1);
+        const bossCritical = !!(bossRoom && p.hp <= 1 && A.opts.bossCriticalRetreat !== false);
         if (bossCritical) { band[0] = 230; band[1] = 330; retreat = true; A.status.note = 'boss残血自保'; }
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
