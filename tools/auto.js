@@ -533,6 +533,19 @@
       if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
     }
     for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
+    // ---- death-fight bodies (绝境「死斗」) ---------------------------------
+    // A foe killed under this modifier stays lethal for two seconds and cannot be
+    // killed again.  nearestEnemy() filters them out, so the bot used to walk
+    // straight through a corpse field; four of six runs died within about 100 hp
+    // of finishing a boss.  Treat them as standing hazard, at body radius + a
+    // margin, for both the sampled point and the direction we are heading.
+    for (const e of G.enemies || []) {
+      if (e.dead || !(e.deathFightLeft > 0) || e.spawnT > 0) continue;
+      const rr = (e.r || 6) + p.r + 16;
+      const dd = dist(x, y, e.x, e.y);
+      if (dd < rr) d += 3.0;
+      else if (dd < rr + 18) d += 1.2;
+    }
     // ---- rotating boss lasers (boss.js:634) --------------------------------
     // A live laser is a SEGMENT from owner + cos(a)*r0 out to len, sweeping at va.
     // Inside r0 there is no damage at all, so the two safe answers are "hug the
@@ -1503,6 +1516,12 @@
         // α serum active: widen the band so contact is less likely at all
         if (A._alphaMode) { band[0] = Math.round(band[0] * 1.5); band[1] = Math.round(band[1] * 1.45); }
         else if (bossRoom) { band[0] = Math.round(band[0] * 1.25); band[1] = Math.round(band[1] * 1.2); }
+        // Critical health inside a boss room: several runs died with the boss on
+        // 11-118 hp, i.e. a fraction of a second short.  When almost dead, break
+        // off entirely and let armour regenerate (armour only comes back after
+        // 3s without a hit) instead of trading the last hit for the boss's.
+        const bossCritical = !!(bossRoom && p.hp <= 1);
+        if (bossCritical) { band[0] = 230; band[1] = 330; retreat = true; A.status.note = 'boss残血自保'; }
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
