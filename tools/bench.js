@@ -195,6 +195,7 @@
     let lastSig = '', lastSigT = performance.now();
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
     window.__bossMaxHp = 0; window.__bossMinHp = undefined; window.__bossHits = 0;
+    window.__firstBossT = undefined;
     // ---- run scoring -------------------------------------------------------
     // Progress is DECISIVE.  Damage taken contributes a negative term integrated
     // over time: the square of what was consumed, hp weighted heavier than armour.
@@ -214,6 +215,14 @@
             if (dHp || dAr) scorePenalty += (HP_W * dHp * dHp + ARM_W * dAr * dAr) * dtr;
           }
           prevHp = p.hp; prevArmor = p.armor; prevT = t;
+        }
+      } catch (e) { }
+      // The most reliable "we are in the boss room" signal is the boss object
+      // itself existing with health: WORLD.boss.visited is not set by the unlock
+      // path, which is why the first version always reported -1.
+      try {
+        if (window.__firstBossT === undefined && g.boss && g.boss.maxHp > 0) {
+          window.__firstBossT = g.runT || 0;
         }
       } catch (e) { }
       try {
@@ -343,6 +352,10 @@
       bossMaxHp: Math.round(window.__bossMaxHp || 0),
       bossMinHp: Math.round(window.__bossMinHp || 0),
       bossHitsLanded: (window.__bossHits | 0),
+      // Continuous progress marker: seconds until the first boss room was entered.
+      // A binary "cleared a floor" metric needs ~80 pairs to resolve a 20-point
+      // difference; this number resolves far better per run. -1 = never reached.
+      firstBossT: (window.__firstBossT === undefined ? -1 : Math.round(window.__firstBossT)),
       penalty: Math.round(scorePenalty * 10) / 10,
       // decisive term first: floors cleared dominates any damage penalty
       score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
@@ -640,7 +653,9 @@
       if (metricKey === 'reach') {
         // binary: invade -> waves, explore -> floors (both bounded, low variance)
         if (K === 'invade') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
-        return ((r.floor | 0) >= reachWave) ? 1 : 0;
+        // maxFloor, not floor: floor resets on death, so a run that cleared a
+        // floor and then died reported 0 and looked like it never advanced.
+        return (((r.maxFloor !== undefined && r.maxFloor !== null ? r.maxFloor : r.floor) | 0) >= reachWave) ? 1 : 0;
       }
       return r[metricKey] || 0;
     };
