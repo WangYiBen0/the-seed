@@ -56,6 +56,7 @@
       rushBoss: TSW.settings.get('autoRushBoss', false),                                       // explore: defer reward rooms to reach the boss sooner
       bossPrepHeal: TSW.settings.get('autoBossPrepHeal', true),                                    // explore: heal up before opening the boss seal
       focusFire: TSW.settings.get('autoFocusFire', true),                                       // explore: keep hitting one target until it dies
+      contactWeight: TSW.settings.get('autoContactWeight', 2.6), // explore: danger weight for enemy bodies
       fireWhileRetreat: TSW.settings.get('autoFireWhileRetreat', true),                                // explore: keep firing while backing off
       powerupRange: TSW.settings.get('autoPowerupRange', 700),                                     // explore: how far to walk for a loose weapon/chip
       vault: TSW.settings.get('autoVault', true),                                           // explore: open the vault when ink allows
@@ -610,7 +611,7 @@
       // NOTE: a 34px radius here made the bot refuse to approach anything and it
       // died at the first room within seconds. Contact is dangerous but so is
       // never closing in, so keep this tight.
-      if (dd < rr + 4) d += 2.6;
+      if (dd < rr + 4) d += (A.opts.contactWeight === undefined ? 2.6 : +A.opts.contactWeight);
     }
     // ---- death-fight bodies (绝境「死斗」) ---------------------------------
     // A foe killed under this modifier stays lethal for two seconds and cannot be
