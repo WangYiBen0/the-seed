@@ -56,6 +56,8 @@
       rushBoss: false,                                       // explore: defer reward rooms to reach the boss sooner
       bossPrepHeal: true,                                    // explore: heal up before opening the boss seal
       focusFire: true,                                       // explore: keep hitting one target until it dies
+      fireWithoutLos: false,                                 // explore: shoot point-blank without clear sight
+      noLosRange: 150,                                       // explore: range at which sight is not required
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1593,6 +1595,14 @@
           mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
         }
         wantFire = !!neF && !retreat && d < (melee ? 90 : 450);   // 撤退时不输出
+        // Firing was off for 67-83 percent of the "enemies alive, nothing dying"
+        // stretches.  The gate needs line of sight, and rooms are full of pillars,
+        // so the bot holds fire exactly when a close shot could still connect.
+        // Measured option: allow a point-blank shot without clear sight.
+        if (!wantFire && !retreat && A.opts.fireWithoutLos) {
+          const cl = nearestEnemy(p.x, p.y, A.opts.noLosRange || 150, false);
+          if (cl) { wantFire = true; A.status.note = '近战无视线开火'; }
+        }
         // Melee weapons destroy the bullets they swing through (deflectBullets,
         // weapons.js:209) and reflect 35% of them back.  Swinging while bullets
         // converge is therefore both defence and damage — do it even when no
