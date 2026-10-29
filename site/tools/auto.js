@@ -53,6 +53,8 @@
       deathfightHazard: true,                                // explore: treat death-fight corpses as hazard
       bossCriticalRetreat: true,                             // explore: disengage at 1 hp in a boss room
       bossAddsFirst: true,                                   // explore: clear summoned adds before the boss itself
+      rushBoss: false,                                       // explore: defer reward rooms to reach the boss sooner
+      bossPrepHeal: true,                                    // explore: heal up before opening the boss seal
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1871,6 +1873,13 @@
   const TRAPPED_ROOMS = ['blades', 'flames', 'spikes'];
   function roomWeight(r) {
     if (r.cleared) return 99;
+    // "rush" mode: reward rooms are the main time sink before the boss gate, so
+    // push them behind combat rooms when the goal is to reach the boss quickly.
+    // Measured with firstBossT (seconds until the boss room is entered).
+    if (A.opts.rushBoss && A.opts.rushBoss !== false && REWARD_ROOMS.includes(r.type)) {
+      if (r.key) return 0;
+      return 5;                                            // after combat, before boss
+    }
     if (REWARD_ROOMS.includes(r.type)) return 0;          // reward first
     if (TRAPPED_ROOMS.includes(r.type)) return 2;         // hazards, no spawns
     if (r.type === 'combat') return r.visited ? 1 : 3;    // harmless already-seen vs unseen
@@ -1974,6 +1983,22 @@
       // reachable-but-unreachable fount can never pin the run (see the 700s stall).
       if (A._hpGateFor !== (G.floor | 0)) { A._hpGateFor = G.floor | 0; A._hpGateSince = G.time; }
       const hpGateStuck = (G.time - (A._hpGateSince || G.time)) > 45;
+      // Boss rooms have no healing points inside, and one run entered one on 2/5
+      // health.  Emergency heal before opening the seal: if the key is in hand and
+      // the floor is otherwise clear (so the boss room is the only thing left),
+      // take any remaining healing first, ignoring the usual stuck timer.
+      if (A.opts.bossPrepHeal !== false && G.hasKey && WORLD.bossLocked && p.hp < p.maxHp) {
+        const left = rooms.filter((r) => !r.cleared && r.type !== 'boss' && r.type !== 'start');
+        if (left.length <= 1) {
+          for (const it of (G.inter || [])) {
+            if (it.used || unreachable([it.x, it.y]) || unreachable(roomAt(it.x, it.y))) continue;
+            if (it.kind === 'fount' && ((G.ink | 0) >= (it.cost | 0)) && !hasCurse('drought') && p.hp + 2 >= p.maxHp)
+              return { pt: [it.x, it.y], label: 'fount', room: roomAt(it.x, it.y) };
+            if (it.kind === 'shop' && it.what === 'heart' && !it.sold && ((G.ink | 0) >= it.price))
+              return { pt: [it.x, it.y], label: 'heart', room: roomAt(it.x, it.y) };
+          }
+        }
+      }
       if (A.opts.fullHpGate !== false && !hpGateStuck && p.hp < p.maxHp && !(G.exp && G.exp.id === 'a' && (G.exp.left | 0) > 0)) {
         for (const it of (G.inter || [])) {
           if (it.used) continue;
