@@ -640,7 +640,9 @@
       if (metricKey === 'reach') {
         // binary: invade -> waves, explore -> floors (both bounded, low variance)
         if (K === 'invade') return ((r.waveReached | 0) >= reachWave) ? 1 : 0;
-        return ((r.floor | 0) >= reachWave) ? 1 : 0;
+        // maxFloor, not floor: floor resets on death, so a run that cleared a
+        // floor and then died reported 0 and looked like it never advanced.
+        return (((r.maxFloor !== undefined && r.maxFloor !== null ? r.maxFloor : r.floor) | 0) >= reachWave) ? 1 : 0;
       }
       return r[metricKey] || 0;
     };
