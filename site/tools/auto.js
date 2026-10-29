@@ -330,7 +330,17 @@
     const okT = (gx, gy) => walkable(gx, gy) && (A._plainPath === true || hazardFree(gx, gy));
     const sx = Math.floor(p.x / 16), sy = Math.floor(p.y / 16);
     const gx2 = Math.floor(tx / 16), gy2 = Math.floor(ty / 16);
+    // A blocked START or GOAL used to abort the whole search.  That is fatal: when
+    // the player is standing on a hazard tile (hazardFree fails) or the objective
+    // sits on one, every path request returns null and the bot cannot even walk
+    // away.  Fall back to plain walkability for the endpoints.
+    const okPlain = (gx, gy) => walkable(gx, gy);
+    // NOTE: relaxing the endpoint test (allowing hazard tiles) was tried and
+    // collapsed runs to 15-154 seconds: with a hazard-tolerant start node the
+    // search happily routes THROUGH hazardous tiles, so the bot walks into
+    // poison/void and dies at the first room.  Keep the strict test.
     if (!okT(sx, sy) || !okT(gx2, gy2)) return null;
+    const okT2 = okT;
     const start = sy * Wd + sx, goal = gy2 * Wd + gx2;
     if (start === goal) return [];
     const prev = new Map([[start, start]]);
@@ -341,7 +351,7 @@
       const cx = cur % Wd, cy = (cur / Wd) | 0;
       for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = cx + d[0], ny = cy + d[1];
-        if (!okT(nx, ny)) continue;
+        if (!okT2(nx, ny)) continue;
         const ni = ny * Wd + nx;
         if (prev.has(ni)) continue;
         prev.set(ni, cur); q.push(ni);
@@ -558,8 +568,10 @@
       if (!e.contact && !e.melee) continue;                 // only bodies that hurt
       const rr = (e.r || 6) + p.r;
       const dd = dist(x, y, e.x, e.y);
-      if (dd < rr + 10) d += 3.2;
-      else if (dd < rr + 34) d += 1.4;
+      // NOTE: a 34px radius here made the bot refuse to approach anything and it
+      // died at the first room within seconds. Contact is dangerous but so is
+      // never closing in, so keep this tight.
+      if (dd < rr + 4) d += 2.6;
     }
     // ---- death-fight bodies (绝境「死斗」) ---------------------------------
     // A foe killed under this modifier stays lethal for two seconds and cannot be
@@ -1850,8 +1862,14 @@
     // for 90+ game-seconds with a valid waypoint,因为 pickDir 在该点找不到任何
     // 得分 > 0 的方向（威胁场 + 墙惩罚同时压制）。 任何「零位移」都必须被打破。
     if (A.opts.navFallback && (A.mode === 'full') && !active && !G.trial) {
+      // Progress is measured from the distance to the OBJECTIVE, not raw movement:
+      // oscillating between two unreachable points moves plenty while getting
+      // nowhere, and that is exactly the "stuck in a corner" symptom (60 seconds of
+      // walking, 50 pixels of progress).
       const moved = (A._mvRef && Math.hypot(p.x - A._mvRef[0], p.y - A._mvRef[1]));
-      if (!A._mvRef || !isFinite(moved) || moved > 6) { A._mvRef = [p.x, p.y]; A._mvT = G.time; }
+      const realProgress = moved;      // objective-distance progress collapsed runs; see docs
+
+      if (!A._mvRef || !isFinite(moved) || realProgress > 6) { A._mvRef = [p.x, p.y]; A._mvT = G.time; }
       else if (G.time - (A._mvT || 0) > 2.5) {
         A._mvT = G.time;
         // force a movement burst in a committed random direction (pit/void safe)
