@@ -196,6 +196,11 @@
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
     window.__bossMaxHp = 0; window.__bossMinHp = undefined; window.__bossHits = 0;
     window.__firstBossT = undefined; window.__bossEntry = null;
+    // ---- time decomposition ----------------------------------------------
+    // "33-48 seconds per room" is the number to attack, but it lumps fights,
+    // travel and stalls together.  Split it so the optimisation targets the
+    // part that actually dominates.
+    window.__tDecomp = { combat: 0, travel: 0, idle: 0, t: 0 };
     // ---- run scoring -------------------------------------------------------
     // Progress is DECISIVE.  Damage taken contributes a negative term integrated
     // over time: the square of what was consumed, hp weighted heavier than armour.
@@ -220,6 +225,22 @@
       // The most reliable "we are in the boss room" signal is the boss object
       // itself existing with health: WORLD.boss.visited is not set by the unlock
       // path, which is why the first version always reported -1.
+      try {
+        const dc = window.__tDecomp;
+        if (dc) {
+          const act = !!(g.boss && !g.boss.dead)
+            || (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms && WORLD.rooms.some((r) => r.active))
+            || !!g.trial;
+          const dt2 = Math.max(.05, Math.min(2, (g.runT || 0) - (dc.t || 0)));
+          dc.t = g.runT || 0;
+          if (act) dc.combat += dt2;
+          else {
+            const p3 = g.p || {};
+            const moving = Math.abs(p3.vx || 0) + Math.abs(p3.vy || 0) > 12;
+            if (moving) dc.travel += dt2; else dc.idle += dt2;
+          }
+        }
+      } catch (e) { }
       try {
         if (window.__firstBossT === undefined && g.boss && g.boss.maxHp > 0) {
           window.__firstBossT = g.runT || 0;
@@ -378,6 +399,9 @@
       // difference; this number resolves far better per run. -1 = never reached.
       firstBossT: (window.__firstBossT === undefined ? -1 : Math.round(window.__firstBossT)),
       bossEntry: window.__bossEntry || null,
+      tCombat: +(function () { try { return window.__tDecomp.combat.toFixed(1); } catch (e) { return 0; } })(),
+      tTravel: +(function () { try { return window.__tDecomp.travel.toFixed(1); } catch (e) { return 0; } })(),
+      tIdle: +(function () { try { return window.__tDecomp.idle.toFixed(1); } catch (e) { return 0; } })(),
       penalty: Math.round(scorePenalty * 10) / 10,
       // decisive term first: floors cleared dominates any damage penalty
       score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
