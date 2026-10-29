@@ -201,6 +201,24 @@
     // travel and stalls together.  Split it so the optimisation targets the
     // part that actually dominates.
     window.__tDecomp = { combat: 0, travel: 0, idle: 0, t: 0 };
+    // Wave bookkeeping: room waves are 2-4 per room with a mandatory inter-wave
+    // gap (game.js:184,199), which is a fixed cost that does not shrink with dps.
+    window.__waves = { count: 0, gapS: 0, rooms: 0, wavesPerRoom: [] };
+    // Counting wave boundaries from the monitor loop missed most of them because
+    // the gap is only .5-1s.  Wrap spawnWave directly — it runs once per wave.
+    try {
+      if (!window.__waveWrap && typeof spawnWave === 'function') {
+        window.__waveWrap = true;
+        const origWave = window.spawnWave || spawnWave;
+        window.spawnWave = function (r) {
+          try {
+            window.__waves.count++;
+            if (r && r.waves) window.__waves.wavesPerRoom.push(r.waves.length + 1);
+          } catch (e) { }
+          return origWave.apply(this, arguments);
+        };
+      }
+    } catch (e) { }
     // ---- run scoring -------------------------------------------------------
     // Progress is DECISIVE.  Damage taken contributes a negative term integrated
     // over time: the square of what was consumed, hp weighted heavier than armour.
@@ -405,6 +423,8 @@
       // Ratio not absolute: absolute combat seconds are dominated by how many
       // fights the seed happened to offer, which swamps any strategy effect.
       // A working strategy clears more rooms per second, i.e. lower ratio.
+      waveCount: (function () { try { return window.__waves.count | 0; } catch (e) { return 0; } })(),
+      waveGapS: +(function () { try { return window.__waves.gapS.toFixed(1); } catch (e) { return 0; } })(),
       combatRatio: +(function () { try {
         const d = window.__tDecomp;
         const tot = d.combat + d.travel + d.idle;
