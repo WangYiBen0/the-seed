@@ -56,6 +56,7 @@
       rushBoss: false,                                       // explore: defer reward rooms to reach the boss sooner
       bossPrepHeal: true,                                    // explore: heal up before opening the boss seal
       focusFire: true,                                       // explore: keep hitting one target until it dies
+      fireWhileRetreat: true,                                // explore: keep firing while backing off
       fireWithoutLos: false,                                 // explore: shoot point-blank without clear sight
       noLosRange: 150,                                       // explore: range at which sight is not required
       fullHpGate: true,                                      // explore: heal to full before descending
@@ -1594,7 +1595,13 @@
           if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
           mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
         }
-        wantFire = !!neF && !retreat && d < (melee ? 90 : 450);   // 撤退时不输出
+        // Retreating used to mean "stop shooting entirely", but 67-83 percent of
+        // the idle combat time was spent with the trigger up.  While backing off
+        // the target is still in range most of the time, so keep firing unless
+        // the shot is hopeless (very far) — the damage is free.
+        const retreatFire = retreat && A.opts.fireWhileRetreat !== false;
+        const retreatRange = melee ? 120 : 520;
+        wantFire = !!neF && d < (retreatFire ? retreatRange : (retreat ? 0 : (melee ? 90 : 450)));
         // Firing was off for 67-83 percent of the "enemies alive, nothing dying"
         // stretches.  The gate needs line of sight, and rooms are full of pillars,
         // so the bot holds fire exactly when a close shot could still connect.
