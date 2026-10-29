@@ -402,6 +402,14 @@
       tCombat: +(function () { try { return window.__tDecomp.combat.toFixed(1); } catch (e) { return 0; } })(),
       tTravel: +(function () { try { return window.__tDecomp.travel.toFixed(1); } catch (e) { return 0; } })(),
       tIdle: +(function () { try { return window.__tDecomp.idle.toFixed(1); } catch (e) { return 0; } })(),
+      // Ratio not absolute: absolute combat seconds are dominated by how many
+      // fights the seed happened to offer, which swamps any strategy effect.
+      // A working strategy clears more rooms per second, i.e. lower ratio.
+      combatRatio: +(function () { try {
+        const d = window.__tDecomp;
+        const tot = d.combat + d.travel + d.idle;
+        return tot > 0 ? (d.combat / tot).toFixed(3) : 0;
+      } catch (e) { return 0; } })(),
       penalty: Math.round(scorePenalty * 10) / 10,
       // decisive term first: floors cleared dominates any damage penalty
       score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
