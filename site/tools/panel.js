@@ -82,8 +82,8 @@
   const speedVal = el('div', 'color:#a07ad8', sState);
   const r1 = row(sState);
   const bSlow = btn('−'); const bFast = btn('＋'); r1.append(bSlow, bFast);
-  const b1 = btn('1×'), b2 = btn('2×'), b4 = btn('4×'), b8 = btn('8×'), b16 = btn('16×');
-  row(sState).append(b1, b2, b4, b8, b16);
+  // fixed multiplier buttons removed on request: the continuous slider below is
+  // the single control, and clicking the ×1 readout snaps back to normal speed.
   const rPerf = row(sState);
   const cbHud = check('测评 HUD（F9 或 HUD 右上角 ✕ 隐藏）', () => TSW.hud.visible, (v) => TSW.hud.toggle(v));
   rPerf.append(cbHud);
@@ -102,21 +102,30 @@
   // slow-motion as well as up to 16x.  Declared before the slider so its max
   // attribute can be computed (using it earlier threw a TDZ ReferenceError and
   // took the whole panel down).
-  const SLIDER_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 11, 16];
-  const spRow = row(sState);
+  // Continuous speed control over [0.25, 16].  Position is logarithmic so the
+  // knob feels even across the range, and it replaces the old stepped slider.
+  const SP_MIN = 0.25, SP_MAX = 16;
+  const spToFrac = (v) => Math.log(Math.max(SP_MIN, Math.min(SP_MAX, v)) / SP_MIN) / Math.log(SP_MAX / SP_MIN);
+  const fracToSp = (f) => +(SP_MIN * Math.pow(SP_MAX / SP_MIN, Math.max(0, Math.min(1, f)))).toFixed(2);
+  const spRow = r1;
   const spSlider = el('input', 'width:120px;flex:none;accent-color:#8ed872');
-  spSlider.type = 'range'; spSlider.min = '0'; spSlider.max = String(SLIDER_STEPS.length - 1); spSlider.step = '1';
+  spSlider.type = 'range'; spSlider.min = '0'; spSlider.max = '1000'; spSlider.step = '1';
   spSlider.value = '0';
-  const spOut = el('span', 'color:#a07ad8;min-width:34px;text-align:right');
+  // the readout doubles as a reset button: click it to snap back to 1x
+  const spOut = el('span', 'color:#a07ad8;min-width:40px;text-align:right;cursor:pointer');
+  spOut.title = '点击复位到 1x';
+  spOut.onclick = () => { TSW.speed.set(1); note('倍速已复位 1x'); };
   spRow.append(spSlider, spOut);
-  const sliderToSpeed = (v) => SLIDER_STEPS[Math.max(0, Math.min(SLIDER_STEPS.length - 1, +v | 0))];
-  const speedToSlider = (x) => {
-    let best = 0, bd = 1e9;
-    SLIDER_STEPS.forEach((v, i) => { const d = Math.abs(v - x); if (d < bd) { bd = d; best = i; } });
-    return best;
+  const updSlider = () => {
+    spSlider.value = String(Math.round(spToFrac(TSW.speed.get()) * 1000));
+    spOut.textContent = `×${TSW.speed.get()}`;
   };
-  const updSlider = () => { spSlider.value = String(speedToSlider(TSW.speed.get())); spOut.textContent = `×${TSW.speed.get()}`; };
-  spSlider.oninput = () => { const v = sliderToSpeed(spSlider.value); TSW.speed.set(v); spOut.textContent = `×${v}`; };
+  // releasing at the far-left end means "off": snap to 1x rather than 0.25x
+    spSlider.oninput = () => {
+    const raw = +spSlider.value;
+    if (raw <= 2) { TSW.speed.set(1); spOut.textContent = '×1'; return; }
+    const v = fracToSp(raw / 1000); TSW.speed.set(v); spOut.textContent = `×${v}`;
+  };
   spSlider.onchange = () => updSlider();
   TSW.bus.on('speed', updSlider);
 
@@ -124,8 +133,50 @@
   TSW.bus.on('speed', updSpeed); updSpeed();
   updSlider();
   TSW.bus.on('auto', () => { modeSel.value = TSW.auto.mode; polSel.value = TSW.auto.policy; });
-  [b1, b2, b4, b8, b16].forEach((b) => { const v = +b.textContent.slice(0, -1); b.onclick = () => TSW.speed.set(v); });
   bSlow.onclick = () => TSW.speed.nudge(-1); bFast.onclick = () => TSW.speed.nudge(1);
+
+  // ---------------- 自我进化 · EVOLVE ----------------
+  const sEv = section('自我进化 · EVOLVE');
+  const evHelp = el('div', 'color:#8d867a');
+  evHelp.textContent = '在浏览器内直接跑遗传算法：每个个体把一组参数注入挂机，跑固定种子后按得分排序，\n保留最优、交叉变异下一代。不占终端、不用 nodejs。';
+  sEv.appendChild(evHelp);
+  const evR1 = row(sEv);
+  const lb = (t, n) => { const w = el('label', 'display:flex;align-items:center;gap:3px;color:#8d867a'); w.append(document.createTextNode(t), n); return w; };
+  const evGen = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
+  const evPop = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
+  const evSec = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:52px;font:11px monospace');
+  evGen.value = '4'; evPop.value = '6'; evSec.value = '200';
+  evR1.append(lb('代数', evGen), lb('种群', evPop), lb('单局秒', evSec));
+  const evR2 = row(sEv);
+  const evGo = btn('开始进化');
+  const evStop = btn('停止');
+  evR2.append(evGo, evStop);
+  const evOut = el('div', 'white-space:pre;overflow:auto;max-height:170px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px');
+  sEv.appendChild(evOut);
+  const evApply = btn('应用最优参数');
+  row(sEv).append(evApply);
+  evGo.onclick = async () => {
+    if (!TSW.evolve) { note('进化引擎未就绪'); return; }
+    evOut.textContent = '开始…';
+    note('自我进化运行中（可随时停止）');
+    try {
+      const r = await TSW.evolve.start({
+        generations: +evGen.value || 4, pop: +evPop.value || 6,
+        seconds: +evSec.value || 200, diff: 'despair',
+        mods: ['rage', 'deathfight', 'bulwark', 'rot', 'cyst'],
+        seeds: [1, 5, 13, 23, 31],
+      });
+      if (r && r.error) { evOut.textContent = '错误：' + r.error; return; }
+      const lines = (r.log || []).slice(-12);
+      lines.push('冠军得分 ' + (r.best | 0));
+      const g = r.genome || {};
+      lines.push('最优参数：' + Object.keys(g).map((k) => k + '=' + (+g[k].toFixed ? +g[k].toFixed(2) : g[k])).join(', '));
+      evOut.textContent = lines.join('\n');
+      note('进化完成，可"应用最优参数"');
+      evApply.onclick = () => { TSW.auto.opts.genome = g; note('已应用进化结果'); };
+    } catch (e) { evOut.textContent = '出错：' + e.message; }
+  };
+  evStop.onclick = () => { if (TSW.evolve && TSW.evolve.stop) { TSW.evolve.stop(); note('已请求停止'); } };
 
   // ---------------- 宏 ----------------
   const sMacro = section('操作宏 · MACRO');
@@ -211,7 +262,25 @@
   bExpStop.onclick = () => { TSW.explore.stop(); TSW.macro.stopPlay(); note('将在当前局结束后停止'); };
   bExpMd.onclick = () => { navigator.clipboard && navigator.clipboard.writeText(TSW.explore.markdown()).then(() => note('排名已复制（Markdown）'), () => note('复制失败，请用控制台 TSW.explore.markdown()')); };
   bExpClr.onclick = () => { TSW.explore.clear(); renderExp(); };
-  function renderExp() { expOut.textContent = TSW.explore.markdown(); }
+  function renderExp() {
+    // The output box is plain pre-formatted text, so a raw markdown table rendered
+    // as a stray "| --- |" row. Show a readable list instead, and nothing at all
+    // while there are no results.
+    const r = (TSW.explore.results || []);
+    if (!r.length) { expOut.textContent = ''; return; }
+    const by = {};
+    for (const row of r) {
+      const k = row.policy || '?';
+      (by[k] = by[k] || []).push(row);
+    }
+    const lines = [];
+    for (const k of Object.keys(by)) {
+      const g = by[k];
+      const avg = (f) => (g.reduce((a, x) => a + (f(x) || 0), 0) / g.length);
+      lines.push(`${k}  局数 ${g.length}  最深 ${Math.round(avg((x) => x.maxFloor || x.floor))}  均击杀 ${Math.round(avg((x) => x.kills))}`);
+    }
+    expOut.textContent = lines.join('\n');
+  }
   renderExp();
 
   // ---------------- 基准 ----------------
