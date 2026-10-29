@@ -41,33 +41,33 @@
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
-      specialsFirst: true,                                   // explore: detour to special rooms before combat
-      powerupFirst: true,                                    // explore: grab weapons/chips/serums before fights
-      meleeBlock: true,                                      // explore: swing to deflect incoming bullets with melee
-      weaponLateBias: 90,                                    // explore: ink level at which per-shot damage starts to weigh more
-      shardFit: true,                                        // explore: score shards by fit to the held weapon
-      keyRoomFirst: true,                                    // explore: clear the key room before anything else
-      mainHandBest: true,                                    // explore: hold the strongest weapon in the main hand
-      arsenalByDps: true,                                    // explore: pick the armoury weapon by measured dps
-      shopByDps: true,                                       // explore: rank shop weapons by measured dps
-      deathfightHazard: true,                                // explore: treat death-fight corpses as hazard
-      bossCriticalRetreat: true,                             // explore: disengage at 1 hp in a boss room
-      bossAddsFirst: true,                                   // explore: clear summoned adds before the boss itself
-      rushBoss: false,                                       // explore: defer reward rooms to reach the boss sooner
-      bossPrepHeal: true,                                    // explore: heal up before opening the boss seal
-      focusFire: true,                                       // explore: keep hitting one target until it dies
-      fireWhileRetreat: true,                                // explore: keep firing while backing off
-      powerupRange: 700,                                     // explore: how far to walk for a loose weapon/chip
-      vault: true,                                           // explore: open the vault when ink allows
-      idol: true,                                            // explore: take an idol wish with a curse
-      altar: true,                                           // explore: use blood altars
-      altarPact: true,                                       // explore: trade 1 hp for a card at an altar
-      trial: true,                                           // explore: start trial totems
-      fireWithoutLos: false,                                 // explore: shoot point-blank without clear sight
-      noLosRange: 150,                                       // explore: range at which sight is not required
-      fullHpGate: true,                                      // explore: heal to full before descending
-      goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
-      wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
+      specialsFirst: TSW.settings.get('autoSpecialsFirst', true),                                   // explore: detour to special rooms before combat
+      powerupFirst: TSW.settings.get('autoPowerupFirst', true),                                    // explore: grab weapons/chips/serums before fights
+      meleeBlock: TSW.settings.get('autoMeleeBlock', true),                                      // explore: swing to deflect incoming bullets with melee
+      weaponLateBias: TSW.settings.get('autoWeaponLateBias', 90),                                    // explore: ink level at which per-shot damage starts to weigh more
+      shardFit: TSW.settings.get('autoShardFit', true),                                        // explore: score shards by fit to the held weapon
+      keyRoomFirst: TSW.settings.get('autoKeyRoomFirst', true),                                    // explore: clear the key room before anything else
+      mainHandBest: TSW.settings.get('autoMainHandBest', true),                                    // explore: hold the strongest weapon in the main hand
+      arsenalByDps: TSW.settings.get('autoArsenalByDps', true),                                    // explore: pick the armoury weapon by measured dps
+      shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
+      deathfightHazard: TSW.settings.get('autoDeathfightHazard', true),                                // explore: treat death-fight corpses as hazard
+      bossCriticalRetreat: TSW.settings.get('autoBossCriticalRetreat', true),                             // explore: disengage at 1 hp in a boss room
+      bossAddsFirst: TSW.settings.get('autoBossAddsFirst', true),                                   // explore: clear summoned adds before the boss itself
+      rushBoss: TSW.settings.get('autoRushBoss', false),                                       // explore: defer reward rooms to reach the boss sooner
+      bossPrepHeal: TSW.settings.get('autoBossPrepHeal', true),                                    // explore: heal up before opening the boss seal
+      focusFire: TSW.settings.get('autoFocusFire', true),                                       // explore: keep hitting one target until it dies
+      fireWhileRetreat: TSW.settings.get('autoFireWhileRetreat', true),                                // explore: keep firing while backing off
+      powerupRange: TSW.settings.get('autoPowerupRange', 700),                                     // explore: how far to walk for a loose weapon/chip
+      vault: TSW.settings.get('autoVault', true),                                           // explore: open the vault when ink allows
+      idol: TSW.settings.get('autoIdol', true),                                            // explore: take an idol wish with a curse
+      altar: TSW.settings.get('autoAltar', true),                                           // explore: use blood altars
+      altarPact: TSW.settings.get('autoAltarPact', true),                                       // explore: trade 1 hp for a card at an altar
+      trial: TSW.settings.get('autoTrial', true),                                           // explore: start trial totems
+      fireWithoutLos: TSW.settings.get('autoFireWithoutLos', false),                                 // explore: shoot point-blank without clear sight
+      noLosRange: TSW.settings.get('autoNoLosRange', 150),                                       // explore: range at which sight is not required
+      fullHpGate: TSW.settings.get('autoFullHpGate', true),                                      // explore: heal to full before descending
+      goalGiveUp: TSW.settings.get('autoGoalGiveUp', 90),                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
+      wallMargin: TSW.settings.get('autoWallMargin', 14),                                        // explore: px of clearance we prefer to keep from walls
       openSeals: true,                                       // explore: walk to the boss seal and open it
       usePortals: true,                                      // explore: walk to the floor/endless portal
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
