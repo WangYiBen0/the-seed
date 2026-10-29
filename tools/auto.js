@@ -363,6 +363,8 @@
     }
     const okT2 = okT;
     const start = sy * Wd + sx, goal = gy2 * Wd + gx2;
+    // the START cell is always passable: the player is standing there already
+    const okHere = (nx, ny) => ((nx === sx && ny === sy) ? true : okT2(nx, ny));
     if (start === goal) return [];
     const prev = new Map([[start, start]]);
     const q = [start];
@@ -372,7 +374,7 @@
       const cx = cur % Wd, cy = (cur / Wd) | 0;
       for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = cx + d[0], ny = cy + d[1];
-        if (!okT2(nx, ny)) continue;
+        if (!okHere(nx, ny)) continue;
         const ni = ny * Wd + nx;
         if (prev.has(ni)) continue;
         prev.set(ni, cur); q.push(ni);
