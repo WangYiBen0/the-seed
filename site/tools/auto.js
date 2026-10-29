@@ -848,6 +848,29 @@
     if (stale) {
       const path = gridPath(p, gx, gy);
       travel.path = (path && path.length) ? path : null;
+      // When the grid search cannot reach the goal (sealed pocket, wall between
+      // rooms), fall back to the ROOM GRAPH: walk to the doorway of the room that
+      // contains the goal.  That is how the map is actually laid out, and it
+      // succeeds in exactly the cases where tile BFS dead-ends.
+      if (!travel.path) {
+        try {
+          const gr = roomAt(gx, gy);
+          const here = roomAt(p.x, p.y);
+          if (gr && here && gr.id !== here.id) {
+            const hops = navPath(G, p, gr.id);             // room-level BFS
+            const nxt = hops && hops.length > 1 ? WORLD.rooms[hops[1]] : null;
+            if (nxt && nxt.doors && nxt.doors.length) {
+              let best = null, bdd = 1e9;
+              for (const pair of nxt.doors) {
+                const px2 = pair[0] * 16 + 8, py2 = pair[1] * 16 + 8;
+                const dd = Math.hypot(px2 - p.x, py2 - p.y);
+                if (dd < bdd) { bdd = dd; best = [px2, py2]; }
+              }
+              if (best) { travel.path = [best]; travel.adv = now; }
+            }
+          }
+        } catch (e) { }
+      }
       travel.goal = [gx, gy]; travel.i = 0; travel.t = now;
     }
     if (!travel.path) return null;
