@@ -548,6 +548,19 @@
       if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
     }
     for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
+    // ---- enemy CONTACT -----------------------------------------------------
+    // Persistent contact is the actual killer: hurtPlayer fires every frame while
+    // recorded hits only increment behind a cooldown (712 vs 47 on one seed). A
+    // body that deals contact damage therefore belongs in the danger field far
+    // more than any bullet does.
+    for (const e of G.enemies || []) {
+      if (e.dead || (e.spawnT > 0)) continue;
+      if (!e.contact && !e.melee) continue;                 // only bodies that hurt
+      const rr = (e.r || 6) + p.r;
+      const dd = dist(x, y, e.x, e.y);
+      if (dd < rr + 10) d += 3.2;
+      else if (dd < rr + 34) d += 1.4;
+    }
     // ---- death-fight bodies (绝境「死斗」) ---------------------------------
     // A foe killed under this modifier stays lethal for two seconds and cannot be
     // killed again.  nearestEnemy() filters them out, so the bot used to walk
@@ -1795,6 +1808,14 @@
         t: G.time | 0,
         world: (typeof WORLD !== 'undefined' && WORLD) ? (WORLD.w + 'x' + WORLD.h + ' rooms=' + (WORLD.rooms || []).length) : 'NO_WORLD',
         active: !!(active && active.id !== undefined), trial: !!G.trial, near: near | 0,
+        // NOTE: chromium truncates long console lines (~308 chars), so put the
+        // fields we actually read FIRST.  Anything at the end (px/py/iMin) never
+        // reaches the log.
+        xy: Math.round(p.x) + ',' + Math.round(p.y),
+        tgt: (function () {
+          const t = A._tgtPt; if (!t) return String(A.status.target || '');
+          return Math.round(t[0]) + ',' + Math.round(t[1]);
+        })(),
         state: G.state, obj: A.status.target, note: A.status.note,
         inter: (G.inter || []).length,
         orbs: (G.floorOrbs | 0) + '/' + (G.bonusOrbs | 0),
@@ -1851,6 +1872,7 @@
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
       let tgt = pickObjective(G, p);
+      A._tgtPt = (tgt && tgt.pt) ? tgt.pt.slice(0, 2) : null;
       // ---- 通用目标放弃 ---------------------------------------------------
       // Any objective the bot keeps re-choosing but never completes pins the whole
       // run (measured: forge for 960s with 10/11 rooms already cleared).  The forge
@@ -1892,7 +1914,16 @@
               st.t = G.time; st.fails = (st.fails || 0) + 1;
               travel.path = null;                      // force a fresh BFS
               A.metrics.navReplan = (A.metrics.navReplan | 0) + 1;
-              if (st.fails >= 3) { benchFor(tgt.room || tgt.pt, 25); st.fails = 0; A.status.note = '绕圈：换目标'; A.metrics.navStall = (A.metrics.navStall | 0) + 1; }
+              if (st.fails >= 3) {
+                // NOTE: a permanent blacklist was tried and made things WORSE
+                // (seed 5 went to 1948s with 3 rooms cleared): it can lock out the
+                // key room or the boss room, and the bot then has nowhere to go.
+                // Keep the timed blacklist — a target is retried, which is
+                // correct when the blocker was transient (a crowd of enemies).
+                benchFor(tgt.room || tgt.pt, 25); st.fails = 0;
+                A.status.note = '绕圈：换目标';
+                A.metrics.navStall = (A.metrics.navStall | 0) + 1;
+              }
               else A.status.note = '绕圈：重算路径';
             }
           }
@@ -2287,6 +2318,19 @@
     // 5) fallback: boss room or any unvisited room
     if (boss && !unreachable(boss)) return { pt: [boss.cx * 16 + 8, boss.cy * 16 + 8], label: 'boss?', room: boss };
     for (const r of rooms) if (!r.visited && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'explore', room: r };
+    // 6) last resort: everything is "visited" or blacklisted, but the floor is not
+    // finished.  Returning null makes the bot stand still forever — measured 104
+    // minutes of game time with only three rooms cleared.  Walk to the nearest
+    // uncleared room ignoring the blacklist, which also clears stale entries.
+    {
+      let anyRoom = null, anyD = 1e9;
+      for (const r of rooms) {
+        if (r.cleared || r.type === 'start') continue;
+        const dd = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
+        if (dd < anyD) { anyD = dd; anyRoom = r; }
+      }
+      if (anyRoom) return { pt: [anyRoom.cx * 16 + 8, anyRoom.cy * 16 + 8], label: 'recover', room: anyRoom };
+    }
     return null;
   }
 
