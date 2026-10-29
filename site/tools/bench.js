@@ -204,7 +204,7 @@
     // "33-48 seconds per room" is the number to attack, but it lumps fights,
     // travel and stalls together.  Split it so the optimisation targets the
     // part that actually dominates.
-    window.__tDecomp = { combat: 0, travel: 0, idle: 0, t: 0 };
+    window.__tDecomp = { combat: 0, travel: 0, idle: 0, paused: 0, t: 0 };
     // Wave bookkeeping: room waves are 2-4 per room with a mandatory inter-wave
     // gap (game.js:184,199), which is a fixed cost that does not shrink with dps.
     window.__waves = { count: 0, gapS: 0, rooms: 0, wavesPerRoom: [], dryS: 0, lastKillT: 0, t: 0 };
@@ -309,9 +309,19 @@
           const act = !!(g.boss && !g.boss.dead)
             || (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms && WORLD.rooms.some((r) => r.active))
             || !!g.trial;
-          const dt2 = Math.max(.05, Math.min(2, (g.runT || 0) - (dc.t || 0)));
+          // Cap only runaway gaps (a tab stall), not normal long intervals: at
+          // 8x speed the monitor can be several game-seconds apart, and clamping to
+          // 2 lost most of those, so a 752s run only accounted for 475s.
+          const raw = (g.runT || 0) - (dc.t || 0);
+          const dt2 = raw < 0 ? 0 : (raw > 30 ? 30 : raw);
           dc.t = g.runT || 0;
-          if (act) dc.combat += dt2;
+          // Non-play states used to fall through every bucket, so a run reporting
+          // 2696 seconds only accounted for 1315 of them.  Transitions, dialogue
+          // and shop screens are their own category: they are time the player
+          // cannot fight, and they are a large share of a long run.
+          const st2 = g.state || 'play';
+          if (st2 !== 'play' && st2 !== 'dead') dc.paused += dt2;
+          else if (act) dc.combat += dt2;
           else {
             const p3 = g.p || {};
             const moving = Math.abs(p3.vx || 0) + Math.abs(p3.vy || 0) > 12;
@@ -514,6 +524,7 @@
       tCombat: +(function () { try { return window.__tDecomp.combat.toFixed(1); } catch (e) { return 0; } })(),
       tTravel: +(function () { try { return window.__tDecomp.travel.toFixed(1); } catch (e) { return 0; } })(),
       tIdle: +(function () { try { return window.__tDecomp.idle.toFixed(1); } catch (e) { return 0; } })(),
+      tPaused: +(function () { try { return (window.__tDecomp.paused || 0).toFixed(1); } catch (e) { return 0; } })(),
       // Ratio not absolute: absolute combat seconds are dominated by how many
       // fights the seed happened to offer, which swamps any strategy effect.
       // A working strategy clears more rooms per second, i.e. lower ratio.
@@ -532,7 +543,7 @@
       hitsShield: (window.__hits ? window.__hits.shield : 0),
       combatRatio: +(function () { try {
         const d = window.__tDecomp;
-        const tot = d.combat + d.travel + d.idle;
+        const tot = d.combat + d.travel + d.idle + (d.paused || 0);
         return tot > 0 ? (d.combat / tot).toFixed(3) : 0;
       } catch (e) { return 0; } })(),
       penalty: Math.round(scorePenalty * 10) / 10,
