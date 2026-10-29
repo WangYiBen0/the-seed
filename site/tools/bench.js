@@ -194,6 +194,7 @@
     // matrices always complete.  hurtPlayer is the game's own damage entry point.
     let lastSig = '', lastSigT = performance.now();
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
+    window.__bossMaxHp = 0; window.__bossMinHp = undefined; window.__bossHits = 0;
     // ---- run scoring -------------------------------------------------------
     // Progress is DECISIVE.  Damage taken contributes a negative term integrated
     // over time: the square of what was consumed, hp weighted heavier than armour.
@@ -213,6 +214,13 @@
             if (dHp || dAr) scorePenalty += (HP_W * dHp * dHp + ARM_W * dAr * dAr) * dtr;
           }
           prevHp = p.hp; prevArmor = p.armor; prevT = t;
+        }
+      } catch (e) { }
+      try {
+        const b = g.boss && !g.boss.dead ? g.boss : null;
+        if (b) {
+          if (!window.__bossMaxHp || b.maxHp > window.__bossMaxHp) window.__bossMaxHp = b.maxHp;
+          if (window.__bossMinHp === undefined || b.hp < window.__bossMinHp) window.__bossMinHp = b.hp;
         }
       } catch (e) { }
       if ((g.floor | 0) > maxFloor) {
@@ -323,6 +331,11 @@
       // boss-room pipeline state at the end: did we ever hold a key / unlock?
       hasKeyAtEnd: (function () { try { return !!g.hasKey; } catch (e) { return null; } })(),
       bossLockedAtEnd: (function () { try { return (typeof WORLD !== 'undefined' && WORLD) ? !!WORLD.bossLocked : null; } catch (e) { return null; } })(),
+      // boss health telemetry: maxHp freezes at spawn so the lowest observed hp
+      // shows whether damage lands at all (a stalled boss keeps hp == maxHp)
+      bossMaxHp: Math.round(window.__bossMaxHp || 0),
+      bossMinHp: Math.round(window.__bossMinHp || 0),
+      bossHitsLanded: (window.__bossHits | 0),
       penalty: Math.round(scorePenalty * 10) / 10,
       // decisive term first: floors cleared dominates any damage penalty
       score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
