@@ -199,6 +199,14 @@
           if (lvl && (G.ink | 0) >= lvl) v += Math.min(2.5, per / 24);
         }
       } catch (e) { }
+      // Several genuinely strong guns had NO entry in the policy table (storm 62
+      // base dps, nova 137, mines 57, trident 54, shuriken 50), so the bot kept
+      // preferring nail at 35.  Score every weapon by its measured base dps floor,
+      // independent of the policy's curated picks.
+      try {
+        const baseDps = wDps(id);
+        if (baseDps > 0) v += Math.min(5, Math.max(0, (baseDps - 30) / 20));
+      } catch (e) { }
       if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
       return v;
     } catch (e) { return 2.5; }
@@ -1399,6 +1407,11 @@
         // is therefore a big damage loss, so retreat BEFORE the plate breaks.
         let pristineGuard = false;
         try { pristineGuard = !!(G.S && G.S.pristine); } catch (e) { }
+        // In a boss room the fight is decided by damage-over-window (one run took
+        // a 3654 hp boss to 20 and still died), so surviving longer converts
+        // directly into damage.  Behave like the alpha period: wider spacing.
+        let bossRoom = false;
+        try { bossRoom = !!(active && active.type === 'boss'); } catch (e) { }
         const wantRetreat = pristineGuard
           ? ((p.armor <= 1 && p.lastHit < 3.6) || (p.hp <= 2))
           : ((p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0));
@@ -1440,6 +1453,7 @@
         } catch (e) { }
         // α serum active: widen the band so contact is less likely at all
         if (A._alphaMode) { band[0] = Math.round(band[0] * 1.5); band[1] = Math.round(band[1] * 1.45); }
+        else if (bossRoom) { band[0] = Math.round(band[0] * 1.25); band[1] = Math.round(band[1] * 1.2); }
         const ux = (ne.x - p.x) / (d || 1), uy = (ne.y - p.y) / (d || 1);
         if (d < band[0]) { mx -= ux; my -= uy; }
         else if (d > band[1]) { mx += ux; my += uy; }
