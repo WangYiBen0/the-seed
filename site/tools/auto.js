@@ -385,8 +385,18 @@
     if (!prev.has(goal)) {
       // record the geometry so we can see WHERE it fails, not just how often
       A._navFailWhy = (A._navFailWhy || []);
+      const key = (gxx * 16 + 8) + ',' + (gyy * 16 + 8);
       if (A._navFailWhy.length < 8) A._navFailWhy.push(
-        Math.round(p.x) + ',' + Math.round(p.y) + '->' + (gxx * 16 + 8) + ',' + (gyy * 16 + 8));
+        Math.round(p.x) + ',' + Math.round(p.y) + '->' + key);
+      // A target that is unreachable from several different starts is inside a
+      // sealed pocket; no search algorithm will ever reach it.  Count per target
+      // point and blacklist it for a long while so the bot stops re-picking it.
+      A._navNoRoute = A._navNoRoute || {};
+      A._navNoRoute[key] = (A._navNoRoute[key] | 0) + 1;
+      if (A._navNoRoute[key] >= 3) {
+        A._deadPoint = A._deadPoint || {};
+        A._deadPoint[key] = G_time() + 300;           // 5 minutes of game time
+      }
       return navFail('noRoute');
     }
     const path = []; let cur = goal;
@@ -1917,6 +1927,14 @@
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
       let tgt = pickObjective(G, p);
+      // If the chosen point is known-unreachable, drop it and re-pick once.  The
+      // dead list is populated by gridPath, so this self-heals: a point that
+      // genuinely cannot be reached stops being chosen for five minutes.
+      if (tgt && deadPoint(tgt.pt)) {
+        if (tgt.room) { A._skipRoom = A._skipRoom || {}; A._skipRoom[tgt.room.id] = G.time + 120; }
+        tgt = pickObjective(G, p);
+        if (tgt && deadPoint(tgt.pt)) tgt = null;
+      }
       A._tgtPt = (tgt && tgt.pt) ? tgt.pt.slice(0, 2) : null;
       // ---- 通用目标放弃 ---------------------------------------------------
       // Any objective the bot keeps re-choosing but never completes pins the whole
@@ -2083,12 +2101,26 @@
     return [r.cx * 16 + 8, r.cy * 16 + 8];
   }
 
+  // helper: is this objective point known-unreachable?  (filled by gridPath when
+  // the same coordinate fails to route three times)
+  function deadPoint(t) {
+    if (!t || !A._deadPoint) return false;
+    const k = Math.round(t[0]) + ',' + Math.round(t[1]);
+    const until = A._deadPoint[k];
+    if (!until) return false;
+    if (G_time() >= until) { delete A._deadPoint[k]; return false; }
+    return true;
+  }
+  // wrap the objective picker so unreachable targets are skipped automatically,
+  // without editing each of its twenty-odd return statements
+  const pickObjectiveRaw = null;
+
   function pickObjective(G, p) {
     // The floor may not exist yet (right after launch, or a failed generation).
     // Without this guard the bot chases interactables that have no room, and the
     // run sits still: measured 80+ game-seconds with rooms:0 and kills:0.
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) return null;
-    const rooms = WORLD.rooms;
+    const rooms = WORLD.rooms.filter((r) => !(A._skipRoom && A._skipRoom[r.id] && G.time < A._skipRoom[r.id]));
     // ---- 钥匙房间最高优先 ---------------------------------------------------
     // The boss room stays locked until the key is collected, and the key sits in
     // one of the FIRST HALF of candidate rooms and only spawns when that room is
