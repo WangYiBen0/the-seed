@@ -342,7 +342,7 @@
     // collapsed runs to 15-154 seconds: with a hazard-tolerant start node the
     // search happily routes THROUGH hazardous tiles, so the bot walks into
     // poison/void and dies at the first room.  Keep the strict test.
-    if (!okT(sx, sy)) return navFail('startBlocked');
+    // (start cell is exempted inside the BFS via okHere — do NOT abort here)
     // A blocked goal is usually a room CENTRE that happens to be a pillar or a
     // closed door — the objective coordinate is geometric, not walkable.  Rather
     // than failing the whole search, slide the goal to the nearest walkable tile.
