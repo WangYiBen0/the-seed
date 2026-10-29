@@ -313,11 +313,18 @@
         try {
           const p = g.p; if (!p || !p.weapons) return 0;
           let dps = 0;
-          for (const id of p.weapons) {
-            const w = WEAPONS[id]; if (!w) continue;
+          // ONLY the held weapon fires at full rate.  The holstered one joins in
+          // solely with the `volley` shard and even then at 40% damage and 30%
+          // attack speed (shards3.js:50 offhandTick).  Summing both weapons at
+          // full strength overstated real output by roughly 2x.
+          const volley = !!(g.S && g.S.volley);
+          for (let i = 0; i < p.weapons.length; i++) {
+            const id = p.weapons[i]; const w = WEAPONS[id]; if (!w) continue;
             const lv = (p.wlv && p.wlv[id]) | 0;
             const rate = w.rate || 1, n = w.n || 1;
-            dps += (w.dmg || 0) * rate * n * (1 + .25 * lv);
+            let one = (w.dmg || 0) * rate * n * (1 + .25 * lv);
+            if (i !== (p.wi | 0)) one *= volley ? (.4 * .3) : 0;
+            dps += one;
           }
           for (const k in (p.shards || {})) dps *= 1.06;      // rough shard multiplier
           return Math.round(dps);
