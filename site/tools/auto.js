@@ -48,6 +48,7 @@
       shardFit: true,                                        // explore: score shards by fit to the held weapon
       keyRoomFirst: true,                                    // explore: clear the key room before anything else
       mainHandBest: true,                                    // explore: hold the strongest weapon in the main hand
+      arsenalByDps: true,                                    // explore: pick the armoury weapon by measured dps
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -811,12 +812,32 @@
     const cur = G.p && G.p.weapons ? G.p.weapons[G.p.wi] : null;
     let want = -1;
     if (items.every((it) => WEAPONS[it.v])) {
-      // armory rack: take the best weapon we do not already carry better
-      let best = -1, bestId = null;
-      for (const it of items) { const s = wScore(it.v); if (it.v !== cur && s > best) { best = s; bestId = it.v; } }
-      const cs = cur && WEAPONS[cur] ? wScore(cur) : -1e9;
-      if (bestId && best > cs + .5) want = items.findIndex((it) => it.v === bestId);
-      else if (cur) want = items.findIndex((it) => it.v === cur);
+      // Armoury rack: this is the ONLY place a weapon is chosen rather than
+      // stumbled upon, so rank by measured damage instead of the policy table
+      // (which lacks entries for storm/nova/mines/trident/shuriken entirely).
+      // the rack hands out a LEVEL 0 gun, so compare it against what the held
+      // weapon currently delivers WITH its upgrades — a level 3 nail (61) beats a
+      // fresh storm (62) only barely, and swapping would throw the levels away.
+      const lvOf = (id) => { try { return (G.p.wlv && G.p.wlv[id]) | 0; } catch (e) { return 0; } };
+      const curD = (cur && WEAPONS[cur]) ? wDps(cur) * (1 + .25 * lvOf(cur)) : 0;
+      let bestD = -1, bestId = null;
+      for (const it of items) {
+        const d = wDps(it.v);                 // the rack item is always level 0
+        if (it.v === cur) continue;
+        if (d > bestD) { bestD = d; bestId = it.v; }
+      }
+      if (A.opts.arsenalByDps !== false) {
+        if (bestId && bestD > curD * 1.1 + 1) want = items.findIndex((it) => it.v === bestId);
+        else if (cur) want = items.findIndex((it) => it.v === cur);
+        A.status.note = '军械库按DPS选 ' + (want >= 0 ? items[want].v : '?');
+      } else {
+        let best = -1;
+        for (const it of items) { const s = wScore(it.v); if (it.v !== cur && s > best) { best = s; bestId = it.v; } }
+        const cs = cur && WEAPONS[cur] ? wScore(cur) : -1e9;
+        if (bestId && best > cs + .5) want = items.findIndex((it) => it.v === bestId);
+        else if (cur) want = items.findIndex((it) => it.v === cur);
+      }
+      if (want < 0) want = items.findIndex((it) => it.v === bestId);
       if (want < 0) want = 0;
       A.status.note = '军械库选武器 ' + items[want].v;
     } else if (o.cur !== undefined && items.some((it) => it.v === o.cur)) {
@@ -1238,6 +1259,22 @@
       }
       return;
     }
+
+    // ---- keep the strongest gun in the main hand ----------------------------
+    // Only the held weapon fires at full rate; the holstered one needs the volley
+    // shard and even then delivers 12% (shards3.js:50).  A run that ended with
+    // nail held and bow holstered measured 8 real dps.  This used to sit inside
+    // the combat branch, so it only ran while enemies were visible — too late.
+    if (A.opts.mainHandBest !== false && p.weapons && p.weapons.length > 1 && p.dashT <= 0) {
+      try {
+        const cur = p.weapons[p.wi], alt = p.weapons[1 - p.wi];
+        if (alt && cur && alt !== cur && wDps(alt) > wDps(cur) + 1.5) {
+          A._mhLog = (A._mhLog || 0) + 1;
+          if (A._mhLog <= 3) console.info('[mh] swap ' + cur + '->' + alt + ' dps ' + Math.round(wDps(cur)) + '->' + Math.round(wDps(alt)));
+          tap('KeyX'); A.status.note = '主手换强枪 ' + alt;
+        }
+      } catch (e) { }
+    }
     // no floor yet: do nothing but keep the status honest (a stale objective here
     // used to strand the autopilot in an endless "walk to X" loop)
     if (typeof WORLD === 'undefined' || !WORLD || !Array.isArray(WORLD.rooms) || !WORLD.rooms.length) {
@@ -1542,20 +1579,6 @@
         const safeish = sloth || !nearestEnemy(p.x, p.y, 140, false);
         if (A.opts.reload && a.rl <= 0 && p.dashT <= 0 && (a.n <= 0 || (low && safeish))) tap('KeyR');
       }
-      // ---- keep the strongest gun in the main hand ----------------------------
-      // Only the held weapon fires at full rate; the holstered one needs the
-      // volley shard and even then delivers 12% (shards3.js:50).  A run that
-      // ended with nail held and bow holstered measured 8 real dps.  Swap so the
-      // best gun is held whenever the current one is clearly worse.
-      if (A.opts.mainHandBest !== false && p.weapons.length > 1 && p.dashT <= 0) {
-        try {
-          const cur = p.weapons[p.wi], alt = p.weapons[1 - p.wi];
-          const curD = wDps(cur), altD = wDps(alt);
-          if (altD > curD * 1.15 && altD > curD + 2) {
-            tap('KeyX'); A.status.note = '主手换强枪 ' + alt;
-          }
-        } catch (e) { }
-      }
       // ---- reload window: switch to the sidearm instead of standing there dry ----
       // KeyX toggles p.wi (game.js:160).  While the equipped weapon is reloading
       // we swap to the other one if *it* is loaded; when the first is ready again
@@ -1572,8 +1595,13 @@
           const othReady = othA.rl <= 0 && othA.n > 0;
           const othBusy = othA.rl > 0 || othA.n <= 0;
           const curReady = curA.rl <= 0 && curA.n > 0;
-          if (curBusy && othReady) { tap('KeyX'); A.status.note = '换弹切副武器 ' + othW.id; }
-          else if (curReady && othBusy && wScore(curW.id) >= wScore(othW.id)) { tap('KeyX'); A.status.note = '切回主武器 ' + curW.id; }
+          // The main-hand rule owns weapon choice; the reload dance must never
+          // fight it.  Only swap for reloading when the MAIN hand is meant to be
+          // the weaker gun (i.e. mainHandBest is off) or the swap keeps the best.
+          const curDps = wDps(curW.id), othDps = wDps(othW.id);
+          const keepBest = A.opts.mainHandBest !== false;
+          if (curBusy && othReady && (!keepBest || othDps >= curDps)) { tap('KeyX'); A.status.note = '换弹切副武器 ' + othW.id; }
+          else if (curReady && othBusy && (!keepBest || curDps >= othDps) && wScore(curW.id) >= wScore(othW.id)) { tap('KeyX'); A.status.note = '切回主武器 ' + curW.id; }
         }
       }
       // ---- radio partner skill: KeyF (partners.js) ----
