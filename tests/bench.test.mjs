@@ -39,11 +39,13 @@ test('every run* signature that uses `diff` declares it', () => {
 });
 
 test('dodge rows normalise on play ticks, not on the restart-prone runT', () => {
-  const i = SRC.indexOf('const mins =');
-  assert.ok(i >= 0, 'expected a minutes computation in the dodge runner');
-  const line = SRC.slice(i, SRC.indexOf('\n', i));
-  assert.ok(/A\.ticks/.test(line), `dodge minutes must use ticks: ${line.trim()}`);
-  assert.ok(!/g\.runT/.test(line), 'dodge minutes must not use G.runT');
+  // fullrun now also computes a minutes value (roomsPerMin) from runT, which is
+  // fine there because a fullrun is a single uninterrupted game.  The dodge rule
+  // is about ITS specific mins line, so match the one that divides by ticks.
+  const re = /const mins =[^;]*A\.ticks[^;]*;/;
+  const m = SRC.match(re);
+  assert.ok(m, 'expected the dodge minutes computation to use A.ticks');
+  assert.ok(!/g\.runT/.test(m[0]), `dodge minutes must not use G.runT: ${m[0].trim()}`);
 });
 
 test('a sample that never saw combat is flagged invalid and retried', () => {

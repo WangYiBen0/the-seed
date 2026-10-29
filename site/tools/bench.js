@@ -463,6 +463,17 @@
       // difference; this number resolves far better per run. -1 = never reached.
       firstBossT: (window.__firstBossT === undefined ? -1 : Math.round(window.__firstBossT)),
       bossEntry: window.__bossEntry || null,
+      // Rooms cleared per minute: the one metric that answers "how much progress
+      // does this strategy buy per second", without being distorted by how many
+      // fights a seed happens to offer or by the combat/travel split.
+      roomsCleared: (function () { try { return (WORLD.rooms || []).filter((r) => r.cleared).length; } catch (e) { return 0; } })(),
+      roomsPerMin: +(function () {
+        try {
+          const rc = (WORLD.rooms || []).filter((r) => r.cleared).length;
+          const mins = Math.max(.5, (g.runT || 0) / 60);
+          return (rc / mins).toFixed(2);
+        } catch (e) { return 0; }
+      })(),
       tCombat: +(function () { try { return window.__tDecomp.combat.toFixed(1); } catch (e) { return 0; } })(),
       tTravel: +(function () { try { return window.__tDecomp.travel.toFixed(1); } catch (e) { return 0; } })(),
       tIdle: +(function () { try { return window.__tDecomp.idle.toFixed(1); } catch (e) { return 0; } })(),
