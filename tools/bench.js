@@ -203,9 +203,34 @@
     window.__tDecomp = { combat: 0, travel: 0, idle: 0, t: 0 };
     // Wave bookkeeping: room waves are 2-4 per room with a mandatory inter-wave
     // gap (game.js:184,199), which is a fixed cost that does not shrink with dps.
-    window.__waves = { count: 0, gapS: 0, rooms: 0, wavesPerRoom: [] };
+    window.__waves = { count: 0, gapS: 0, rooms: 0, wavesPerRoom: [], dryS: 0, lastKillT: 0, t: 0 };
     // Counting wave boundaries from the monitor loop missed most of them because
     // the gap is only .5-1s.  Wrap spawnWave directly — it runs once per wave.
+    // Wrap hitEnemy to see WHERE output is being lost: attempts rejected because
+    // the body is dead / spawn-invulnerable / death-fight / iframe, versus hits
+    // that land but get eaten by a shield.
+    window.__hits = { try: 0, land: 0, dead: 0, spawn: 0, dfight: 0, inv: 0, shield: 0 };
+    try {
+      if (!window.__hitWrap && typeof hitEnemy === 'function') {
+        window.__hitWrap = true;
+        const origHit = hitEnemy;
+        window.hitEnemy = function (e, dmg, o) {
+          try {
+            const H = window.__hits;
+            H.try++;
+            if (!e) return origHit.apply(this, arguments);
+            if (e.dead) H.dead++;
+            else if (e.spawnT > 0) H.spawn++;
+            else if (e.deathFightLeft > 0) H.dfight++;
+            else if (e.inv > 0) H.inv++;
+            const r = origHit.apply(this, arguments);
+            if (r === 'block') H.shield++;
+            else if (r) H.land++;
+            return r;
+          } catch (err) { return origHit.apply(this, arguments); }
+        };
+      }
+    } catch (e) { }
     try {
       if (!window.__waveWrap && typeof spawnWave === 'function') {
         window.__waveWrap = true;
@@ -243,6 +268,27 @@
       // The most reliable "we are in the boss room" signal is the boss object
       // itself existing with health: WORLD.boss.visited is not set by the unlock
       // path, which is why the first version always reported -1.
+      // "dry time": inside an active room with foes alive but no kill landed for
+      // a while.  A wave takes 27-38s; if most of it is dry, the bot is waiting
+      // rather than fighting and the fix is engagement, not damage.
+      try {
+        const wv = window.__waves;
+        const act = !!(g.boss && !g.boss.dead)
+          || (typeof WORLD !== 'undefined' && WORLD && WORLD.rooms && WORLD.rooms.some((r) => r.active))
+          || !!g.trial;
+        const live = (g.enemies || []).filter((e) => !e.dead).length;
+        const dt3 = Math.max(.05, Math.min(2, (g.runT || 0) - (wv.t || 0)));
+        wv.t = g.runT || 0;
+        const k = g.kills | 0;
+        if (k !== wv.lastK) { wv.lastK = k; wv.lastKillT = g.runT || 0; }
+        if (act && live > 0 && (g.runT || 0) - (wv.lastKillT || 0) > 1.5) {
+          wv.dryS += dt3;
+          // is the trigger held during the dry stretch, or is the bot simply not
+          // shooting?  That splits "aimed wrong" from "never fired".
+          if (Input && Input.down) wv.dryFiring = (wv.dryFiring || 0) + dt3;
+          else wv.dryIdle = (wv.dryIdle || 0) + dt3;
+        }
+      } catch (e) { }
       try {
         const dc = window.__tDecomp;
         if (dc) {
@@ -425,6 +471,17 @@
       // A working strategy clears more rooms per second, i.e. lower ratio.
       waveCount: (function () { try { return window.__waves.count | 0; } catch (e) { return 0; } })(),
       waveGapS: +(function () { try { return window.__waves.gapS.toFixed(1); } catch (e) { return 0; } })(),
+      // seconds spent in a live room with living foes but no kill for >1.5s
+      dryS: +(function () { try { return window.__waves.dryS.toFixed(1); } catch (e) { return 0; } })(),
+      dryFiring: +(function () { try { return (window.__waves.dryFiring || 0).toFixed(1); } catch (e) { return 0; } })(),
+      dryNotFiring: +(function () { try { return (window.__waves.dryIdle || 0).toFixed(1); } catch (e) { return 0; } })(),
+      hitsTry: (window.__hits ? window.__hits.try : 0),
+      hitsLand: (window.__hits ? window.__hits.land : 0),
+      hitsRejDead: (window.__hits ? window.__hits.dead : 0),
+      hitsRejSpawn: (window.__hits ? window.__hits.spawn : 0),
+      hitsRejDfight: (window.__hits ? window.__hits.dfight : 0),
+      hitsRejInv: (window.__hits ? window.__hits.inv : 0),
+      hitsShield: (window.__hits ? window.__hits.shield : 0),
       combatRatio: +(function () { try {
         const d = window.__tDecomp;
         const tot = d.combat + d.travel + d.idle;
