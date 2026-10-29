@@ -458,6 +458,7 @@
         } catch (e) { return -1; } })(),
       navFail: (function () { try { return TSW.auto._navFail || {}; } catch (e) { return {}; } })(),
       roomFallback: (function () { try { return TSW.auto._roomFb | 0; } catch (e) { return 0; } })(),
+      tgtSwitches: (function () { try { return TSW.auto._tgtSw | 0; } catch (e) { return 0; } })(),
       roomFallbackOK: (function () { try { return TSW.auto._roomFbOK | 0; } catch (e) { return 0; } })(),
       navFailWhy: (function () { try { return TSW.auto._navFailWhy || []; } catch (e) { return []; } })(),
       orbs: (g.floorOrbs | 0), shardN: Object.keys((g.p && g.p.shards) || {}).length,
