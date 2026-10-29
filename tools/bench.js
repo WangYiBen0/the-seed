@@ -195,7 +195,7 @@
     let lastSig = '', lastSigT = performance.now();
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
     window.__bossMaxHp = 0; window.__bossMinHp = undefined; window.__bossHits = 0;
-    window.__firstBossT = undefined;
+    window.__firstBossT = undefined; window.__bossEntry = null;
     // ---- run scoring -------------------------------------------------------
     // Progress is DECISIVE.  Damage taken contributes a negative term integrated
     // over time: the square of what was consumed, hp weighted heavier than armour.
@@ -223,6 +223,27 @@
       try {
         if (window.__firstBossT === undefined && g.boss && g.boss.maxHp > 0) {
           window.__firstBossT = g.runT || 0;
+          // Snapshot the state at the moment the boss room is entered: these are
+          // the PROCESS numbers that explain WHY it took that long, which a result
+          // metric cannot answer on its own.
+          const p2 = g.p || {};
+          window.__bossEntry = {
+            roomsCleared: (function () { try { return (WORLD.rooms || []).filter((r) => r.cleared).length; } catch (e) { return -1; } })(),
+            roomsTotal: (function () { try { return (WORLD.rooms || []).length; } catch (e) { return -1; } })(),
+            ink: g.ink | 0,
+            dps: (function () { try {
+              const volley = !!(g.S && g.S.volley); let d = 0;
+              for (let i = 0; i < p2.weapons.length; i++) {
+                const w = WEAPONS[p2.weapons[i]]; if (!w) continue;
+                const lv = (p2.wlv && p2.wlv[w.id]) | 0;
+                let one = (w.dmg || 0) * (w.rate || 1) * (w.n || 1) * (1 + .25 * lv);
+                if (i !== (p2.wi | 0)) one *= volley ? .12 : 0;
+                d += one;
+              } return Math.round(d);
+            } catch (e) { return 0; } })(),
+            shards: Object.keys((p2.shards) || {}).length,
+            hp: p2.hp | 0, maxHp: p2.maxHp | 0,
+          };
         }
       } catch (e) { }
       try {
@@ -356,6 +377,7 @@
       // A binary "cleared a floor" metric needs ~80 pairs to resolve a 20-point
       // difference; this number resolves far better per run. -1 = never reached.
       firstBossT: (window.__firstBossT === undefined ? -1 : Math.round(window.__firstBossT)),
+      bossEntry: window.__bossEntry || null,
       penalty: Math.round(scorePenalty * 10) / 10,
       // decisive term first: floors cleared dominates any damage penalty
       score: Math.round(((maxFloor) * 100000 - scorePenalty) * 10) / 10,
@@ -656,6 +678,12 @@
         // maxFloor, not floor: floor resets on death, so a run that cleared a
         // floor and then died reported 0 and looked like it never advanced.
         return (((r.maxFloor !== undefined && r.maxFloor !== null ? r.maxFloor : r.floor) | 0) >= reachWave) ? 1 : 0;
+      }
+      // firstBossT uses -1 for "never entered the boss room"; encode that as a
+      // large penalty so a missing boss counts as the worst outcome, not the best.
+      if (metricKey === 'firstBossT') {
+        const v = r.firstBossT;
+        return (v === undefined || v === null || v < 0) ? 9999 : v;
       }
       return r[metricKey] || 0;
     };
