@@ -49,6 +49,7 @@
       keyRoomFirst: true,                                    // explore: clear the key room before anything else
       mainHandBest: true,                                    // explore: hold the strongest weapon in the main hand
       arsenalByDps: true,                                    // explore: pick the armoury weapon by measured dps
+      shopByDps: true,                                       // explore: rank shop weapons by measured dps
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1358,7 +1359,17 @@
             const bar = (A.opts.shopShardBar === undefined) ? 2 : A.opts.shopShardBar;
             if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= bar) { tap('KeyE'); break; }
           }
-          if (it.what === 'weapon' && G.ink >= it.price && p.weapons.length < wCap() && wScore(it.id) > wScore(w.id) + .5) { tap('KeyE'); break; }
+          if (it.what === 'weapon' && G.ink >= it.price) {
+            // Rank by measured damage, not the policy table — the shop is one of
+            // only two places a weapon can be chosen rather than stumbled upon.
+            const shopD = A.opts.shopByDps === false ? wScore(it.id) * 20 : wDps(it.id);
+            const heldD = A.opts.shopByDps === false
+              ? wScore(w.id) * 20
+              : wDps(w.id) * (1 + .25 * (((p.wlv && p.wlv[w.id]) | 0)));
+            const room = p.weapons.length < wCap();
+            const better = shopD > heldD * 1.1 + 1;
+            if (room || better) { tap('KeyE'); A.status.note = '商店买枪 ' + it.id; break; }
+          }
           if (it.what === 'chip' && G.ink >= it.price && !p.skill) { tap('KeyE'); break; }
           continue;
         }
