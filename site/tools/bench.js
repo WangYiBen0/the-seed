@@ -194,6 +194,10 @@
     // matrices always complete.  hurtPlayer is the game's own damage entry point.
     let lastSig = '', lastSigT = performance.now();
     let maxFloor = 0;   // deepest floor reached (floor at end can be reset by death)
+    // Rooms are rebuilt per floor, so "cleared" only reflects the CURRENT floor.
+    // Accumulate across floors, otherwise a run that swept floor one and moved on
+    // reports zero.
+    window.__roomsDone = 0; window.__floorSeen = -1; window.__floorDone = 0;
     window.__bossMaxHp = 0; window.__bossMinHp = undefined; window.__bossHits = 0;
     window.__firstBossT = undefined; window.__bossEntry = null;
     // ---- time decomposition ----------------------------------------------
@@ -288,6 +292,16 @@
           if (Input && Input.down) wv.dryFiring = (wv.dryFiring || 0) + dt3;
           else wv.dryIdle = (wv.dryIdle || 0) + dt3;
         }
+      } catch (e) { }
+      // accumulate cleared combat/boss rooms per floor
+      try {
+        const fl = g.floor | 0;
+        const cur = (WORLD && WORLD.rooms) ? WORLD.rooms.filter((r) => r.cleared && (r.type === 'combat' || r.type === 'boss')).length : 0;
+        const mx = Math.max(cur, (fl === window.__floorSeen) ? window.__floorDone : 0);
+        if (fl !== window.__floorSeen) {
+          window.__roomsDone = (window.__roomsDone || 0) + (window.__floorDone || 0);
+          window.__floorSeen = fl; window.__floorDone = cur;
+        } else { window.__floorDone = mx; }
       } catch (e) { }
       try {
         const dc = window.__tDecomp;
@@ -466,11 +480,16 @@
       // Rooms cleared per minute: the one metric that answers "how much progress
       // does this strategy buy per second", without being distorted by how many
       // fights a seed happens to offer or by the combat/travel split.
-      roomsCleared: (function () { try { return (WORLD.rooms || []).filter((r) => r.cleared).length; } catch (e) { return 0; } })(),
+      // Only combat and boss rooms count: reward rooms start the floor already
+      // flagged cleared (world.js:75), so counting them inflated the numerator
+      // and produced impossible values like 12 rooms per minute.
+      roomsCleared: (function () { try {
+        return (window.__roomsDone || 0) + (window.__floorDone || 0);
+      } catch (e) { return 0; } })(),
       roomsPerMin: +(function () {
         try {
-          const rc = (WORLD.rooms || []).filter((r) => r.cleared).length;
-          const mins = Math.max(.5, (g.runT || 0) / 60);
+          const rc = (window.__roomsDone || 0) + (window.__floorDone || 0);
+          const mins = Math.max(1, (g.runT || 0) / 60);     // floor of one minute
           return (rc / mins).toFixed(2);
         } catch (e) { return 0; }
       })(),
