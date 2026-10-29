@@ -437,6 +437,15 @@
       hurtPierce: (function () { try { return (window.__hurtLog || []).filter((x) => x.p && !x.m).length; } catch (e) { return 0; } })(),
       hurtPlain: (function () { try { return (window.__hurtLog || []).filter((x) => !x.p && !x.m).length; } catch (e) { return 0; } })(),
       hurtDmg: (function () { try { return Math.round((window.__hurtLog || []).reduce((a, x) => a + (x.d || 0), 0)); } catch (e) { return 0; } })(),
+      // opening survival: damage taken in the first 30 game-seconds.  Half the
+      // runs clear nothing at all, so the start is where they collapse.
+      hurt30: (function () { try { return Math.round((window.__hurtLog || []).filter((x) => x.at <= 30).reduce((a, x) => a + (x.d || 0), 0)); } catch (e) { return 0; } })(),
+      hits30: (function () { try { return (window.__hurtLog || []).filter((x) => x.at <= 30).length; } catch (e) { return 0; } })(),
+      hpAt30: (function () {
+        try {
+          const L = (window.__hurtLog || []).filter((x) => x.at <= 30);
+          return L.length ? L[L.length - 1].hp : -1;
+        } catch (e) { return -1; } })(),
       navFail: (function () { try { return TSW.auto._navFail || {}; } catch (e) { return {}; } })(),
       roomFallback: (function () { try { return TSW.auto._roomFb | 0; } catch (e) { return 0; } })(),
       roomFallbackOK: (function () { try { return TSW.auto._roomFbOK | 0; } catch (e) { return 0; } })(),
