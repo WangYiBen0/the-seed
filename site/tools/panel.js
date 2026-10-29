@@ -135,6 +135,47 @@
   TSW.bus.on('auto', () => { modeSel.value = TSW.auto.mode; polSel.value = TSW.auto.policy; });
   bSlow.onclick = () => TSW.speed.nudge(-1); bFast.onclick = () => TSW.speed.nudge(1);
 
+  // ---------------- 存档交换 / 排行 · CLOUD ----------------
+  const sCl = section('存档交换 / 排行 · CLOUD');
+  const clHelp = el('div', 'color:#8d867a');
+  clHelp.textContent = '离线镜像无法连 dzmm.ai（无 CORS、cookie 为 SameSite=Lax），\n这里用可复制/可下载的存档串替代云存档，并记录本地排行榜。';
+  sCl.appendChild(clHelp);
+  const clR1 = row(sCl);
+  const bClExp = btn('导出存档');
+  const bClDl = btn('下载存档');
+  const bClImp = btn('导入存档');
+  clR1.append(bClExp, bClDl, bClImp);
+  const clBox = el('textarea', 'width:100%;height:52px;background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;font:10px monospace');
+  clBox.placeholder = '存档串（导出后复制到这里，或粘贴别人的）';
+  sCl.appendChild(clBox);
+  const clR2 = row(sCl);
+  const bClRank = btn('查看排行');
+  const bClLink = btn('生成本局分享链接');
+  const bClClr = btn('清空排行');
+  clR2.append(bClRank, bClLink, bClClr);
+  const clOut = el('div', 'white-space:pre;overflow:auto;max-height:150px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px');
+  sCl.appendChild(clOut);
+  bClExp.onclick = () => { if (!TSW.cloud) return note('云模块未就绪'); const c = TSW.cloud.toCode(); clBox.value = c || ''; note(c ? '已导出（' + c.length + ' 字符）' : '导出失败'); };
+  bClDl.onclick = () => { if (TSW.cloud && TSW.cloud.download()) note('已下载存档文件'); };
+  bClImp.onclick = () => {
+    if (!TSW.cloud) return note('云模块未就绪');
+    const r = TSW.cloud.fromCode(clBox.value);
+    note(r && r.ok ? '导入成功（' + r.keys + ' 项），刷新页面生效' : '导入失败：' + ((r && r.error) || '格式不对'));
+  };
+  bClRank.onclick = () => {
+    if (!TSW.cloud) return;
+    const rows = TSW.cloud.rank(20);
+    if (!rows.length) { clOut.textContent = '还没有记录。'; return; }
+    clOut.textContent = rows.map((r, i) =>
+      `${i + 1}. 层${r.maxFloor} 无尽${r.depth} 房${r.rooms} 杀${r.kills}${r.mods ? ' 五锁' : ''}`).join('\n');
+  };
+  bClLink.onclick = () => {
+    const l = TSW.cloud.shareLink();
+    if (!l) { clOut.textContent = '还没有可分享的成绩。'; return; }
+    clBox.value = l; clOut.textContent = '链接已生成，复制即可发出去。';
+  };
+  bClClr.onclick = () => { if (TSW.cloud) { TSW.cloud.clear(); clOut.textContent = '排行已清空。'; } };
+
   // ---------------- 自我进化 · EVOLVE ----------------
   const sEv = section('自我进化 · EVOLVE');
   const evHelp = el('div', 'color:#8d867a');
