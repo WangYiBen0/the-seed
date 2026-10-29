@@ -1974,7 +1974,13 @@
         tgt = pickObjective(G, p);
         if (tgt && deadPoint(tgt.pt)) tgt = null;
       }
+      // Count how often the objective changes.  Walking 78 percent of a run without
+      // arriving smells like目标 thrash: every re-plan restarts the route.
+      const oldTp = A._tgtPt;
       A._tgtPt = (tgt && tgt.pt) ? tgt.pt.slice(0, 2) : null;
+      if (A._tgtPt && (!oldTp || Math.hypot(A._tgtPt[0] - oldTp[0], A._tgtPt[1] - oldTp[1]) > 24)) {
+        A._tgtSw = (A._tgtSw || 0) + 1;
+      }
       // ---- 通用目标放弃 ---------------------------------------------------
       // Any objective the bot keeps re-choosing but never completes pins the whole
       // run (measured: forge for 960s with 10/11 rooms already cleared).  The forge
