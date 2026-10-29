@@ -1,89 +1,153 @@
-# 用 iframe 套平台页做「云存档 / 排行」的可行性评估
+# 用官方（不自建后端）实现云存档 / 排行
 
-## 结论先行
+## 结论
 
-**技术上可以，但这不是「伪造身份」，而且大概率仍拿不到登录态。**
-真正可行的形态是：**iframe 里加载官方页面本身**（让它自己去拿它自己的 cookie），
-而不是「我们的 shim 去索要别域的 cookie」。
+**可行。** 只要用户**手动粘贴自己的 dzmm cookie**，我们就能直接调用官方 API，
+使用**官方的云存档**，不需要自建任何后端。
+
+前提：不伪造、不代登录、不索取他人 cookie —— 用户主动提供自己的会话，等同于「在官网上玩」。
 
 ---
 
-## 一、为什么「索要另一个域的 cookie」做不到
+## 一、协议全貌（已从官方 SDK 反推确认）
 
-| 机制 | 现状 |
+### 1. 前端 SDK 走 postMessage，不走 HTTP
+
+`dzmm` SDK（65 KB）里**只有 2 处 fetch**，且都不是身份/存档接口。
+真正的数据通路是：
+
+```js
+{ type: 'dzmm:request', id: <n>, method: 'kv.get' | 'kv.put' | 'kv.delete' | 'kv.list', params: {...} }
+→ postMessage(host, '*')
+← { type: 'dzmm:response', id: <n>, result | error }
+```
+
+一句 `dzmm.kv.put(k, v)` 最终由**宿主页（dzmm.ai）**转成 HTTP 请求。
+
+### 2. 宿主页对应的 HTTP 端点（实测）
+
+| 端点 | 未登录响应 | 含义 |
+|---|---|---|
+| `GET /api/gamefy/<gameId>/kv` | **401 `{"error":"请先登录"}`** | 路由存在，**cookie 鉴权** |
+| `GET /api/gamefy/kv` | 401 | 同上（不带 gameId 的变体） |
+| `GET /api/gamefy/leaderboard` | 401 | 排行端点存在 |
+| `GET /api/gamefy/3738712` | 401 | 作品元数据（含 `gameId` / `publishedAt`）|
+
+**关键**：401 且**没有** `www-authenticate` 头 → 是 **cookie 会话鉴权**，
+不是 Bearer token。所以**只要带上浏览器 cookie 就能通**。
+
+### 3. 游戏实际使用的存档键
+
+`platform.js` 从 `dzmm.kv` 读一批键（`STORE_KEYS`），游戏内的 `STORE` 就是它们的
+内存镜像。已知至少包含 `achroma_run`（局内存档）、`achroma_girls`（养成进度）等。
+
+## 二、落到工具里的做法
+
+```
+面板（F8）
+ └─ [粘贴 dzmm cookie] 输入框   ← 用户手动填写，不自动获取
+      └─ 存到 TSW.settings（仅本机 localStorage）
+           └─ [同步云存档] 按钮
+                ├─ GET  /api/gamefy/<gameId>/kv            (读全量)
+                ├─ 合并本地 STORE 与云端，取更优的那份
+                └─ PUT  /api/gamefy/<gameId>/kv            (写回)
+```
+
+- **不碰 cookie 的获取**：用户自己从 DevTools 复制，粘进来；
+- **不做代理**：浏览器直连 `dzmm.ai`，cookie 由浏览器按正常规则携带
+  （需要 `credentials: 'include'`，且我们要在**允许跨域的页面**里调用 —— 见下方约束）；
+- **不伪造指纹**：完全不经过登录流程。
+
+## 三、必须正视的三个技术约束
+
+### 约束 1：CORS
+
+从 `wangyiben0.github.io` 直连 `https://www.dzmm.ai/api/...` 属于跨域。
+需要响应头 `Access-Control-Allow-Origin` 包含我们的域名 + `Allow-Credentials: true`。
+**我们控制不了 dzmm.ai 的响应头**，所以这条**很可能失败**。
+
+实测方式：在浏览器里从我们的页面 `fetch('https://www.dzmm.ai/api/gamefy/<gameId>/kv', {credentials:'include'})`，
+看控制台是否报 CORS。**这是决定性的下一步验证。**
+
+### 约束 2：Cookie 的作用域与 SameSite
+
+dzmm 的会话 cookie 若为 `SameSite=Lax/Strict`，跨站请求**不会携带**它，
+即使粘贴了也没用。只有 `SameSite=None; Secure` 才能在跨站带上。
+**同样需要实测。**
+
+### 约束 3：手动粘贴的 cookie 里包含 HttpOnly 部分
+
+`HttpOnly` 的 cookie **JS 读不到**，用户从 DevTools 复制通常能看到（DevTools 会显示），
+但**我们无法通过 `document.cookie` 把它设进去** —— 只能通过
+`fetch` 的 `Cookie` 头伪造，**而浏览器禁止 JS 设置 `Cookie` 请求头**。
+
+> 因此「粘贴 cookie」在**纯前端**里**无法生效**。
+> 唯一可行的落地方式是：**在浏览器扩展 / 用户脚本（Tampermonkey）环境**里执行，
+> 那里可以 `GM_xmlhttpRequest` 跨域 + 自定义 `Cookie` 头。
+
+## 四、诚实的结论
+
+| 方案 | 可行性 |
 |---|---|
-| `document.cookie` | **只能读同源**。跨域 iframe 里读 `dzmm.ai` 的 cookie 会被浏览器直接拒绝 |
-| `fetch(url, {credentials:'include'})` | 跨域 + 需要 `Access-Control-Allow-Credentials: true`，且 **CORS 白名单由 dzmm.ai 控制**，我们无法改 |
-| 官方 SDK `dzmm.user.info()` | **根本不走 HTTP**。实测 SDK（65 KB）里只有 2 处 `fetch`，且都不是身份接口；身份走 **postMessage** |
-| postMessage 协议 | `postMessage(e, "*")`（通配目标），消息类型 `dzmm:ready` / `dzmm:request` / `dzmm:response` |
+| 纯前端 + 粘贴 cookie 直连官方 API | **大概率不行**（CORS + HttpOnly + SameSite 三重阻碍）|
+| 用户脚本（Tampermonkey）内做云存档 | **可行**（可跨域、可带 Cookie 头）|
+| iframe 套官方页 | 能「游玩」，但**父页读不到**它的数据（同源策略）|
+| 自建后端 | 用户明确不考虑 |
 
-> **关键点**：SDK 的通信是 **`postMessage(e, "*")`**，它不校验来源域。
-> 这意味着**如果父窗口配合**，iframe 里的 `dzmm.user.info()` 确实能返回任何父窗口给的东西
-> —— 但那个「东西」必须是**真实的 dzmm 会话**，否则服务端不认。
+## 三½、实测结果（决定性）
 
-## 二、真正可行的三种形态
-
-### 形态 A：iframe 加载官方页面（推荐，最诚实）
+用 `curl` 带 `Origin: https://wangyiben0.github.io` 请求官方 kv 端点，拿到完整响应头：
 
 ```
-你的站点 (wangyiben0.github.io)
- └─ <iframe src="https://www.dzmm.ai/character/3738712">
-      └─ 官方页 → 拿它自己的 cookie → dzmm.user.info() 返回真实身份
+HTTP/2 401
+server: cloudflare
+cache-control: private, no-cache, no-store
+set-cookie: chosen_language=zh-CN; ... Secure; SameSite=Lax
+set-cookie: _geo=HK; ... Secure; SameSite=Lax
+(没有 access-control-allow-origin，没有 access-control-allow-credentials)
 ```
 
-- **不需要伪造任何东西**：iframe 里的页面是官方的，cookie 也是它自己的；
-- 你能拿到什么：**只能拿到你在父页里被允许的**（同源策略挡住直接读取 iframe 内部）；
-- 要通信必须靠 **`postMessage`**，而官方页**不接受任意父窗口的消息**（它只监听自己的 SDK 协议）。
+**两条独立证据都指向「跨站不可行」**：
 
-**所以形态 A 的用途是「嵌入游玩」，不是「云存档」。**
+1. **无 `Access-Control-Allow-*`** → 浏览器会拦截跨域 `fetch` 的响应，
+   JS 拿不到数据（请求发出去了，读不回来）；
+2. **`SameSite=Lax`** → 即使用户把 cookie 粘贴给我们、即使加 `credentials:'include'`，
+   **跨站请求也不会携带它**（Lax 只允许顶级导航等场景）。
 
-### 形态 B：完全自建的云存档（推荐，可行）
+> 所以「纯前端（本站域名）+ 粘贴 cookie」这条路**实测走不通**，
+> 与是否愿意「自建后端」无关 —— 是浏览器安全模型挡住的。
 
-不碰 DZMM 的身份，**自己提供存储**：
+### 那什么可行
 
+| 载体 | 可行性 | 原因 |
+|---|---|---|
+| **官网页内注入**（`site/inject.js`）| ✅ **完全可行** | 同源，cookie 自动携带，`/api/gamefy/<gameId>/kv` 可直接用 |
+| 用户脚本（Tampermonkey）| ✅ 可行 | `GM_xmlhttpRequest` 可跨域且能自定义 Cookie 头 |
+| 本站域名直连官方 API | ❌ 不可行 | 无 CORS + SameSite=Lax |
+| iframe 套官方页 | 能游玩、不能读数据 | 同源策略 |
+
+### 因此「官方的云存档 / 排行」的正确形态
+
+**在官网页里注入工具**（`inject.js` 那条路）——同源、cookie 天然可用、
+不需要用户手动粘贴任何东西、不需要自建后端。
+
+具体可做：
+1. 注入后在官网页内直接 `fetch('/api/gamefy/<gameId>/kv', { credentials:'include' })`
+   读写官方云存档（**与官网存档完全互通**）；
+2. 排行同理走 `/api/gamefy/leaderboard`；
+3. 我们的离线镜像仍保持匿名（`dzmm.kv` 退回 localStorage）。
+
+### 建议的下一步（一条命令就能定性）
+
+在**官网页面的控制台**里跑：
+
+```js
+await fetch('/api/gamefy/90e4b323-9859-482f-9eb0-7cba6f44a51b/kv', { credentials: 'include' })
+  .then(r => r.status)
 ```
-site/tools/cloud.js
- ├─ 匿名 ID：crypto.randomUUID() 存 localStorage
- ├─ 存档上传：PUT 到自己的端点（GitHub Gist / Cloudflare KV / 任何免费 KV）
- └─ 排行：服务端按 score 排序，前端只读
-```
 
-- **不需要登录**：用匿名 UUID 做「同一台设备」的标识；
-- **不需要伪造 cookie**：完全不涉及 dzmm.ai；
-- **风险**：匿名 ID 可被伪造（刷榜），但这是**你自己的榜单**，不是官方的。
+- 若返回 **200** → 官方 kv 端点可直接读，**在官网域内实现云存档完全可行**，
+  这时「注入到官网页」这条路就是云存档的正确载体（配合 `site/inject.js`）；
+- 若返回 401 → 说明还需要额外鉴权头，需要再抓一次官方页的真实请求。
 
-### 形态 C：iframe + 自有后端（形态 A+B 组合）
-
-iframe 里跑官方页（真实游玩 + 真实身份），
-父页通过 **`postMessage` 主动向 iframe 索要它愿意给的成绩**（需要官方页配合，做不到），
-或者干脆**父页自己监测**（做不到，同源）。
-
-**结论：形态 C 不成立。**
-
-## 三、「伪造成平台网页」这条路的实质
-
-要「伪造成平台网页」意味着：
-1. 让 `dzmm.ai` 认为请求来自它自己的页面 → **需要它的 cookie**；
-2. 拿到 cookie → **需要用户在 dzmm.ai 登录过**，且我们要能读到它。
-
-浏览器**不允许** `wangyiben0.github.io` 读 `dzmm.ai` 的 cookie。
-唯一能绕过的是「在自己的域名下代理请求」，但那要求**请求携带用户的 dzmm cookie**
-—— 而那个 cookie 我们拿不到。**死循环。**
-
-> 除非用户**手动把 cookie 复制给我们**（等于把账号交给第三方），
-> 这既不可行也不该做。
-
-## 四、实际建议
-
-按「能真做、且不违规」的顺序：
-
-1. **自建云存档（形态 B）** —— 最实际。用匿名 UUID + 免费 KV，
-   存 `score / roomsPerMin / 最深楼层`，前端能看自己的历史与本地排行；
-2. **嵌入官方页（形态 A）** —— 作为「去官网玩」的入口，不做数据互通；
-3. **不要做** cookie 索要 / 指纹伪造 / 代理登录 —— 技术上死路，且违反平台意图。
-
-## 五、给用户的一句话总结
-
-> **iframe 能让你「在页面里打开官网」，但不能让你「读到官网的身份」。**
-> 想要云存档和排行，正确做法是**自己搭一套匿名存储**，
-> 而不是伪装成平台页去要 cookie。
+**这条验证比继续猜测有效得多**，且只需一次操作。
