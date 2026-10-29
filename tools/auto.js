@@ -47,6 +47,7 @@
       weaponLateBias: 90,                                    // explore: ink level at which per-shot damage starts to weigh more
       shardFit: true,                                        // explore: score shards by fit to the held weapon
       keyRoomFirst: true,                                    // explore: clear the key room before anything else
+      mainHandBest: true,                                    // explore: hold the strongest weapon in the main hand
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1540,6 +1541,20 @@
         const low = a.n <= Math.max(1, Math.round(cap * (sloth ? .45 : .2)));
         const safeish = sloth || !nearestEnemy(p.x, p.y, 140, false);
         if (A.opts.reload && a.rl <= 0 && p.dashT <= 0 && (a.n <= 0 || (low && safeish))) tap('KeyR');
+      }
+      // ---- keep the strongest gun in the main hand ----------------------------
+      // Only the held weapon fires at full rate; the holstered one needs the
+      // volley shard and even then delivers 12% (shards3.js:50).  A run that
+      // ended with nail held and bow holstered measured 8 real dps.  Swap so the
+      // best gun is held whenever the current one is clearly worse.
+      if (A.opts.mainHandBest !== false && p.weapons.length > 1 && p.dashT <= 0) {
+        try {
+          const cur = p.weapons[p.wi], alt = p.weapons[1 - p.wi];
+          const curD = wDps(cur), altD = wDps(alt);
+          if (altD > curD * 1.15 && altD > curD + 2) {
+            tap('KeyX'); A.status.note = '主手换强枪 ' + alt;
+          }
+        } catch (e) { }
       }
       // ---- reload window: switch to the sidearm instead of standing there dry ----
       // KeyX toggles p.wi (game.js:160).  While the equipped weapon is reloading
