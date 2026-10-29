@@ -199,6 +199,14 @@
           if (lvl && (G.ink | 0) >= lvl) v += Math.min(2.5, per / 24);
         }
       } catch (e) { }
+      // Several genuinely strong guns had NO entry in the policy table (storm 62
+      // base dps, nova 137, mines 57, trident 54, shuriken 50), so the bot kept
+      // preferring nail at 35.  Score every weapon by its measured base dps floor,
+      // independent of the policy's curated picks.
+      try {
+        const baseDps = wDps(id);
+        if (baseDps > 0) v += Math.min(5, Math.max(0, (baseDps - 30) / 20));
+      } catch (e) { }
       if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
       return v;
     } catch (e) { return 2.5; }
