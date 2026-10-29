@@ -55,6 +55,7 @@
       bossAddsFirst: true,                                   // explore: clear summoned adds before the boss itself
       rushBoss: false,                                       // explore: defer reward rooms to reach the boss sooner
       bossPrepHeal: true,                                    // explore: heal up before opening the boss seal
+      focusFire: true,                                       // explore: keep hitting one target until it dies
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1407,6 +1408,22 @@
       // contact damage from every direction, and several runs died with the boss
       // on 11-118 hp exactly there.  Clear the adds first, then the boss.
       let ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
+      // ---- focus a target until it dies --------------------------------------
+      // Damage spread across several enemies leaves all of them half-dead, so the
+      // room takes longer than killing them one by one.  Keep hitting the current
+      // target while it is alive, visible and not absurdly far; drop it otherwise.
+      // Enemies carry no id field, so hold the object reference itself.
+      try {
+        if (A.opts.focusFire !== false) {
+          const keep = A._focusRef;
+          if (keep && !keep.dead && keep.deathFightLeft <= 0 && keep.spawnT <= 0
+              && Math.hypot(keep.x - p.x, keep.y - p.y) < 460 && los(p.x, p.y, keep.x, keep.y)) {
+            ne = keep; A.status.note = '集火 ' + Math.round(keep.hp | 0);
+          } else {
+            A._focusRef = (ne && ne !== (G.boss || null)) ? ne : undefined;
+          }
+        }
+      } catch (e) { }
       try {
         const inBossRoom = !!(active && active.type === 'boss');
         if (inBossRoom && A.opts.bossAddsFirst !== false) {
