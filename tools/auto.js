@@ -52,6 +52,7 @@
       shopByDps: true,                                       // explore: rank shop weapons by measured dps
       deathfightHazard: true,                                // explore: treat death-fight corpses as hazard
       bossCriticalRetreat: true,                             // explore: disengage at 1 hp in a boss room
+      bossAddsFirst: true,                                   // explore: clear summoned adds before the boss itself
       fullHpGate: true,                                      // explore: heal to full before descending
       goalGiveUp: 90,                                        // explore: seconds before abandoning ANY stuck objective (90 measured 9/12 vs 4/12 at 40)
       wallMargin: 14,                                        // explore: px of clearance we prefer to keep from walls
@@ -1399,7 +1400,27 @@
     // ---------- combat target & kite ----------
     let mx = 0, my = 0, wantFire = false;
     if (active || G.trial || near) {
-      const ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
+      // In a boss room, phase changes summon two rings (bring(..., dn(22), ...),
+      // boss.js:44).  Chasing the boss while 22 adds are alive means taking
+      // contact damage from every direction, and several runs died with the boss
+      // on 11-118 hp exactly there.  Clear the adds first, then the boss.
+      let ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
+      try {
+        const inBossRoom = !!(active && active.type === 'boss');
+        if (inBossRoom && A.opts.bossAddsFirst !== false) {
+          const adds = (G.enemies || []).filter((e) => !e.dead && !(e.boss) && e.spawnT <= 0 && e.deathFightLeft <= 0
+            && Math.hypot(e.x - p.x, e.y - p.y) < 420);
+          if (adds.length >= 2) {
+            let best = null, bd = 1e9;
+            for (const a of adds) {
+              if (!los(p.x, p.y, a.x, a.y)) continue;
+              const dd = Math.hypot(a.x - p.x, a.y - p.y);
+              if (dd < bd) { bd = dd; best = a; }
+            }
+            if (best) { ne = best; A.status.note = '清boss援兵 ' + adds.length; }
+          }
+        }
+      } catch (e) { }
       // aim at the closest foe WITH a clear shot (falls back to the closest so the
       // aim stays warm); firing is gated on that target actually existing
       let neF = nearestEnemy(p.x, p.y, 900, true);
