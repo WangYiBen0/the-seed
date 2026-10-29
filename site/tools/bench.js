@@ -432,6 +432,11 @@
       end: res.end, wall: +res.wall.toFixed(1),
       gameT: +g.runT.toFixed(0), floor: g.floor, maxFloor: maxFloor, depth: g.endless | 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
+      // where the damage actually comes from, from the hurtPlayer log
+      hurtMechanic: (function () { try { return (window.__hurtLog || []).filter((x) => x.m).length; } catch (e) { return 0; } })(),
+      hurtPierce: (function () { try { return (window.__hurtLog || []).filter((x) => x.p && !x.m).length; } catch (e) { return 0; } })(),
+      hurtPlain: (function () { try { return (window.__hurtLog || []).filter((x) => !x.p && !x.m).length; } catch (e) { return 0; } })(),
+      hurtDmg: (function () { try { return Math.round((window.__hurtLog || []).reduce((a, x) => a + (x.d || 0), 0)); } catch (e) { return 0; } })(),
       orbs: (g.floorOrbs | 0), shardN: Object.keys((g.p && g.p.shards) || {}).length,
       // damage inputs: weapon levels are the multiplicative part of DPS, shard
       // count is the additive part; totalDps is a cheap proxy used for ranking
@@ -607,6 +612,15 @@
       cKills, ckpm: +(cKills / (cTmax / 60)).toFixed(1),
       cDmg, cdpm: Math.round(cDmg / (cTmax / 60)),
       hits: g.hits | 0,
+      // where the damage comes from: mech (telegraphed), pierce, contact
+      hurtMechanic: (function () { try {
+        const L = window.__hurtLog || []; return L.filter((x) => x.m).length; } catch (e) { return 0; } })(),
+      hurtPierce: (function () { try {
+        const L = window.__hurtLog || []; return L.filter((x) => x.p && !x.m).length; } catch (e) { return 0; } })(),
+      hurtPlain: (function () { try {
+        const L = window.__hurtLog || []; return L.filter((x) => !x.p && !x.m).length; } catch (e) { return 0; } })(),
+      hurtDmg: (function () { try {
+        const L = window.__hurtLog || []; return Math.round(L.reduce((a, x) => a + (x.d || 0), 0)); } catch (e) { return 0; } })(),
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
     };
   }
