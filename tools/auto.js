@@ -58,6 +58,7 @@
       focusFire: TSW.settings.get('autoFocusFire', true),                                       // explore: keep hitting one target until it dies
       contactWeight: TSW.settings.get('autoContactWeight', 2.6), // explore: danger weight for enemy bodies
       phoenixWeight: TSW.settings.get('autoPhoenixWeight', 2.2), // explore: extra value for the revive shard
+      iaiWeight: TSW.settings.get('autoIaiWeight', .45),       // explore: iai dashes into danger, devalue it
       fireWhileRetreat: TSW.settings.get('autoFireWhileRetreat', true),                                // explore: keep firing while backing off
       powerupRange: TSW.settings.get('autoPowerupRange', 700),                                     // explore: how far to walk for a loose weapon/chip
       vault: TSW.settings.get('autoVault', true),                                           // explore: open the vault when ink allows
@@ -226,6 +227,13 @@
       try {
         const baseDps = wDps(id);
         if (baseDps > 0) v += Math.min(5, Math.max(0, (baseDps - 30) / 20));
+      } catch (e) { }
+      // `iai` dashes the player its full range forward on every swing (weapons.js:189).
+      // Under hard difficulties that is a structural liability, not a tuning issue:
+      // measured 13 kills and zero rooms against hammer's 392 on the same seed.
+      try {
+        const ww2 = WEAPONS[id];
+        if (ww2 && ww2.kind === 'iai') v *= (A.opts.iaiWeight === undefined ? .45 : +A.opts.iaiWeight);
       } catch (e) { }
       if (A.opts.weaponDps) { const d = wDps(id); if (d > 0) v += Math.min(6, d / 10); }
       return v;
@@ -1772,6 +1780,18 @@
         const retreatFire = retreat && A.opts.fireWhileRetreat !== false;
         const retreatRange = melee ? 120 : 520;
         wantFire = !!neF && d < (retreatFire ? retreatRange : (retreat ? 0 : (melee ? 90 : 450)));
+        // `iai` dashes the player forward by its full range (weapons.js:189-201), so
+        // firing moves us toward the enemy and sometimes into hazards.  Veto the
+        // swing when the dash would end somewhere unsafe.  (This must run AFTER the
+        // wantFire assignment above, or it would be overwritten.)
+        if (wk === 'iai' && wantFire) {
+          try {
+            if (ne) {
+              const ddx = (ne.x - p.x) / (d || 1), ddy = (ne.y - p.y) / (d || 1);
+              if (!dashSafe(p, ddx, ddy)) wantFire = false;
+            }
+          } catch (e) { }
+        }
         // Firing was off for 67-83 percent of the "enemies alive, nothing dying"
         // stretches.  The gate needs line of sight, and rooms are full of pillars,
         // so the bot holds fire exactly when a close shot could still connect.
