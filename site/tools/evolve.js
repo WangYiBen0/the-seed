@@ -72,9 +72,20 @@
   };
   EV.fitness = (r) => {
     if (!r) return -1e9;
-    // progress dominates (it already is ×100000 in bench.score); kills break ties
-    const s = (typeof r.score === 'number') ? r.score : ((r.maxFloor || r.floor || 0) * 100000);
-    return s + Math.min(1e4, (r.kills | 0) * 10);
+    // Floor progress has to dominate, and it does in bench.score (+100000 per
+    // floor).  But on the despair five-lock seed set most runs clear ZERO floors,
+    // and score alone then reduces to "-damage taken": every genome looks
+    // identical, the elite never moves, and the loop is effectively optimising
+    // "get hit less" instead of "clear the floor".  Add a GRADED progress term so
+    // a genome that nearly clears a room / kills more / lives longer still beats
+    // one that stalls, without letting secondary terms outrank a real floor.
+    const floors = (r.maxFloor !== undefined && r.maxFloor !== null) ? r.maxFloor : (r.floor | 0);
+    const score = (typeof r.score === 'number') ? r.score : floors * 100000;
+    // rooms cleared is the sub-floor progress signal that actually moves
+    const rooms = (r.roomsCleared | 0) * 900;
+    const kills = Math.min(9000, (r.kills | 0) * 30);
+    const alive = Math.min(6000, (r.gameT | 0) * 3);
+    return score + rooms + kills + alive;
   };
 
   // ---- the loop -----------------------------------------------------------
@@ -126,6 +137,34 @@
         if (stopFlag) break;
         let r = null;
         TSW.log('[evolve] candidate seed=' + s + ' begin');
+        // Consecutive bench.run('fullrun') calls can wedge: the run is started by
+        // writing a crafted save and calling resumeRun(), and a second resume
+        // while the game is still sitting in the previous run's dead/cards state
+        // never reaches 'play'.  Measured: candidate 2 began and then the whole
+        // evolve run hit its hard timeout with no result at all.
+        // Park the game in a clean state between candidates, then WAIT until it
+        // really is idle.  bench.run starts a run by writing a crafted save and
+        // calling resumeRun(); if that happens while the previous run is still
+        // finishing (dead screen, level-up cards, the results overlay) the resume
+        // is swallowed and the next candidate never starts playing - measured:
+        // candidate 2 logged 'begin' and then the evolve run hit its hard timeout
+        // with no result at all.
+        try {
+          const waitIdle = async (ms) => {
+            const t0 = performance.now();
+            while (performance.now() - t0 < ms) {
+              const g = window.__achroma && window.__achroma.G;
+              if (g && (g.state === 'dead' || g.state === 'cards' ||
+                  (typeof OVL !== 'undefined' && OVL && OVL.open) ||
+                  (typeof NAMEED !== 'undefined' && NAMEED && NAMEED.open))) {
+                if (typeof toMenu === 'function' && g.state !== 'menu') toMenu();
+              } else if (g && g.state === 'menu') return true;
+              await new Promise((r) => setTimeout(r, 250));
+            }
+            return false;
+          };
+          await waitIdle(4000);
+        } catch (e) { }
         try { r = await TSW.bench.run('fullrun', { seed: s, policy: 'rounded', goalDepth: 2, speed, timeoutS: (seconds | 0) + 60, diff, mods }); } catch (e) { TSW.log('[evolve] bench threw ' + (e && e.message)); }
         TSW.log('[evolve] candidate seed=' + s + ' done floor=' + (r ? (r.maxFloor != null ? r.maxFloor : r.floor) : 'null'));
         const f = EV.fitness(r);

@@ -96,7 +96,12 @@ async function main() {
   const evSpeed = Math.max(1, +args.speed || 8);
   // per GAME: (game seconds) / speed, plus ~14 s of fixed session cost
   // (page load, waitScripts, crafted-save resume, the 8 s play-state wait).
-  const perRun = args.kind === 'evolve' ? (gens * popN * seedsN * ((+(args.timeout || 120) + 60) / evSpeed + 14))
+  // A game that ENDS EARLY (death) still costs its full share of wall time once
+  // the fixed session overhead is counted: measured 67 s of wall time for a run
+  // that only reached 274 game-seconds, so (game)/speed is a lower bound, not an
+  // estimate.  Charge the overhead generously; a slightly long budget only wastes
+  // an idle tail, a short one throws the whole evolution away.
+  const perRun = args.kind === 'evolve' ? (gens * popN * seedsN * ((+(args.timeout || 120) + 60) / evSpeed + 55))
     : args.kind === 'ab' ? (+args.timeout || 200) : (+args.timeout || 900);
   // one pair = 2 runs, and each run costs ~timeout + start/measure overhead
   // AB spends (rounds*2 + warmup 2) runs of perRun seconds each; forgetting the
