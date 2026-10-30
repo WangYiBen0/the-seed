@@ -443,6 +443,26 @@
       if (land < 0) return false;
       if (collides(p.x + (dx * land), p.y + (dy * land), p.r, false)) return false;
     }
+    // Dynamic hazards matter as much as tiles: a dash that lands in a pool of acid,
+    // on a spike trap or inside a laser sweeps straight into damage.  The tile scan
+    // above knows nothing about these, which is why the bot charged into hazards.
+    // Sample the LANDING POINT and a few points along the path.
+    // Only when the game is actually live: the unit tests load this module without
+    // a running world, and spotDanger needs real enemy/hazard data to be meaningful.
+    try {
+      const live = (typeof __achroma !== 'undefined' && __achroma && __achroma.G && __achroma.G.enemies);
+      if (live && typeof spotDanger === 'function') {
+        for (let d = DASH_LEN; d >= 16; d -= 12) {
+          const sx2 = p.x + dx * d, sy2 = p.y + dy * d;
+          // a dash may legitimately fly OVER a pit; only dynamic hazards (bullets,
+          // pools, traps, lasers) should veto it — the tile scan above already
+          // decided the pit question.
+          if (tileAtPx(sx2, sy2) === TL.PIT) continue;
+          const fake = { x: sx2, y: sy2, r: p.r };
+          if (spotDanger(sx2, sy2, fake) >= (A.opts.dashHazardLimit || 1.2)) return false;
+        }
+      }
+    } catch (e) { }
     // never dash INTO a death-fight body: it deals contact damage for 2s and
     // cannot be killed, so the landing spot itself has to be clear of them.
     if (G.enemies) for (const e of G.enemies) {
@@ -1688,9 +1708,14 @@
         // regressed the runs badly (seed 5: 268 -> 45 kills).
         const wk = w ? w.kind : 'gun';
         const pierceK = (wk === 'rail' || (w && (w.pierce | 0) >= 0 && (w.pierce | 0) >= 1));
+        // Melee spacing must follow the WEAPON's reach: `edge` hits at 26px while
+        // `iai` reaches 64px, yet one band (28-49) was used for all of them, so a
+        // short-reach blade was pushed outside its own range and never connected.
+        const wReach = (w && (w.range | 0)) ? (w.range | 0) : 30;
+        const gML = melee ? Math.max(10, Math.round(wReach * .38)) : gene('meleeLo');
+        const gMH = melee ? Math.max(18, Math.round(wReach * .82)) : gene('meleeHi');
         const gNL = gene('bandNearLo'), gNH = gene('bandNearHi');
         const gFL = gene('bandFarLo'), gFH = gene('bandFarHi');
-        const gML = gene('meleeLo'), gMH = gene('meleeHi');
         const band = (retreat ? [170, gene('retreatHi')]
           : focus ? (melee ? [gML, gMH] : pierceK ? [gNL + 20, gNH + 20] : [gNL, gNH])
             : (melee ? [gML, gMH] : pierceK ? [gFL - 10, gFH - 10] : [gFL, gFH])).map((v) => Math.round(v * bs));
@@ -1820,11 +1845,40 @@
       // we swap back so the better weapon keeps the DPS.
       if (A.opts.weaponSwap && p.weapons.length > 1 && p.dashT <= 0) {
         const curW = WEAPONS[p.weapons[p.wi]], othW = WEAPONS[p.weapons[1 - p.wi]];
-        // Melee carries no magazine, so "wait for a reload" does not apply: if
-        // either slot is a melee weapon the swap window is meaningless, and
-        // swapping steals the melee blocking/deflection the bot relies on.
-        const anyMelee = isMelee(curW && curW.id) || isMelee(othW && othW.id);
-        if (curW && othW && !anyMelee && usesAmmo(curW) && usesAmmo(othW)) {
+        // A melee MAIN hand must not be swapped away mid-swing, because that loses
+        // the bullet deflection it provides.  But the reverse is fine and was
+        // wrong before: with melee held and a ranged sidearm, the sidearm was never
+        // used at all, so a whole weapon slot sat idle.  Allow the ranged sidearm
+        // when the MELEE weapon is the one being held, and only block swapping
+        // when the melee is the SIDEARM we would be swapping INTO.
+        const curMelee = isMelee(curW && curW.id);
+        const othMelee = isMelee(othW && othW.id);
+        // melee + ranged pairing: the ranged gun is the only thing that can reach
+        // out, so it must be used.  A melee weapon has no magazine, which is why the
+        // old "both slots use ammo" guard silently disabled switching entirely and
+        // left the sidearm idle for whole rooms.
+        if (curW && othW && (curMelee || othMelee)) {
+          const ranged = curMelee ? othW : curW;
+          const rangedReady = (function () {
+            try { const a = ammoOf(p, ranged.id); return a.rl <= 0 && a.n > 0; } catch (e) { return false; }
+          })();
+          // with melee held, swap to the gun whenever the target is out of reach —
+          // otherwise the sidearm contributes nothing at all during that fight
+          // Only swap when the GUN is not already held (p.wi points at the gun),
+          // and rate-limit: the earlier version fired every tick and logged 91
+          // swaps in a single run, which also fought the main-hand rule.
+          const holdId = p.weapons[p.wi];
+          const gunHeld = !isMelee(holdId);
+          if (rangedReady && !gunHeld) {
+            const need = nearestEnemy(p.x, p.y, 460, false);
+            if (need && Math.hypot(need.x - p.x, need.y - p.y) > 100
+                && G.time - (A._pairSwapAt || -99) > .8) {
+              tap('KeyX'); A.status.note = '切远程副手 ' + ranged.id;
+              A._pairSwapAt = G.time;
+            }
+          }
+        }
+        if (curW && othW && !curMelee && !othMelee) {
           const curA = ammoOf(p, curW.id), othA = ammoOf(p, othW.id);
           const curBusy = curA.rl > 0 || curA.n <= 0;
           const othReady = othA.rl <= 0 && othA.n > 0;
