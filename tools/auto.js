@@ -57,6 +57,7 @@
       bossPrepHeal: TSW.settings.get('autoBossPrepHeal', true),                                    // explore: heal up before opening the boss seal
       focusFire: TSW.settings.get('autoFocusFire', true),                                       // explore: keep hitting one target until it dies
       contactWeight: TSW.settings.get('autoContactWeight', 2.6), // explore: danger weight for enemy bodies
+      phoenixWeight: TSW.settings.get('autoPhoenixWeight', 2.2), // explore: extra value for the revive shard
       fireWhileRetreat: TSW.settings.get('autoFireWhileRetreat', true),                                // explore: keep firing while backing off
       powerupRange: TSW.settings.get('autoPowerupRange', 700),                                     // explore: how far to walk for a loose weapon/chip
       vault: TSW.settings.get('autoVault', true),                                           // explore: open the vault when ink allows
@@ -242,6 +243,14 @@
     try { if (typeof synergyHint === 'function' && synergyHint(id)) v *= 1.8; } catch (e) { }
     // never make yourself squishier while idle
     if (id === 'glass') v *= A.mode === 'full' ? .4 : 1;
+    // ---- survival multipliers ---------------------------------------------
+    // `phoenix` (LAZARUS, rar 3) revives once at full HP with 2.5s of invulnerability
+    // (game.js:107).  That is a whole extra life, which matters more than any damage
+    // card for an endurance goal, yet rarity alone ranks it below ordinary rar-3 guns
+    // support.  Weight it explicitly.
+    if (id === 'phoenix') v *= (A.opts.phoenixWeight === undefined ? 2.2 : +A.opts.phoenixWeight);
+    // plate/vital raise effective hp; useful but not a whole life
+    if (id === 'plate' || id === 'vital' || id === 'spite') v *= 1.25;
     // ---- fit to the weapon actually held --------------------------------
     // A fixed rarity/policy table ignores what the gun can convert into damage:
     // AMMO shards are dead weight on a melee kit, ELEMENT/POWER shards are weak
