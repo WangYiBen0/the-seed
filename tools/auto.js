@@ -58,6 +58,7 @@
       focusFire: TSW.settings.get('autoFocusFire', true),                                       // explore: keep hitting one target until it dies
       contactWeight: TSW.settings.get('autoContactWeight', 2.6), // explore: danger weight for enemy bodies
       phoenixWeight: TSW.settings.get('autoPhoenixWeight', 2.2), // explore: extra value for the revive shard
+      roomDistPri: false,                                    // explore: fold distance into room priority (experimental)
       fireWhileRetreat: TSW.settings.get('autoFireWhileRetreat', true),                                // explore: keep firing while backing off
       powerupRange: TSW.settings.get('autoPowerupRange', 700),                                     // explore: how far to walk for a loose weapon/chip
       vault: TSW.settings.get('autoVault', true),                                           // explore: open the vault when ink allows
@@ -2407,9 +2408,16 @@
           if (r.cleared || unreachable(r)) continue;
           if (r.type === 'start') continue;
           if (r.type === 'boss' && (WORLD.bossLocked && !G.hasKey)) continue;   // seal handler owns this
+          // Distance matters, but only as a tie-break today: at equal weight the
+          // nearer room wins, yet a weight gap of one sends the bot across the
+          // whole floor.  Fold distance into the score so a room that is an order
+          // of magnitude farther has to be genuinely better.
           const w = roomWeight(r) - (debuff > 0 && r.type === 'combat' && !r.visited ? .5 : 0);
           const d = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
-          if (w < bw || (w === bw && d < bd)) { bw = w; bd = d; best = r; }
+          // gated: distance-aware ranking is an experiment (see docs §142)
+          const sc = (A.opts.roomDistPri === false) ? null : (w * 180 + d);
+          if (sc === null) { if (w < bw || (w === bw && d < bd)) { bw = w; bd = d; best = r; } }
+          else if (sc < bd) { bw = w; bd = sc; best = r; }
         }
         if (best && !portalReady) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: best.type, room: best };
         if (best && portalReady && bw <= 2) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: best.type, room: best };
