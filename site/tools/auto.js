@@ -51,7 +51,8 @@
       arsenalByDps: TSW.settings.get('autoArsenalByDps', true),                                    // explore: pick the armoury weapon by measured dps
       shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
       deathfightHazard: TSW.settings.get('autoDeathfightHazard', true),                                // explore: treat death-fight corpses as hazard
-      bossCriticalRetreat: TSW.settings.get('autoBossCriticalRetreat', true),                             // explore: disengage at 1 hp in a boss room
+      bossCriticalRetreat: TSW.settings.get('autoBossCriticalRetreat', true),
+      bossDashDodge: TSW.settings.get('autoBossDashDodge', true),                    // explore: sidestep a telegraphed boss dash                             // explore: disengage at 1 hp in a boss room
       bossAddsFirst: TSW.settings.get('autoBossAddsFirst', true),                                   // explore: clear summoned adds before the boss itself
       rushBoss: TSW.settings.get('autoRushBoss', false),                                       // explore: defer reward rooms to reach the boss sooner
       bossPrepHeal: TSW.settings.get('autoBossPrepHeal', true),                                    // explore: heal up before opening the boss seal
@@ -196,6 +197,7 @@
     return GENE_DEF[k].def;
   }
   A.geneDef = GENE_DEF; A.gene = gene;
+  A._keyN = 0;              // per-object key source (enemies have no .id)
 
   const SPECIAL_ROOM_TYPES = ['treasure', 'shop', 'camp', 'dialysis', 'barracks', 'forge', 'shrine', 'trial', 'idol', 'vault', 'arsenal'];
   const wScore = (id) => {
@@ -480,6 +482,12 @@
     return true;
   }
   function isMelee(id) { const w = WEAPONS[id]; return w && ['melee', 'thrust', 'spin', 'whip', 'slam', 'iai', 'fist', 'reap'].includes(w.kind); }
+  // Enemy bodies carry no `id` (the game never assigns one), so keying per-target
+  // state off `e.id` compared undefined with undefined and never fired.  That left
+  // `A._strafeS` undefined, and `mx += -uy * .6 * undefined` turned the whole
+  // steering vector into NaN whenever a foe sat in the comfortable band.  Use a
+  // weak per-object key instead.
+  const _objKey = (o) => { try { return o.__tswKey || (o.__tswKey = ++A._keyN); } catch (e) { return 0; } };
   function nearestEnemy(x, y, maxD, needLos) {
     let best = null, bd = maxD;
     for (const e of __achroma.G.enemies) { if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.inv > 0) continue; const d = dist(x, y, e.x, e.y); if (d < bd && (!needLos || los(x, y, e.x, e.y))) { bd = d; best = e; } }
@@ -662,6 +670,35 @@
       const dd = dist(x, y, e.x, e.y);
       if (dd < rr) d += 3.0;
       else if (dd < rr + 18) d += 1.2;
+    }
+    // ---- boss telegraphed dash (BATK.dashes, boss.js:122) ------------------
+    // The boss locks an aim direction (b.mem.a) while b.mem.s === 'aim' for about
+    // 0.45 s, then travels at 430 px/s along exactly that line, dealing contact
+    // damage whenever the player is within b.r+4 (boss.js:128).  Boss-room deaths
+    // on the 36-run baseline were at full health to plain contact damage, so this
+    // is the single most preventable damage source.  Stepping SIDEWAYS out of the
+    // lane is what beats it; walking backwards along the lane does not.
+    if (A.opts.bossDashDodge !== false) for (const b of (G.boss && !G.boss.dead ? [G.boss] : [])) {
+      try {
+        const m = b.mem || {};
+        if (b.atk !== 'dashes' || !Number.isFinite(m.a)) continue;
+        const aiming = m.s === 'aim', charging = m.s === 'go';
+        if (!aiming && !charging) continue;
+        // the lane: from the boss outward along m.a, as far as one dash can travel
+        // (430 px/s for <= .42 s, boss.js:127-128) plus the body radius.
+        const reach = Math.max(120, 430 * .42) + (b.r || 14) + p.r;
+        const ca = Math.cos(m.a), sa = Math.sin(m.a);
+        const rx = x - b.x, ry = y - b.y;
+        const along = rx * ca + ry * sa;              // progress along the lane
+        const lateral = Math.abs(-rx * sa + ry * ca); // sideways offset from it
+        if (along < -p.r || along > reach) continue;  // not in front of the dash
+        const halfW = (b.r || 14) + p.r + 10;
+        if (lateral > halfW) continue;                // already clear of the lane
+        const w = aiming ? 1.7 : 2.4;                 // 'go' is already moving: urgent
+        d += w;
+        // remember to shove sideways, not backwards
+        A._bossDodge = { a: m.a, live: charging ? 2 : 1, w };
+      } catch (e) { }
     }
     // ---- rotating boss lasers (boss.js:634) --------------------------------
     // A live laser is a SEGMENT from owner + cos(a)*r0 out to len, sweeping at va.
@@ -1766,12 +1803,14 @@
             if (hits > bestHits) { bestHits = hits; bestOff = off; }
           }
           if (bestOff) { mx += -uy * Math.sign(bestOff) * .8; my += ux * Math.sign(bestOff) * .8; }
-          else { if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
+          else { const nk = _objKey(ne); if (A._strafeFor !== nk) { A._strafeFor = nk; A._strafeS = Math.random() < .5 ? 1 : -1; }
+            if (!A._strafeS) A._strafeS = 1;             // never let the sign be undefined
             mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS; }
         }
         else {                                           // strafe — sign persists per target (no spinning)
-          if (A._strafeFor !== ne.id) { A._strafeFor = ne.id; A._strafeS = Math.random() < .5 ? 1 : -1; }
-          mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS;
+          { const nk = _objKey(ne); if (A._strafeFor !== nk) { A._strafeFor = nk; A._strafeS = Math.random() < .5 ? 1 : -1; }
+            if (!A._strafeS) A._strafeS = 1;             // never let the sign be undefined
+            mx += -uy * .6 * A._strafeS; my += ux * .6 * A._strafeS; }
         }
         // Retreating used to mean "stop shooting entirely", but 67-83 percent of
         // the idle combat time was spent with the trigger up.  While backing off
@@ -1831,9 +1870,31 @@
           A.status.note = 'doorfunnel';
         }
       }
+      if (A._bossDodge) A._bossDodge = null;   // stale lane data must not steer us
+      // ---- boss dash: step sideways out of the lane -------------------------
+      // A telegraphed dash travels 430 px/s along a fixed line, so the winning
+      // answer is lateral, not backwards.  spotDanger only adds a cost; without an
+      // explicit sideways push pickDir can still choose to run along the lane.
+      if (A.opts.bossDashDodge !== false && A._bossDodge) {
+        const bd = A._bossDodge;
+        if (Number.isFinite(bd.a)) {
+          // perpendicular to the lane on whichever side we are already offset to
+          const ca = Math.cos(bd.a), sa = Math.sin(bd.a);
+          const rx = p.x - (G.boss ? G.boss.x : p.x), ry = p.y - (G.boss ? G.boss.y : p.y);
+          let side = -rx * sa + ry * ca;              // signed lateral offset
+          if (Math.abs(side) < 1e-3) side = 1;        // dead on the line: pick one
+          const sgn = side > 0 ? 1 : -1;
+          const k = bd.w >= 2 ? 1.5 : 1.0;            // urgent while it is already moving
+          mx += -sa * sgn * k; my += ca * sgn * k;
+          A.status.note = '躲boss冲刺';
+        }
+      }
       // live rotating lasers get a dedicated escape vector (see laserPush)
       { const [lx, ly] = laserPush(p); if (lx || ly) { mx += lx * 1.6; my += ly * 1.6; A.status.note = '躲激光扫射'; } }
       // threat field does the dodging: bullets, telegraph circles/lines, void zones, spikes
+      // A NaN steering vector is not a direction: it silently disables the goal term
+      // inside pickDir (wl > .1 is false for NaN), so the bot stops closing in.  Keep it finite.
+      if (!Number.isFinite(mx) || !Number.isFinite(my)) { A.metrics.nanDir = (A.metrics.nanDir | 0) + 1; mx = 0; my = 0; }
       [mx, my] = pickDir(p, mx, my);
       // ---- evasion scorecard (meaningful while a fight is live)
       {  // always score the dodge while a run is live (benchmark + HUD)
@@ -1888,10 +1949,29 @@
           // swaps in a single run, which also fought the main-hand rule.
           const holdId = p.weapons[p.wi];
           const gunHeld = !isMelee(holdId);
-          if (rangedReady && !gunHeld) {
-            const need = nearestEnemy(p.x, p.y, 460, false);
-            if (need && Math.hypot(need.x - p.x, need.y - p.y) > 100
-                && G.time - (A._pairSwapAt || -99) > .8) {
+          const meleeW = curMelee ? curW : othW;
+          // how far can the melee actually reach? edge is 26, iai 64, slam 34.
+          const mReach = (meleeW && (meleeW.range | 0)) ? (meleeW.range | 0) : 30;
+          // swap legs are rate limited together: a per-tick toggle logged 91 swaps
+          // in one run and fought the main-hand rule.
+          const canSwap = G.time - (A._pairSwapAt || -99) > .8;
+          if (canSwap) {
+            const need = nearestEnemy(p.x, p.y, 520, false);
+            const needD = need ? Math.hypot(need.x - p.x, need.y - p.y) : 1e9;
+            if (gunHeld) {
+              // HOLDING THE GUN: come back to melee as soon as a foe is inside
+              // reach (plus a small margin).  Melee swings destroy incoming bullets
+              // (deflectBullets, weapons.js:209) and reflect 35%, so this is not
+              // just a damage choice.  Without this leg the melee slot never fired
+              // again after the first long-range swap — the reported symptom.
+              if (need && needD < mReach + 26) {
+                tap('KeyX'); A.status.note = '切回近战 ' + meleeW.id;
+                A._pairSwapAt = G.time;
+              }
+            } else if (rangedReady && need && needD > mReach + 90) {
+              // HOLDING MELEE: the target is out of reach, so let the gun work.
+              // Require a margin (mReach + 90) so the two legs cannot ping-pong
+              // on the same target around a single threshold.
               tap('KeyX'); A.status.note = '切远程副手 ' + ranged.id;
               A._pairSwapAt = G.time;
             }
@@ -2497,6 +2577,20 @@
       }
     }
     const boss = rooms.find((r) => r.type === 'boss');
+    // ---- the seal comes BEFORE the boss room ----
+    // The seal that opens the boss door lives at that room's doorway but belongs
+    // to the (still shut) boss room, so its CENTRE is unreachable until the seal
+    // is opened.  Aiming at the centre with the key in hand looped for 755-1589 s
+    // in two measured runs and the floor could never complete.
+    if (boss && !boss.cleared && G.hasKey && A.opts.openSeals !== false) {
+      let seal = null, sd = 1e9;
+      for (const it of G.inter) {
+        if (it.kind !== 'seal' || unreachable(it)) continue;
+        const dd = dist(p.x, p.y, it.x, it.y);
+        if (dd < sd) { sd = dd; seal = it; }
+      }
+      if (seal) return { pt: [seal.x, seal.y], label: 'seal', room: roomAt(seal.x, seal.y) };
+    }
     // 2) boss room once unlocked (or never locked).
     // 'late' mode: clear the combat rooms first (more prisms = more serums =
     // more damage) before committing to the boss.  Measured: runs that reached
