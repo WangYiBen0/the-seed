@@ -1772,6 +1772,18 @@
         const retreatFire = retreat && A.opts.fireWhileRetreat !== false;
         const retreatRange = melee ? 120 : 520;
         wantFire = !!neF && d < (retreatFire ? retreatRange : (retreat ? 0 : (melee ? 90 : 450)));
+        // `iai` dashes the player forward by its full range (weapons.js:189-201), so
+        // firing moves us toward the enemy and sometimes into hazards.  Veto the
+        // swing when the dash would end somewhere unsafe.  (This must run AFTER the
+        // wantFire assignment above, or it would be overwritten.)
+        if (wk === 'iai' && wantFire) {
+          try {
+            if (ne) {
+              const ddx = (ne.x - p.x) / (d || 1), ddy = (ne.y - p.y) / (d || 1);
+              if (!dashSafe(p, ddx, ddy)) wantFire = false;
+            }
+          } catch (e) { }
+        }
         // Firing was off for 67-83 percent of the "enemies alive, nothing dying"
         // stretches.  The gate needs line of sight, and rooms are full of pillars,
         // so the bot holds fire exactly when a close shot could still connect.
