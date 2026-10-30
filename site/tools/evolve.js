@@ -35,12 +35,38 @@
   EV.cross = (a, b) => {
     const d = defs(), out = {};
     for (const k of Object.keys(d)) out[k] = Math.random() < .5 ? a[k] : b[k];
+    // Option genes live under 'o:<key>' and are NOT in the numeric gene table,
+    // so iterating Object.keys(d) silently dropped every evolved decision at the
+    // first crossover.  Carry them across explicitly.
+    for (const k of EV.OPT_KEYS) {
+      const key = 'o:' + k;
+      const av = a[key], bv = b[key];
+      if (av === undefined && bv === undefined) continue;
+      out[key] = Math.random() < .5 ? (av === undefined ? bv : av) : (bv === undefined ? av : bv);
+    }
     return out;
   };
+  // ---- switchable options ------------------------------------------------
+  // The numeric genes only tune spacing bands and margins.  Whether a whole
+  // behaviour is enabled is a separate, often much larger, decision.  These are
+  // the options where on/off is a genuine strategy question rather than a safety
+  // floor (dashHazards and openSeals stay out: they are never worth disabling).
+  EV.OPT_KEYS = ['chest', 'vault', 'idol', 'altar', 'fount', 'labSerum', 'dialysis',
+    'arsenal', 'weaponPick', 'chipPick', 'pickups', 'shop', 'forge', 'partner',
+    'weaponSwap', 'pairSwap', 'bossDashDodge', 'bossCriticalRetreat', 'bossAddsFirst',
+    'bossPrepHeal', 'noFire', 'specialsFirst', 'powerupFirst', 'rushBoss'];
+  // a mutated option is keyed with an 'o:' prefix so it can never collide with a
+  // numeric gene name when the genome is applied
   EV.mutate = (g, rate) => {
     const d = defs(), out = Object.assign({}, g);
     for (const k of Object.keys(d)) {
       if (Math.random() < (rate === undefined ? .25 : rate)) out[k] = clampG(k, out[k] * rnd(.85, 1.18));
+    }
+    // flip a few on/off decisions per child: that is how the loop can discover
+    // "opening chests is worth more than a tighter retreat band"
+    const opRate = (rate === undefined ? .25 : rate) * .5;
+    for (const k of EV.OPT_KEYS) {
+      if (Math.random() < opRate) out['o:' + k] = (out['o:' + k] === undefined ? (TSW.auto.opts[k] !== false) : out['o:' + k]) ? false : true;
     }
     return out;
   };
@@ -72,26 +98,41 @@
     if (running) return { error: 'already running' };
     if (!defs()) return { error: 'genome definitions not loaded yet' };
     const gens = Math.max(1, o.generations | 0 || 6);
-    const pop = Math.max(4, o.pop | 0 || 8);
+    const pop = Math.max(2, o.pop | 0 || 6);
     const seeds = (o.seeds && o.seeds.length) ? o.seeds : [1, 5, 13, 23, 31];
-    const seconds = o.seconds || 120;
+    // A candidate is scored by floors cleared.  Under ~420 s of game time the
+    // autopilot cannot finish even floor 0 (the measured pass floor needs
+    // 500-700 s), so every genome scores 0 and the search has no gradient.
+    const seconds = Math.max(420, o.seconds | 0 || 420);
     const diff = o.diff || 'classic';
     const mods = o.mods || null;
     const speed = o.speed || 8;
     running = true; stopFlag = false;
+    TSW.log('[evolve] start gens=' + gens + ' pop=' + pop + ' seeds=' + seeds.join(',') + ' seconds=' + seconds);
     const log = [], hist = [];
     const prevGenome = TSW.auto.opts.genome;
     const evaluate = async (g) => {
       TSW.auto.opts.genome = g;
+      // option genes are stored as 'o:<key>'; apply them for this evaluation only
+      const savedOpts = {};
+      for (const k of EV.OPT_KEYS) {
+        if (g['o:' + k] === undefined) continue;      // not evolved: keep the user setting
+        savedOpts[k] = TSW.auto.opts[k];
+        TSW.auto.opts[k] = g['o:' + k];
+      }
       let sum = 0, best = -1e9, rows = [];
+      try {
       for (const s of seeds) {
         if (stopFlag) break;
         let r = null;
-        try { r = await TSW.bench.run('fullrun', { seed: s, policy: 'rounded', goalDepth: 2, speed, timeoutS: (seconds | 0) + 60, diff, mods }); } catch (e) { }
+        TSW.log('[evolve] candidate seed=' + s + ' begin');
+        try { r = await TSW.bench.run('fullrun', { seed: s, policy: 'rounded', goalDepth: 2, speed, timeoutS: (seconds | 0) + 60, diff, mods }); } catch (e) { TSW.log('[evolve] bench threw ' + (e && e.message)); }
+        TSW.log('[evolve] candidate seed=' + s + ' done floor=' + (r ? (r.maxFloor != null ? r.maxFloor : r.floor) : 'null'));
         const f = EV.fitness(r);
         sum += f; if (f > best) best = f;
         rows.push({ seed: s, f, floor: r ? (r.maxFloor != null ? r.maxFloor : r.floor) : -1 });
       }
+      } finally { for (const [k, v] of Object.entries(savedOpts)) TSW.auto.opts[k] = v; }
       return { mean: sum / Math.max(1, seeds.length), best, rows };
     };
     try {

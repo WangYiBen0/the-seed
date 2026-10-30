@@ -2420,6 +2420,16 @@
               return { pt: [it.x, it.y], label: 'fount', room: roomAt(it.x, it.y) };
             if (it.kind === 'shop' && it.what === 'heart' && !it.sold && ((G.ink | 0) >= it.price))
               return { pt: [it.x, it.y], label: 'heart', room: roomAt(it.x, it.y) };
+          // Chests, and every other free consumable, used to exist ONLY in the
+          // interaction branch (which needs the player to be within 24px already),
+          // so the bot opened a chest only if it happened to walk through the tile
+          // and never walked TO one.  Make them real objectives.
+          if (it.kind === 'chest' && A.opts.chest && !it.used)
+            return { pt: [it.x, it.y], label: 'chest', room: roomAt(it.x, it.y) };
+          if (it.kind === 'vault' && A.opts.vault && !it.used && (G.ink | 0) >= (it.cost | 0) + 20)
+            return { pt: [it.x, it.y], label: 'vault', room: roomAt(it.x, it.y) };
+          if (it.kind === 'idol' && A.opts.idol && !it.used && (G.curses || []).length < 2)
+            return { pt: [it.x, it.y], label: 'idol', room: roomAt(it.x, it.y) };
           }
         }
       }

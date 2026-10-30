@@ -90,7 +90,13 @@ async function main() {
   // evolve is much heavier: generations × pop × seeds full runs
   const gens = +(args.gens || 3), popN = +(args.pop || 6);
   const seedsN = args.seeds ? String(args.seeds).split(',').length : 3;
-  const perRun = args.kind === 'evolve' ? (gens * popN * seedsN * (+args.timeout || 120))
+  // evolve: each candidate plays `seeds` games, and each game is timed in GAME
+  // seconds then compressed by the speed multiplier.  Budget wall time, not game
+  // time, or small runs die on the hard timeout before emitting TSW_RESULT.
+  const evSpeed = Math.max(1, +args.speed || 8);
+  // per GAME: (game seconds) / speed, plus ~14 s of fixed session cost
+  // (page load, waitScripts, crafted-save resume, the 8 s play-state wait).
+  const perRun = args.kind === 'evolve' ? (gens * popN * seedsN * ((+(args.timeout || 120) + 60) / evSpeed + 14))
     : args.kind === 'ab' ? (+args.timeout || 200) : (+args.timeout || 900);
   // one pair = 2 runs, and each run costs ~timeout + start/measure overhead
   // AB spends (rounds*2 + warmup 2) runs of perRun seconds each; forgetting the

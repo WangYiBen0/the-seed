@@ -214,7 +214,25 @@
       lines.push('最优参数：' + Object.keys(g).map((k) => k + '=' + (+g[k].toFixed ? +g[k].toFixed(2) : g[k])).join(', '));
       evOut.textContent = lines.join('\n');
       note('进化完成，可"应用最优参数"');
-      evApply.onclick = () => { TSW.auto.opts.genome = g; note('已应用进化结果'); };
+      evApply.onclick = () => {
+        // the genome carries numeric genes AND on/off option genes (o:<key>); the
+        // button used to assign the object and stop there, so whatever the loop
+        // decided about chests / boss dodging / shops was thrown away.  Apply the
+        // options through the autopilot and persist them like any other setting.
+        TSW.auto.opts.genome = g;
+        let nOpt = 0;
+        try {
+          for (const k of Object.keys(g)) {
+            if (!k.startsWith('o:')) continue;
+            const key = k.slice(2);
+            if (!(key in TSW.auto.opts)) continue;
+            TSW.auto.opts[key] = g[k];
+            TSW.settings.set('auto' + key.charAt(0).toUpperCase() + key.slice(1), g[k]);
+            nOpt++;
+          }
+        } catch (e) { }
+        note('已应用进化结果' + (nOpt ? '（含 ' + nOpt + ' 个选项）' : ''));
+      };
     } catch (e) { evOut.textContent = '出错：' + e.message; }
   };
   evStop.onclick = () => { if (TSW.evolve && TSW.evolve.stop) { TSW.evolve.stop(); note('已请求停止'); } };
