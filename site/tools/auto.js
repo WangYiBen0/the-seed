@@ -52,6 +52,11 @@
       shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
       deathfightHazard: TSW.settings.get('autoDeathfightHazard', true),                                // explore: treat death-fight corpses as hazard
       bossCriticalRetreat: TSW.settings.get('autoBossCriticalRetreat', true),
+      bossBodyDanger: false,                                // explore: price the boss BODY as contact hazard (measured: no gain, off)
+      plateWeight: 1.25,                                    // explore: card weight for plate/vital (armour = endurance currency)
+      armorRegenBand: true,                                 // boss: widen the retreat band while the plates rebuild
+      refitWeight: 1.6,                                     // explore: card weight for refit (armour on reload)
+      bossBulletHorizon: true,                              // boss: 1.8 s bullet lead instead of .95 s
       bossDashDodge: TSW.settings.get('autoBossDashDodge', true),                    // explore: sidestep a telegraphed boss dash
       meleeProtect: TSW.settings.get('autoMeleeProtect', true),                      // explore: never discard a paired melee for a gun                             // explore: disengage at 1 hp in a boss room
       bossAddsFirst: TSW.settings.get('autoBossAddsFirst', true),                                   // explore: clear summoned adds before the boss itself
@@ -260,8 +265,17 @@
     // card for an endurance goal, yet rarity alone ranks it below ordinary rar-3 guns
     // support.  Weight it explicitly.
     if (id === 'phoenix') v *= (A.opts.phoenixWeight === undefined ? 2.2 : +A.opts.phoenixWeight);
-    // plate/vital raise effective hp; useful but not a whole life
-    if (id === 'plate' || id === 'vital' || id === 'spite') v *= 1.25;
+    // plate/vital raise effective hp; useful but not a whole life.
+    // Armour is the endurance currency, not hp: across 12 instrumented five-lock
+    // runs every point of damage went through the plates first (22-56 armour
+    // points lost against 1-9 hp), so +1 max armour is one extra absorbed hit and
+    // +25% regen.  Weight is switchable so the two can be measured against each
+    // other instead of asserted.
+    if (id === 'plate' || id === 'vital' || id === 'spite') v *= (A.opts.plateWeight === undefined ? 1.25 : +A.opts.plateWeight);
+    // `refit` restores a plate on every reload; with armour measured as the endurance
+    // currency (3->6 max armour cut zero-armour exposure by 15 s per boss fight),
+    // a free plate per magazine is worth more than its rarity suggests.
+    if (id === 'refit') v *= (A.opts.refitWeight === undefined ? 1.6 : +A.opts.refitWeight);
     // ---- fit to the weapon actually held --------------------------------
     // A fixed rarity/policy table ignores what the gun can convert into damage:
     // AMMO shards are dead weight on a melee kit, ELEMENT/POWER shards are weak
@@ -626,7 +640,20 @@
     let alpha = false;
     try { alpha = !!(G.exp && G.exp.id === 'a' && (G.exp.left | 0) > 0); } catch (e) { }
     A._alphaMode = alpha;
-    const horizon = alpha ? 1.35 : (h ? .95 : .7);
+    // Boss bullets arrive from much further away than a room fight's do.  Measured
+    // on the boss rig: every landed hit in the boss room had the nearest enemy body
+    // 150-193 px away, i.e. it was a BULLET, not contact.  A boss shot travels at
+    // 85-135 px/s, so a bullet 150 px out needs 1.1-1.8 s to arrive - it falls
+    // outside the .95 s hard horizon entirely, which is why the bot never reacted.
+    let bossRoomDanger = false;
+    try {
+      bossRoomDanger = !!(G.boss && !G.boss.dead);
+      if (!bossRoomDanger && typeof WORLD !== 'undefined' && WORLD && WORLD.rooms) {
+        const ar = WORLD.rooms.find((r) => r.active);
+        bossRoomDanger = !!(ar && ar.type === 'boss');
+      }
+    } catch (e) { }
+    const horizon = alpha ? 1.35 : (bossRoomDanger && A.opts.bossBulletHorizon !== false ? 1.8 : (h ? .95 : .7));
     const wMul = alpha ? 1.9 : (h ? 1.3 : 1);
     if (typeof inMech === 'function' && G.mechs) for (const m of G.mechs) {
       const w = mechDanger(m); if (!w) continue;
@@ -672,6 +699,21 @@
       if (dd < rr) d += 3.0;
       else if (dd < rr + 18) d += 1.2;
     }
+    // ---- the BOSS BODY itself ----------------------------------------------
+    // Measured in the black box (seed 1): during a boss fight the player sat at
+    // 19-100 px with armour already at zero and took 9 contact hits in 25 s while
+    // the fight SM still said 'RETREAT' — the boss is an 'crawler' with contact:1,
+    // but its hitbox check is the ordinary < r+p.r one (boss.js:128/171), so a
+    // gap of 0-20 px is a hit once per frame.  spotDanger never priced it.
+    try {
+      const bs = (G.boss && !G.boss.dead && A.opts.bossBodyDanger !== false) ? G.boss : null;
+      if (bs) {
+        const rr = (bs.r || 14) + p.r;
+        const dd = dist(x, y, bs.x, bs.y);
+        if (dd < rr + 6) d += 3.2;
+        else if (dd < rr + 26) d += 1.6;
+      }
+    } catch (e) { }
     // ---- boss telegraphed dash (BATK.dashes, boss.js:122) ------------------
     // The boss locks an aim direction (b.mem.a) while b.mem.s === 'aim' for about
     // 0.45 s, then travels at 430 px/s along exactly that line, dealing contact
@@ -1794,6 +1836,25 @@
         // α serum active: widen the band so contact is less likely at all
         if (A._alphaMode) { band[0] = Math.round(band[0] * 1.5); band[1] = Math.round(band[1] * 1.45); }
         else if (bossRoom) { band[0] = Math.round(band[0] * 1.25); band[1] = Math.round(band[1] * 1.2); }
+        // ---- BOSS: buy back the armour regen window -------------------------
+        // Armour only STARTS regenerating after 3 full seconds without a hit
+        // (game.js:159: lastHit > 3).  Measured on the boss rig: the runs that DIE
+        // spent 27-39 s at zero armour, the runs that KILL the boss spent 4-8 s.
+        // So the lever is not 'dodge better' but 'stop being touched for three
+        // seconds', which needs a band wide enough that the boss cannot close it
+        // first: it glides at ~90 px/s and we walk at 92 px/s, so a 40-90 px band
+        // can never open a 3 s gap.  This widens the band once the plate breaks.
+        if (bossRoom && A.opts.armorRegenBand !== false && p.armor <= 0 && p.lastHit < 3.2) {
+          band[0] = Math.max(band[0], 190); band[1] = Math.max(band[1], 240);
+          retreat = true; A.status.note = 'boss: 拉开等甲';
+        }
+        // Under a boss the body itself is the hazard.  The band is expressed as a
+        // distance to the TARGET, and the boss is frequently the target, so the
+        // melee/focus bands (40-90 px) would otherwise walk into its hitbox
+        // (r + p.r + the dash's +4 margin) once per frame.  Keep a real gap.
+        // (A forced minimum gap from the boss body was tried and measured: 7 paired
+        // seeds, armour lost 28.4 -> 36.3 (not significant, direction worse) and
+        // floors 2/7 -> 1/7, so it was removed rather than kept.)
         // Critical health inside a boss room: several runs died with the boss on
         // 11-118 hp, i.e. a fraction of a second short.  When almost dead, break
         // off entirely and let armour regenerate (armour only comes back after
@@ -2220,7 +2281,11 @@
           // Armor only STARTS regenerating once lastHit > 3 (see AGENTS.md §5), so
           // waiting while lastHit is 1..3 stands still for nothing.  Configurable
           // so the two thresholds can be compared directly.
-          const armorWait = A.opts.armorWaitT === undefined ? 1 : A.opts.armorWaitT;
+          // The option's default is 3 (the game only starts regenerating after
+          // lastHit > 3, game.js:159); reading it with a fallback of 1 made the
+          // configured default dead code, so every "wait for armour" experiment
+          // so far measured the wrong threshold.
+          const armorWait = A.opts.armorWaitT === undefined ? 3 : +A.opts.armorWaitT;
           if (tgt.label === 'fight' && p.armor < p.maxArmor - 1 && p.lastHit > armorWait && dl < 90) {
             mx = 0; my = 0; A.status.note = '等甲恢复 ' + p.armor + '/' + p.maxArmor;
           } else if (dl > 12) { [mx, my] = pickDir(p, dx, dy); }

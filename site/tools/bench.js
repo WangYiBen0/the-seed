@@ -147,24 +147,64 @@
     };
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null } = {}) {
+  // ---- shared hurtPlayer wrapper --------------------------------------------
+  // Every scenario that wants damage attribution installs this once.  It snapshots
+  // the state BEFORE the hit resolves and records whether the hit actually landed
+  // (i-frames, dashes and shields all return early), plus whether an enemy body
+  // was in contact range at that moment.  Without the post-state a "hit" that
+  // merely ate a frame of i-frames is indistinguishable from real hp loss, and
+  // without the contact flag "plain damage" is unattributable.
+  function installHurtLog() {
+    try {
+      if (window.__hurtWrap) return;
+      window.__hurtWrap = true;
+      const orig = window.hurtPlayer;
+      if (typeof orig !== 'function') return;
+      window.hurtPlayer = function (dmg, sx, sy, mechHit, pierce) {
+        const pre = (function () {
+          try { const q = __achroma.G.p; return { hp: q.hp | 0, ar: q.armor | 0, ma: q.maxArmor | 0, inv: +(q.inv || 0).toFixed(2), dash: +(q.dashT || 0).toFixed(2), lastHit: +(q.lastHit || 0).toFixed(2) }; }
+          catch (e) { return {}; }
+        })();
+        let r;
+        try { r = orig.apply(this, arguments); } catch (e) { throw e; }
+        try {
+          const q = __achroma.G.p, gg = __achroma.G;
+          let nearN = 0, nearType = '', nearD = 999, nearRanged = 0;
+          for (const e of (gg.enemies || [])) {
+            if (!e || e.dead || e.spawnT > 0) continue;
+            const dd = Math.hypot(e.x - q.x, e.y - q.y) - (e.r || 4) - (q.r || 4);
+            if (dd < nearD) { nearD = dd; nearType = e.type || ''; nearRanged = e.ranged || e.shot ? 1 : 0; }
+            if (dd < 6) nearN++;
+          }
+          window.__hurtLog.push({
+            d: dmg, p: +!!pierce, m: +!!mechHit, at: (window.__achroma && __achroma.G.time) | 0,
+            hp: pre.hp, ar: pre.ar, ma: pre.ma, inv: pre.inv, dash: pre.dash,
+            php: q.hp | 0, par: q.armor | 0,
+            res: (r === true) ? 1 : 0,
+            n: nearN, nt: nearType, nd: Math.round(nearD), nr: nearRanged,
+          });
+        } catch (e) { }
+        return r;
+      };
+    } catch (e) { }
+  }
+
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null, autoOpts = null } = {}) {
     const detMode = !!(TSW.det && TSW.det.on);
     const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
     // log every hurtPlayer call (dmg, pierce, mechHit) so death causes are visible
-    try {
-      window.__hurtLog = [];
-      if (!window.__hurtWrap) {
-        window.__hurtWrap = true;
-        const orig = window.hurtPlayer;
-        if (typeof orig === 'function') {
-          window.hurtPlayer = function (dmg, sx, sy, mechHit, pierce) {
-            try { window.__hurtLog.push({ d: dmg, p: +!!pierce, m: +!!mechHit, at: (window.__achroma && __achroma.G.time) | 0, hp: (__achroma.G.p.hp) | 0, ar: (__achroma.G.p.armor) | 0 }); } catch (e) { }
-            return orig.apply(this, arguments);
-          };
-        }
-      }
-    } catch (e) { }
+    installHurtLog();
+    try { window.__hurtLog = []; } catch (e) { }
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
+    // Per-run autopilot overrides.  This exists because same-session A/B is not
+    // trustworthy here: a second inner run inside one session stalls (measured:
+    // run 1 died at gameT 422, run 2 "timed out" at gameT 9), so paired trials are
+    // driven as separate interleaved processes instead.
+    const optSaved = {};
+    if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
+      if (k in TSW.auto.opts) { optSaved[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
+      else TSW.err('fullrun: unknown autoOpts ignored → ' + k);
+    }
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
     TSW.auto.opts.autoRestart = false;
@@ -200,6 +240,12 @@
     window.__roomsDone = 0; window.__floorSeen = -1; window.__floorDone = 0;
     window.__bossMaxHp = 0; window.__bossMinHp = undefined; window.__bossHits = 0;
     window.__firstBossT = undefined; window.__bossEntry = null;
+    // ---- boss fight timeline (harness-side, survives the fight's own state) ----
+    // Reading "how long did the boss fight last" out of bossMaxHp alone is
+    // impossible: the hp floor never says WHEN.  Track the first sighting, the
+    // last sighting, and the deepest hp on the way, so both length and result
+    // are measured even if the run dies mid-fight.
+    window.__bossT = null;
     // ---- time decomposition ----------------------------------------------
     // "33-48 seconds per room" is the number to attack, but it lumps fights,
     // travel and stalls together.  Split it so the optimisation targets the
@@ -248,6 +294,41 @@
         };
       }
     } catch (e) { }
+    // ---- black box: per-game-second snapshots, rolled inside the harness ------
+    // The trace above only keeps the LAST 8 hurtPlayer calls, which answers
+    // "where did we die" but not "why did we die there".  To get the second
+    // question without hand-editing the game, sample the live state once per
+    // game second and keep a rolling window, so a post-mortem can look at the
+    // last seconds of any run.
+    window.__bb = { ring: [], lastT: -1 };
+    window.__bbHook = TSW.hooks.beforeTick(() => {
+      try {
+        const g = window.__achroma && __achroma.G;
+        if (!g || !g.p || g.state !== 'play') return;
+        const t = g.runT || 0;
+        const bb = window.__bb;
+        if (t - bb.lastT < 1) return;
+        bb.lastT = t;
+        const p = g.p;
+        const foes = (g.enemies || []).filter((e) => e && !e.dead && e.spawnT <= 0);
+        let minFoe = 999;
+        for (const e of foes) { const d2 = Math.hypot(e.x - p.x, e.y - p.y) - (e.r || 0) - (p.r || 0); if (d2 < minFoe) minFoe = d2; }
+        const b = (g.boss && !g.boss.dead) ? g.boss : null;
+        bb.ring.push({
+          t: +t.toFixed(1),
+          hp: p.hp, ar: p.armor, maxAr: p.maxArmor, inv: +(p.inv || 0).toFixed(2),
+          x: Math.round(p.x), y: Math.round(p.y),
+          // how many enemies are literally inside hurt range of the player
+          close: foes.filter((e) => Math.hypot(e.x - p.x, e.y - p.y) < (e.r || 4) + 8).length,
+          foes: foes.length, minFoe: Math.round(minFoe),
+          mode: (window.__TSW && TSW.auto && TSW.auto._fightState) || '',
+          note: (window.__TSW && TSW.auto && TSW.auto.status && TSW.auto.status.note) || '',
+          dash: +(p.dashT || 0) > 0 ? 1 : 0,
+          boss: b ? { hp: Math.round(b.hp), atk: b.atk || '', ph: b.phase || 0 } : null,
+        });
+        if (bb.ring.length > 90) bb.ring.shift();
+      } catch (e) { }
+    });
     // ---- run scoring -------------------------------------------------------
     // Progress is DECISIVE.  Damage taken contributes a negative term integrated
     // over time: the square of what was consumed, hp weighted heavier than armour.
@@ -361,6 +442,29 @@
           if (!window.__bossMaxHp || b.maxHp > window.__bossMaxHp) window.__bossMaxHp = b.maxHp;
           if (window.__bossMinHp === undefined || b.hp < window.__bossMinHp) window.__bossMinHp = b.hp;
         }
+        try {
+          const try_ = window.__bossT;
+          const tNow = g.runT || 0;
+          if (b) {
+            if (!try_) window.__bossT = { t0: tNow, tLast: tNow, hpMin: b.hp, hpMax: b.maxHp, dead: false, ar0: g.p.armor, hp0: g.p.hp, t0arm: null, s0arm: 0 };
+            else {
+              const dtb = Math.max(0, Math.min(30, tNow - (try_.tLast || tNow)));
+              try_.tLast = tNow; if (b.hp < try_.hpMin) try_.hpMin = b.hp;
+              // endurane accounting inside the fight: total damage absorbed and how
+              // long we spent with NO armour left (the state the bot dies in).
+              if (g.p.armor <= 0) try_.s0arm = +(try_.s0arm + dtb).toFixed(1);
+              const dA = Math.max(0, (try_.pAr === undefined ? g.p.armor : try_.pAr) - g.p.armor);
+              const dH = Math.max(0, (try_.pHp === undefined ? g.p.hp : try_.pHp) - g.p.hp);
+              try_.arLost = +( (try_.arLost || 0) + dA).toFixed(0);
+              try_.hpLost = +( (try_.hpLost || 0) + dH).toFixed(0);
+            }
+            try_.pAr = g.p.armor; try_.pHp = g.p.hp;
+          } else if (try_ && !try_.dead) {
+            // the boss object vanished while we were still alive: it died
+            const whither = (g.floors && g.floor !== undefined) ? '' : '';
+            try_.dead = true; try_.tLast = try_.tLast || tNow;
+          }
+        } catch (e) { }
       } catch (e) { }
       if ((g.floor | 0) > maxFloor) {
         maxFloor = g.floor | 0;
@@ -427,8 +531,10 @@
       }, 500);
     });
     clearInterval(wd); clearInterval(sampler);
+    try { if (window.__bbHook) { window.__bbHook(); window.__bbHook = null; } } catch (e) { }
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
+    for (const [k, v] of Object.entries(optSaved)) TSW.auto.opts[k] = v;
     TSW.auto.setPolicy(wasPolicy);
     TSW.speed.set(wasSpeed, true);
     SET.diff = wasDiff; saveSettings();
@@ -436,6 +542,10 @@
     const g = G();
     return {
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
+      // the effective autopilot flags for THIS run (defaults + explicit overrides),
+      // so a row can never be attributed to the wrong arm
+      autoOpts: (function () { try { const o = {}; for (const k of Object.keys(autoOpts || {})) o[k] = TSW.auto.opts[k]; return o; } catch (e) { return {}; } })(),
+      autoOptsDefault: { bossBodyDanger: TSW.auto.opts.bossBodyDanger, plateWeight: TSW.auto.opts.plateWeight, armorWaitT: TSW.auto.opts.armorWaitT },
       det: !!detMode, ticks: (TSW.det && TSW.det.ticks) || 0,
       modifiers: modsEarly,
       modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
@@ -506,6 +616,24 @@
       // difference; this number resolves far better per run. -1 = never reached.
       firstBossT: (window.__firstBossT === undefined ? -1 : Math.round(window.__firstBossT)),
       bossEntry: window.__bossEntry || null,
+      // bossFight: harness-side wall/game clock of the first boss fight.  The
+      // previous proxy (bossMaxHp vs bossMinHp) answers "did damage land" but not
+      // "how long did we last", which is the number the big goal needs.
+      bossFight: (function () {
+        try {
+          const b = window.__bossT;
+          if (!b) return null;
+          const len = Math.max(0, +((b.tLast || 0) - (b.t0 || 0)).toFixed(1));
+          return { s: len, hpMax: Math.round(b.hpMax || 0), hpMin: Math.round(b.hpMin || 0), killed: !!b.dead,
+            arLost: b.arLost || 0, hpLost: b.hpLost || 0, s0arm: b.s0arm || 0, arAtEntry: b.ar0, hpAtEntry: b.hp0 };
+        } catch (e) { return null; }
+      })(),
+      // Every hp/armour point the run lost, straight from the post-hit state.
+      hpTaken: (function () { try { return (window.__hurtLog || []).reduce((a, x) => a + Math.max(0, (x.hp || 0) - (x.php === undefined ? x.hp : x.php)), 0); } catch (e) { return 0; } })(),
+      arTaken: (function () { try { return (window.__hurtLog || []).reduce((a, x) => a + Math.max(0, (x.ar || 0) - (x.par === undefined ? x.ar : x.par)), 0); } catch (e) { return 0; } })(),
+      // hits that resolved into damage (i-frames and dashes rejected the rest)
+      hitsApplied: (function () { try { return (window.__hurtLog || []).filter((x) => x.res).length; } catch (e) { return 0; } })(),
+      hurtTrace: (window.__hurtLog || []).slice(-8),
       // Rooms cleared per minute: the one metric that answers "how much progress
       // does this strategy buy per second", without being distorted by how many
       // fights a seed happens to offer or by the combat/travel split.
@@ -561,6 +689,14 @@
       // a "3-hit death" is usually pierce or a post-armour burst)
       hitsTaken: (window.__hurtLog || []).length,
       hurtTrace: (window.__hurtLog || []).slice(-8),
+      // blackBox: per-game-second samples of the final ~90 s (state, spacing,
+      // fight mode and the boss's attack in play) so a death can be explained
+      // after the fact without touching the game's own code.
+      blackBox: (function () { try { return (window.__bb && window.__bb.ring) ? window.__bb.ring.slice(-45) : []; } catch (e) { return []; } })(),
+      // Was the run's final death injected by the harness watchdog (dmg 999 pierce
+      // mech) instead of earned?  Several recorded "deaths" in earlier datasets
+      // are this injection, so an unqualified death overstates fragility.
+      watchdogKilled: (function () { try { return (window.__hurtLog || []).some((x) => x.d >= 999 && x.p && x.m) ? 1 : 0; } catch (e) { return 0; } })(),
       // local, low-variance metrics
       roomClears: clears.length,
       roomClearMean: clears.length ? +(clears.reduce((a, b) => a + b, 0) / clears.length).toFixed(1) : 0,
@@ -568,6 +704,126 @@
       killPer100: kRate.length ? +(kRate.reduce((a, b) => a + b, 0) / kRate.length).toFixed(1) : 0,
       weapons: (g.p ? g.p.weapons : []).slice(), shards: Object.assign({}, g.p ? g.p.shards : {}),
       syn: Object.keys(SYN || {}).length,
+      ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
+    };
+  }
+
+  // ---------------- boss endurance bench ------------------------------------
+  // The named goal is "boss fight endurance 151 s -> 240 s+", but a full run only
+  // contains one boss fight and costs 4-10 minutes, so the number was never
+  // measurable in practice.  This rig drops a crafted save straight into a boss
+  // room (the game's own activateRoom() spawns the boss, so no source is touched)
+  // and reports the fight length, the armour/hp it consumed and whether the boss
+  // died.  Cheap enough to run 10 seeds per candidate.
+  async function runBossBench({ speed = 8, seed = null, diff = 'despair', mods = MOD_IDS,
+    floor = 0, hp = 5, armor = 3, build = null, policy = 'rounded', seconds = 240, autoOpts = null, bossFloor = null } = {}) {
+    if (bossFloor !== null && bossFloor !== undefined) floor = bossFloor;
+    const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasRestart = TSW.auto.opts.autoRestart, wasDiff = SET.diff;
+    const saved = {};
+    if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
+      if (k in TSW.auto.opts) { saved[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
+      else TSW.err('boss: unknown autoOpts ignored → ' + k);
+    }
+    if (seed != null) TSW.rng.seed(seed);
+    TSW.auto.setPolicy(policy);
+    TSW.auto.opts.autoRestart = false;
+    TSW.speed.set(speed, true);
+    const b = build || {};
+    await waitScripts();
+    const save = {
+      v: 1, at: Date.now(), floor: floor, diff: diff || 'despair', modifiers: (mods || []).slice(),
+      hp, maxHp: hp, armor, maxArmor: armor,
+      weapons: b.weapons || ['nail'], wi: 0, wlv: b.wlv || {}, shards: b.shards || {},
+      skill: b.skill || null, ink: b.ink == null ? 60 : b.ink, kills: 0, runT: 0, hits: 0, curses: [],
+      rid: 'r' + Date.now().toString(36),
+    };
+    let ok = false;
+    try {
+      const txt = JSON.stringify(save);
+      STORE.mem['achroma_run'] = txt; STORE.dirty.add('achroma_run');
+      resumeRun(); ok = true;
+    } catch (e) { TSW.err('boss resume', e); }
+    const t0 = performance.now();
+    while (performance.now() - t0 < 15000) {
+      const g = window.__achroma.G;
+      const wOk = (typeof WORLD !== 'undefined') && WORLD && Array.isArray(WORLD.rooms) && WORLD.tiles;
+      if (g && g.p && wOk && (g.state === 'play' || g.state === 'bossintro')) break;
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    // walk in: unlock the seal and put the player inside the boss arena, then let
+    // the game's own activation path spawn the boss
+    let spawned = false;
+    try {
+      const g = window.__achroma.G;
+      const room = WORLD.rooms.find((r) => r.type === 'boss');
+      if (room) {
+        WORLD.bossLocked = false;
+        g.p.x = room.cx * T + 8; g.p.y = (room.cy + 2) * T + 8;
+        g.cam.x = g.p.x - W / 2; g.cam.y = g.p.y - H / 2;
+        activateRoom(room);
+        spawned = !!g.boss;
+      }
+    } catch (e) { TSW.err('boss enter', e); }
+    TSW.auto.setMode('full');
+    const g0 = window.__achroma.G;
+    const p0 = g0.p;
+    p0.hp = p0.maxHp = hp; p0.armor = p0.maxArmor = armor;
+    const entry = { hp: p0.hp, armor: p0.armor, maxArmor: p0.maxArmor, weapons: (p0.weapons || []).slice(), shards: Object.assign({}, p0.shards || {}) };
+    // measure the fight itself: from "boss alive" to "boss dead or player dead"
+    const tStart = g0.runT || 0;
+    let tEnd = tStart, bossDead = false, playerDead = false, arLost = 0, hpLost = 0, arGained = 0, hpGained = 0,
+      pAr = p0.armor, pHp = p0.hp, zeroArmS = 0, lastT = g0.runT || 0, hits = 0, maxHpSeen = 0, addsPeak = 0,
+      dashS = 0, invS = 0;
+    installHurtLog();
+    window.__hurtLog = [];
+    const mon = setInterval(() => {
+      const g = window.__achroma.G;
+      if (!g || !g.p) return;
+      const q = g.p, tNow = g.runT || 0;
+      const dt = Math.max(0, Math.min(20, tNow - lastT)); lastT = tNow;
+      const dA = Math.max(0, pAr - q.armor), dH = Math.max(0, pHp - q.hp);
+      arLost += dA; hpLost += dH;
+      if (q.dashT > 0) dashS += dt;
+      if (q.inv > 0) invS += dt;
+      arGained += Math.max(0, q.armor - pAr); hpGained += Math.max(0, q.hp - pHp);
+      pAr = q.armor; pHp = q.hp;
+      if (q.armor <= 0) zeroArmS += dt;
+      if (g.boss && !g.boss.dead) { tEnd = tNow; maxHpSeen = Math.max(maxHpSeen, g.boss.hp); }
+      if (g.boss && !g.boss.dead) addsPeak = Math.max(addsPeak, (g.enemies || []).filter((e) => !e.dead && !e.boss).length);
+      if (q.alive === false || g.state === 'dead') playerDead = true;
+      hits = (window.__hurtLog || []).length;
+      if ((!g.boss || g.boss.dead) && tNow > tStart + 1) bossDead = true;
+    }, 200);
+    await new Promise((res) => {
+      const iv = setInterval(() => {
+        const g = window.__achroma.G;
+        const done = !g || g.state === 'dead' || !g.boss || g.boss.dead || (g.runT || 0) - tStart > seconds;
+        if (done) { clearInterval(iv); res(); }
+      }, 500);
+    });
+    clearInterval(mon);
+    const g = window.__achroma.G;
+    const fightS = Math.max(0, +((tEnd || 0) - tStart).toFixed(1));
+    TSW.auto.setMode('off');
+    TSW.auto.opts.autoRestart = wasRestart;
+    for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v;
+    TSW.auto.setPolicy(wasPolicy);
+    TSW.speed.set(wasSpeed, true);
+    SET.diff = wasDiff; saveSettings();
+    TSW.rng.clear();
+    return {
+      kind: 'boss', at: Date.now(), speed, seed, diff, floor, hp, armor, policy,
+      autoOpts: Object.assign({}, autoOpts || {}), build: entry,
+      spawned, end: playerDead ? 'death' : (bossDead ? 'kill' : 'timeout'),
+      fightS, arLost: Math.round(arLost), hpLost: Math.round(hpLost),
+      arGained: Math.round(arGained), hpGained: Math.round(hpGained),
+      zeroArmS: +zeroArmS.toFixed(1), dashS: +dashS.toFixed(1), invS: +invS.toFixed(1), hits,
+      bossMaxHp: Math.round(maxHpSeen || 0), addsPeak,
+      hpLeft: g && g.p ? (g.p.hp | 0) : -1, arLeft: g && g.p ? (g.p.armor | 0) : -1,
+      // who landed what: n>0 = an enemy body was in contact range at hurt time
+      hurtTrace: (window.__hurtLog || []).slice(-10),
+      hurtContact: (function () { try { return (window.__hurtLog || []).filter((x) => x.res && x.n > 0).length; } catch (e) { return 0; } })(),
+      hurtNoBody: (function () { try { return (window.__hurtLog || []).filter((x) => x.res && x.n <= 0).length; } catch (e) { return 0; } })(),
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
     };
   }
@@ -905,6 +1161,9 @@
         if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 9) }, o));
         else r = await runFullRun(Object.assign({ speed, seed, policy: 'rounded', goalDepth, timeoutS, diff, mods }, o));
       } finally { for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v; }
+      // Diagnostics: an inner run that ends in a few game-seconds means the
+      // repeated same-session start is broken, not that the arms are equal.
+      try { TSW.log('AB inner: end=' + (r && r.end) + ' gameT=' + (r && r.gameT) + ' kills=' + (r && r.kills) + ' floor=' + (r && r.maxFloor) + ' bossFight=' + JSON.stringify(r && r.bossFight)); } catch (e) { }
       return r;
     };
     // Warm-up: the FIRST run of a session starts from a cold state and is the
@@ -966,6 +1225,7 @@
       if (kind === 'throughput') r = await runThroughput(opts);
       else if (kind === 'macro') r = await runMacro(opts);
       else if (kind === 'fullrun') r = await runFullRun(opts);
+      else if (kind === 'boss') r = await runBossBench(opts);
       else if (kind === 'probe') r = await runProbe(opts);
       else if (kind === 'dodge') r = await runDodge(opts);
       else if (kind === 'invade') r = await runInvade(opts);

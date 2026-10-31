@@ -606,6 +606,12 @@
       metric: q.get('metric') || undefined,
       optA: q.get('optA') ? JSON.parse(q.get('optA')) : {},
       optB: q.get('optB') ? JSON.parse(q.get('optB')) : {},
+      // ?autoOpts={"bossBodyDanger":false} — per-run autopilot flag override.  The
+      // interleaved A/B path is unreliable in one browser session (a second inner
+      // run stalls at gameT 9), so single runs with a flag are how arms are paired.
+      autoOpts: q.get('autoOpts') ? JSON.parse(q.get('autoOpts')) : null,
+      hp: q.get('hp') ? +q.get('hp') : undefined, armor: q.get('armor') ? +q.get('armor') : undefined,
+      floor: q.get('floor') ? +q.get('floor') : undefined,
     };
     // build probe: ?build=<json> with {weapons,wlv,shards,skill}
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
@@ -617,6 +623,7 @@
         if (kind === 'throughput') emit(await TSW.bench.run('throughput', opts));
         else if (kind === 'macro') emit(await TSW.bench.run('macro', opts));
         else if (kind === 'fullrun') emit(await TSW.bench.run('fullrun', opts));
+        else if (kind === 'boss') emit(await TSW.bench.run('boss', opts));
         else if (kind === 'probe') emit(await TSW.bench.run('probe', opts));
         else if (kind === 'dodge') emit(await TSW.bench.run('dodge', opts));
         else if (kind === 'invade') emit(await TSW.bench.run('invade', opts));
