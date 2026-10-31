@@ -52,7 +52,8 @@
       shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
       deathfightHazard: TSW.settings.get('autoDeathfightHazard', true),                                // explore: treat death-fight corpses as hazard
       bossCriticalRetreat: TSW.settings.get('autoBossCriticalRetreat', true),
-      bossDashDodge: TSW.settings.get('autoBossDashDodge', true),                    // explore: sidestep a telegraphed boss dash                             // explore: disengage at 1 hp in a boss room
+      bossDashDodge: TSW.settings.get('autoBossDashDodge', true),                    // explore: sidestep a telegraphed boss dash
+      meleeProtect: TSW.settings.get('autoMeleeProtect', true),                      // explore: never discard a paired melee for a gun                             // explore: disengage at 1 hp in a boss room
       bossAddsFirst: TSW.settings.get('autoBossAddsFirst', true),                                   // explore: clear summoned adds before the boss itself
       rushBoss: TSW.settings.get('autoRushBoss', false),                                       // explore: defer reward rooms to reach the boss sooner
       bossPrepHeal: TSW.settings.get('autoBossPrepHeal', true),                                    // explore: heal up before opening the boss seal
@@ -1472,7 +1473,12 @@
     if (A.opts.mainHandBest !== false && p.weapons && p.weapons.length > 1 && p.dashT <= 0) {
       try {
         const cur = p.weapons[p.wi], alt = p.weapons[1 - p.wi];
-        if (alt && cur && alt !== cur && wDps(alt) > wDps(cur) + 1.5) {
+        // A melee/ranged PAIR is owned by the distance-based pairing rule below:
+        // letting the dps rule also swap would reverse every melee swap it makes
+        // (hammer 23.4 dps < nail 35), leaving the melee permanently unused.
+        const pairHeld = !!(isMelee(cur) || isMelee(alt));
+        if (pairHeld) A._mhSkip = (A._mhSkip || 0) + 1;      // pairing rule owns the hand
+        else if (alt && cur && alt !== cur && wDps(alt) > wDps(cur) + 1.5) {
           A._mhLog = (A._mhLog || 0) + 1;
           if (A._mhLog <= 3) console.info('[mh] swap ' + cur + '->' + alt + ' dps ' + Math.round(wDps(cur)) + '->' + Math.round(wDps(alt)));
           tap('KeyX'); A.status.note = '主手换强枪 ' + alt;
@@ -1575,7 +1581,19 @@
           // one of 12 runs still carried nail, contributing 35 of a total 52-76 dps.
           const atCap = p.weapons.length >= wCap();
           const clearlyBetter = nw > cur + .5;
-          const worthSwap = clearlyBetter;              // count is preserved either way
+          // A paired melee must not be discarded for a stronger gun: only the held
+          // weapon is replaced, so losing the melee ends the pairing and the bullet
+          // deflection that comes with it.  Allow the swap only when the pickup is
+          // also melee, or when a slot is still free.
+          let protectedMelee = false;
+          try {
+            if (A.opts.meleeProtect === false) throw 0;
+            const otherW = p.weapons.length > 1 ? WEAPONS[p.weapons[1 - p.wi]] : null;
+            const curW2 = WEAPONS[p.weapons[p.wi]];
+            const pairHasMelee = isMelee(curW2 && curW2.id) || isMelee(otherW && otherW.id);
+            if (pairHasMelee && !isMelee(it.id)) protectedMelee = true;
+          } catch (e) { }
+          const worthSwap = clearlyBetter && !protectedMelee;   // count is preserved either way
           if (worthSwap || p.weapons.length < wCap()) {
             A.status.note = '拿武器 ' + it.id;
             tap('KeyE');
