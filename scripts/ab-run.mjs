@@ -118,6 +118,32 @@ try {
 } catch (e) { }
 if (solo) process.exit(4);
 
+// THE CHECK THAT WOULD HAVE CAUGHT THE LAST BUG.  A row records both what we
+// asked for (autoOptsRequested) and what was actually in effect (autoOpts).
+// When some other code forces an option on, the requested value is silently
+// overridden and both arms end up identical — which is how a labSerum A/B
+// "measured" a difference of zero while looking like a real result.
+// If any row's requested values do not appear in the applied ones, the arms are
+// not what the caller asked for and the comparison is void.
+try {
+  const got = readFileSync(OUT, 'utf8').split('\n').filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch (e) { return null; } })
+    .filter((x) => x && x.kind === KIND);
+  const mismatch = [];
+  for (const r of got) {
+    const req = r.autoOptsRequested || {};
+    const app = r.autoOpts || {};
+    for (const k of Object.keys(req)) {
+      if (JSON.stringify(req[k]) !== JSON.stringify(app[k])) mismatch.push(k + ': asked ' + JSON.stringify(req[k]) + ' got ' + JSON.stringify(app[k]));
+    }
+  }
+  if (mismatch.length) {
+    console.log('[ab] REQUESTED OPTIONS WERE OVERRIDDEN — experiment is void:');
+    for (const m of [...new Set(mismatch)].slice(0, 5)) console.log('     ' + m);
+    process.exit(5);
+  }
+} catch (e) { }
+
 if (pairs.length < 2) { console.log('[ab] TOO FEW PAIRS — result is not usable'); process.exit(3); }
 const ar = pairs.map((p) => pick(p.a, 'roomsCleared')), br = pairs.map((p) => pick(p.b, 'roomsCleared'));
 console.log('A rooms mean ' + mean(ar).toFixed(2) + '   B rooms mean ' + mean(br).toFixed(2));
