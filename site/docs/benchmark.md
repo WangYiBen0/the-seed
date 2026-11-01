@@ -7093,3 +7093,42 @@ seed 1  wlv {}   forgeRoomsSeen 0   upgradesDone 0   dps 44   kills 28   rooms 2
 
 要破局，必须从**「清房速度」或「不依赖清房的成长」**两头之一入手，
 而不是继续调挂机细节。
+
+### 164. 结论 147（补）：`weaponDps` 不改善清房，保持默认关闭
+
+假设：武器评分只看策略表权重（`weaponDps: false`），可能保留 nail 而拒绝高 DPS 枪，
+而 `nova`（153.7 dps）/`storm`（69.0）都**不在市场锁定列表**（`MK_WLOCK` 只有
+`sonic/barrage/thermite/recoilless`），本该有机会捡到。
+
+A/B（4 种子 × 开/关，400 游戏秒，五锁）：
+
+```
+dps-off  n=4  kills 45.8  rooms 1.00
+dps-on   n=3  kills 70.0  rooms 1.00
+```
+
+**清房均值 1.00 vs 1.00，没有差别。** 判定不改默认值。
+
+### 为什么没用
+
+看两臂实际拿到的枪：
+
+```
+seed1 OFF  weapons ["nail","splinter"]  dps 44
+seed1 ON   weapons ["nail"]             dps 39   ← 只剩一把
+seed5 OFF  weapons ["nail","hook"]      dps 42
+```
+
+1. **捡到的枪本来就弱**（`splinter`/`hook` 都不在前八），问题是掉落运气，不是判断逻辑；
+2. 严格的 DPS 比较反而**拒绝了本可拿的第二把枪**，两槽比一槽更差；
+3. 因此「用 DPS 判断」在当前掉落分布下帮不上忙。
+
+### 已知的武器 DPS 上限（供后续参考）
+
+```
+nova 153.7   storm 69.0   shuriken 56.4   scatter 52.9
+twin  45.4   hail  43.7   nail     39.2   longshot 36.3
+```
+
+`nail` 是第 7 名，**并非最弱**；所以「换枪」的天花板本来也不高——
+真正需要的是 `nova`/`storm` 这种 4 倍级的枪，而它们靠运气。
