@@ -39,24 +39,16 @@ appendFileSync(logPath, '[' + new Date().toISOString().slice(11, 19) + '] ' + cm
 const retrying = process.env.RETRY === '1';
 const child = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', logFd, logFd], detached: false });
 
-// Watchdog on LOG STALL, not on total time.  A bench that emits nothing for
-// STALL_MS after the launch line is genuinely hung (measured: seed 5 sat for 4+
-// minutes against a ~120 s budget with the log frozen at the launch line), while
-// a slow-but-working run keeps writing.  Without this, a hang burns the whole
-// outer budget and the batch loses that seed silently.
-const STALL_MS = 120000;
-let lastSize = 0, lastGrowth = Date.now();
-const watch = setInterval(() => {
-  let size = 0;
-  try { size = statSync(logPath).size; } catch (e) { }
-  if (size > lastSize) { lastSize = size; lastGrowth = Date.now(); return; }
-  if (Date.now() - lastGrowth > STALL_MS) {
-    clearInterval(watch);
-    try { child.kill('SIGKILL'); } catch (e) { }
-    appendFileSync('.tmp/runner.log', 'log stalled >' + (STALL_MS / 1000) + 's; killed\n');
-  }
-}, 5000);
-
+// NO STALL WATCHDOG.  Two versions were written and both were wrong:
+//   1. watching LOG growth — the bench logs only two lines (launch and result),
+//      so every normal 250 s run was killed at 120 s and it looked like the
+//      browser was hanging on this machine. It was not; the watchdog was.
+//   2. watching the CHILD's CPU — the child is node, which starts chromium and
+//      then sits idle; the CPU is in the grandchild, so node looked dead too.
+//
+// The outer timeout already covers a genuine hang, and the exit code / harvest
+// path turns a failed run into a retry.  A watchdog that guesses is worse than
+// one that does not exist: it invents failures on healthy runs.
 const outerTimer = setTimeout(() => {
   try { child.kill('SIGKILL'); } catch (e) { }
   appendFileSync('.tmp/runner.log', 'killed by outer timeout\n');
@@ -64,13 +56,15 @@ const outerTimer = setTimeout(() => {
 
 // Pull every TSW_RESULT row out of a streamed log and append it to --out.
 // Returns how many rows were written.
-function harvest(logFile, outFile) {
-  // The bench's own --out writer works sometimes.  If it already appended rows
-  // for this run, harvesting again duplicates them (measured: two identical
-  // rows for one run).  Record the size before the run starts and only harvest
-  // what is NEW.
-  let already = 0;
-  try { already = statSync(outFile).size; } catch (e) { already = 0; }
+// Baseline size of the out file, captured BEFORE the bench runs.  Taking it
+// inside harvest() is useless: by then the bench has already written, so the
+// comparison always said "grew", and every row was appended twice (measured:
+// two byte-identical lines, same timestamp).
+let outSizeBefore = 0;
+try { outSizeBefore = statSync(out).size; } catch (e) { outSizeBefore = 0; }
+
+function harvest(logFile, outFile, sizeBefore) {
+  const already = sizeBefore || 0;
   let text = '';
   try { text = readFileSync(logFile, 'utf8'); } catch (e) { return 0; }
   const rows = [];
@@ -84,10 +78,10 @@ function harvest(logFile, outFile) {
     } catch (e) { }
   }
   if (!rows.length) return 0;
-  // assume the bench's own writer produced nothing new unless the file grew
+  // If the bench's own writer already appended this run's rows, do nothing.
   let grew = 0;
   try { grew = statSync(outFile).size - already; } catch (e) { grew = 0; }
-  if (grew > 0) return 0;                       // already written by the bench
+  if (grew > 0) return 0;
   try {
     const dir = outFile.replace(/[^/]*$/, '');
     if (dir) mkdirSync(dir, { recursive: true });
@@ -97,14 +91,13 @@ function harvest(logFile, outFile) {
 }
 
 child.on('exit', (code) => {
-  clearInterval(watch);
   clearTimeout(outerTimer);
   appendFileSync('.tmp/runner.log', 'exit=' + code + '\n');
   // The bench prints every result to stdout; its --out writer has been
   // unreliable here (a run can log a complete TSW_RESULT and still leave no
   // file), so harvest the row from the log we already streamed.  That makes the
   // log the single source of truth and removes a silent-data-loss path.
-  const got = harvest(logPath, out);
+  const got = harvest(logPath, out, outSizeBefore);
   appendFileSync('.tmp/runner.log', 'harvested=' + got + '\n');
   if (code !== 0 && got === 0 && !retrying) {
     appendFileSync('.tmp/runner.log', 'no result (exit ' + code + '); retrying once\n');
