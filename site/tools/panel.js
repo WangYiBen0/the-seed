@@ -616,7 +616,13 @@
         (id) => { const k = SKILLS[id]; return k ? [id, (L1(k.nm) || id) + ' · ' + id, L1(k.d)] : null; });
     } catch (e) { console.error('[panel] goal skills', e); }
     try {
-      fill(svItems, (typeof SURV_IDS !== 'undefined') ? SURV_IDS : Object.keys(SURV || {}),
+      // BOTH probes must be typeof-guarded.  SURV is a top-level `let` in the game's
+      // classic scripts: it is visible as a bare identifier but is NEVER a window
+      // property, and touching it before initialisation throws ReferenceError.
+      // `Object.keys(SURV || {})` therefore threw on every call and spammed
+      // "[panel] goal squad ReferenceError: SURV is not defined" into the console,
+      // which is exactly the noise that made the headless runs look broken.
+      fill(svItems, (typeof SURV !== 'undefined') ? Object.keys(SURV) : [],
         (id) => { const m = SURV[id]; return m ? [id, L1(m.nm) + ' · ' + id, L1(m.file || '')] : null; });
     } catch (e) { console.error('[panel] goal squad', e); }
     // the dropdowns are built from these arrays, so filling them and re-opening
@@ -738,6 +744,10 @@
   const q = new URLSearchParams(location.search);
   if (q.get('autotest')) {
     const kind = q.get('autotest');
+    // A marker on entry, because "no result" and "never started" look identical
+    // from the harness side.  This line is cheap and answers that question
+    // directly in the console.
+    console.info('[autotest] start kind=' + kind + ' q=' + (location.search || '').slice(0, 120));
     const opts = {
       speed: +(q.get('speed') || 8), seed: q.get('seed') != null ? +q.get('seed') : (kind === 'fullrun' || kind === 'probe' ? 7 : null),
       policy: q.get('policy') || 'rounded', goalDepth: +(q.get('goalDepth') || 1),
@@ -767,9 +777,38 @@
     if (q.get('build')) { try { Object.assign(opts, JSON.parse(q.get('build'))); } catch (e) { } }
     TSW.perf.enable();
     if (q.get('det') !== '0' && q.get('det')) TSW.det.enable();
-    const emit = (r) => { (window.__TSW_RESULTS = window.__TSW_RESULTS || []).push(r); console.info('TSW_RESULT ' + JSON.stringify(r)); };
+    // Emit through THREE channels on purpose:
+    //   1) window.__TSW_RESULTS — polled by the harness via CDP, most reliable
+    //   2) POST /__result      — the local server in headless-bench writes the row
+    //   3) console.info         — kept for humans reading a browser console
+    // Measured failure: on current chromium the console scrape produced NOTHING
+    // (a fullrun that ran fine was reported as "no TSW_RESULT captured"), and a
+    // CDP listener attached afterwards is racy. The POST removes both risks.
+    const emit = (r) => {
+      (window.__TSW_RESULTS = window.__TSW_RESULTS || []).push(r);
+      try {
+        const q = new URLSearchParams(location.search).get('rpost');
+        if (q) fetch(q, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r), keepalive: true }).catch(() => { });
+      } catch (e) { }
+      console.info('TSW_RESULT ' + JSON.stringify(r));
+      document.title = 'TSW_AUTOTEST_DONE';
+    };
+    // Report WHY nothing came back, instead of hanging silently.  If the game
+    // never exposes __achroma.step, TSW.whenGame() never resolves and the harness
+    // sees only "no result" — indistinguishable from a crash.
+    (function watchdog() {
+      setTimeout(() => {
+        if (window.__TSW_RESULTS && window.__TSW_RESULTS.length) return;
+        const a = window.__achroma;
+        console.warn('[autotest] no result after 20s · achroma=' + (typeof a) +
+          ' step=' + (a ? typeof a.step : 'n/a') +
+          ' g=' + (a && a.G ? 'yes' : 'no') +
+          ' errs=' + JSON.stringify((window.__errs || []).slice(-3)));
+      }, 20000);
+    })();
     TSW.whenGame().then(async () => {
       try {
+        console.info('[autotest] game ready, starting ' + kind);
         if (kind === 'throughput') emit(await TSW.bench.run('throughput', opts));
         else if (kind === 'macro') emit(await TSW.bench.run('macro', opts));
         else if (kind === 'fullrun') emit(await TSW.bench.run('fullrun', opts));

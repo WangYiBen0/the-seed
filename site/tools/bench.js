@@ -213,6 +213,15 @@
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
     TSW.auto.opts.autoRestart = false;
+    // The workshop now defaults every master switch to OFF (so a player opening
+    // the page gets no autopilot).  That is correct for a human and fatal for a
+    // measurement: nothing drives the card picker, the run freezes in
+    // G.state='cards' and gameT stops advancing, so a run of 60 game-seconds
+    // never ends and the harness reports "no result".
+    // Measured: runT 21.6 -> 46.8 -> frozen at 46.8 with state='cards'.
+    // A benchmark must always drive its own modals, so this is forced on here,
+    // after any caller-supplied autoOpts has been applied.
+    TSW.auto.opts.autoCards = true;
     TSW.auto.setMode('full');
     TSW.speed.set(speed, true);
     const M = TSW.metrics;

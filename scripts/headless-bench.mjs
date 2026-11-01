@@ -30,10 +30,22 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const SITE = [join(process.cwd(), 'site'), join(ROOT, 'site')].find((p) => existsSync(join(p, 'index.html'))) ?? join(process.cwd(), 'site');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.md': 'text/markdown' };
 
-function serve() {
+function serve(posted) {
   return new Promise((res) => {
     const srv = createServer(async (req, rsp) => {
       try {
+        // Result intake: tools/panel.js POSTs every emitted row here, so the
+        // harness never has to scrape the console (which yields nothing on
+        // current chromium) nor race a CDP attach.
+        if (req.method === 'POST' && req.url === '/__result') {
+          let raw = '';
+          req.on('data', (d) => { raw += d.toString(); if (raw.length > 4_000_000) req.destroy(); });
+          req.on('end', () => {
+            try { posted.push(JSON.parse(raw)); } catch (e) { posted.push({ error: 'bad json: ' + raw.slice(0, 120) }); }
+            rsp.writeHead(204); rsp.end();
+          });
+          return;
+        }
         const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
         // '/' serves auto.html: the bench drives the game through tools/panel.js's
         // ?autotest= protocol, so it needs the tools preloaded.  index.html is a
@@ -64,9 +76,12 @@ const findChromium = () => {
 };
 
 async function main() {
-  const { srv, port } = await serve();
+  const posted = [];
+  const { srv, port } = await serve(posted);
   const chrome = findChromium();
   const profile = await mkdtemp(join(tmpdir(), 'tsw-bench-'));
+  // a random high port, so parallel runs cannot collide
+  const dbgPort = 9200 + Math.floor(Math.random() * 500);
 
   const q = new URLSearchParams();
   if (args.smoke) { /* just load */ }
@@ -75,17 +90,39 @@ async function main() {
     if (args.trace) q.set('trace', '1');
     for (const [k, v] of Object.entries({ speed: args.speed, seed: args.seed, policy: args.policy, goalDepth: args['goal-depth'] ?? args.goalDepth, timeoutS: args.timeout, seconds: args.seconds, results: args.results, depth: args.depth, build: args.build, diff: args.diff, mods: args.mods, engine: args.engine, role: args.role, wave: args.wave, rounds: args.rounds, optA: args.optA, optB: args.optB, abKind: args['ab-kind'] ?? args.abKind, startWave: args['start-wave'] ?? args.startWave, boost: args.boost, gens: args.gens, pop: args.pop, seeds: args.seeds, reachWave: args['reach-wave'] ?? args.reachWave, metric: args.metric, det: args.det, autoOpts: args.autoOpts, hp: args.hp, armor: args.armor, floor: args.floor, gameSeconds: args['game-seconds'] ?? args.gameSeconds, abortOn: args['abort-on'] ?? args.abortOn, perf: args.perf })) if (v != null) q.set(k, v);
   }
+  // rpost tells the page to POST its rows back to this server (see serve()).
+  q.set('rpost', '/__result');
   const url = `http://127.0.0.1:${port}/` + (q.toString() ? '?' + q.toString() : '');
   const shot = args.screenshot ? resolve(String(args.screenshot)) : null;
   if (shot) await mkdir(dirname(shot), { recursive: true });
 
   const chromeArgs = [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    // REQUIRED in this environment.  Without them chromium starts, the window
+    // exists, and the page's scripts never run far enough to emit anything —
+    // measured: an identical URL run by a hand-written CDP harness (which passes
+    // these) produced a full row in 12 s, while this binary hit its 409 s hard
+    // timeout with "no TSW_RESULT captured".  ci-login.mjs already passes them
+    // for the same reason (ZygoteHostImpl::Init SIGTRAP in containers).
+    '--no-sandbox', '--no-zygote', '--disable-dev-shm-usage',
     '--disable-features=Translate,MediaRouter', '--autoplay-policy=no-user-gesture-required', '--mute-audio',
     `--user-data-dir=${profile}`, `--window-size=${args.width || 1280},${args.height || 800}`,
     '--enable-logging=stderr', '--v=0',
+    // A debug port makes the page's console reachable over CDP.  The stderr
+    // console scrape below is kept as a fallback, but on current chromium it
+    // yields NOTHING: measured, a fullrun that emitted a complete TSW_RESULT was
+    // reported as "no TSW_RESULT captured", and every run looked like a hang
+    // while the game was in fact running normally.
+    '--remote-debugging-port=' + dbgPort,
   ];
   if (args.smoke) chromeArgs.push('--screenshot=' + (shot || join(profile, 'shot.png')), '--timeout=15000');
+  // Start on the target url directly.  The POST channel added in panel.js makes
+  // the previous "attach CDP before the page starts" dance unnecessary and, more
+  // importantly, that dance was the reason nothing ran at all: with about:blank
+  // as the launch url the page only existed as a CDP target, and the autotest
+  // protocol never executed.  Measured: identical URL via a plain webbrowser
+  // launch emits a row in seconds, while the CDP-navigated one hit its hard
+  // timeout with "no TSW_RESULT captured".
   chromeArgs.push(url);
 
   console.error(`[bench] ${chrome} ${q.get('autotest') || 'smoke'} → ${url}`);
@@ -125,6 +162,40 @@ async function main() {
   });
   const results = [];
   const errors = [];
+  // ---- CDP console channel (secondary) -----------------------------------
+  // The page already launched at the target url, so this channel only LISTENS.
+  // It exists as a backup to the POST intake: if the page cannot POST, the
+  // console still carries the same rows.
+  const cdpPromise = (async () => {
+    let wsUrl = null;
+    for (let i = 0; i < 120 && !wsUrl; i++) {
+      try {
+        const r = await fetch('http://127.0.0.1:' + dbgPort + '/json/list');
+        if (r.ok) {
+          const list = await r.json();
+          const page = list.find((x) => x.type === 'page' && /127\.0\.0\.1/.test(x.url || ''));
+          if (page && page.webSocketDebuggerUrl) wsUrl = page.webSocketDebuggerUrl;
+        }
+      } catch (e) { }
+      if (!wsUrl) await new Promise((r) => setTimeout(r, 250));
+    }
+    if (!wsUrl) return false;
+    let sock;
+    try { sock = new WebSocket(wsUrl); } catch (e) { return false; }
+    await new Promise((res, rej) => { sock.onopen = res; sock.onerror = rej; });
+    let id = 1;
+    sock.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.method !== 'Runtime.consoleAPICalled') return;
+      const parts = (m.params.args || []).map((a) => (a.value !== undefined ? a.value : (a.description || '')));
+      const msg = parts.join(' ');
+      if (args.verbose) console.error('[page] ' + msg.slice(0, 300));
+      if (msg.startsWith('TSW_RESULT ')) { try { results.push(JSON.parse(msg.slice(11))); } catch (e) { } }
+      if (m.params.type === 'error') errors.push(msg.slice(0, 300));
+    };
+    try { sock.send(JSON.stringify({ id: id++, method: 'Runtime.enable', params: {} })); } catch (e) { }
+    return true;
+  })();
   let buf = '';
   child.stderr.on('data', (d) => {
     buf += d.toString(); let idx;
@@ -149,12 +220,21 @@ async function main() {
   } else {
     // wait until at least one result arrives (or chrome dies)
     await new Promise((res) => {
-      const iv = setInterval(() => { if (results.length) { clearInterval(iv); res(); } }, 500);
+      // wait for a row on EITHER channel: the POST intake is the reliable one
+      const iv = setInterval(() => { if (results.length || posted.length) { clearInterval(iv); res(); } }, 500);
       child.on('exit', () => { clearInterval(iv); res(); });
     });
+    // give the POST a moment to arrive after the title flips
+    await new Promise((r) => setTimeout(r, 1500));
     setTimeout(() => child.kill('SIGKILL'), 4000);
   }
   clearTimeout(timer);
+  // fold the POSTed rows into results (dedupe: a row may arrive on both channels)
+  for (const r of posted) {
+    if (!r || typeof r !== 'object') continue;
+    if (results.some((x) => JSON.stringify(x) === JSON.stringify(r))) continue;
+    results.push(r);
+  }
   srv.close();
   try { child.kill('SIGKILL'); } catch (e) { }
 
