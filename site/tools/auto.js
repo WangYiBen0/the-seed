@@ -2289,7 +2289,14 @@
 
     // ---------- navigation (no active fight) ----------
     if (!active && !G.trial && A.mode === 'full') {
-      let tgt = pickObjective(G, p);
+      // pickObjective walks every room AND every interactable, and now also
+      // computes a distance term for each room.  Calling it every tick cost a
+      // measured 33% of the simulation rate (209 -> 141 ticks per wall second at
+      // speed 8, same seed and budget).  The objective does not need per-tick
+      // resolution: re-evaluate it 4 times per game-second, and re-pick
+      // immediately whenever the current one is done or unreachable (below).
+      let tgt = A._objCache && (G.time - A._objCache.t) < 0.25 ? A._objCache.tgt : pickObjective(G, p);
+      A._objCache = { t: G.time, tgt };
       // If the chosen point is known-unreachable, drop it and re-pick once.  The
       // dead list is populated by gridPath, so this self-heals: a point that
       // genuinely cannot be reached stops being chosen for five minutes.
