@@ -118,6 +118,12 @@
       usePortals: true,                                      // explore: walk to the floor/endless portal
       navFallback: TSW.settings.get('autoNavFallback', true), // break out of zero-movement wedges
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
+      // DEFAULT OFF: balanced A/B gave waves 6/6, 6/5, 5/5, 4/7 — deltas 0,+1,0,-3,
+      // no net change (benchmark.md 181).  The reasoning (ranged enemies kill from
+      // outside melee range) is sound, but the measured effect is not there: the
+      // arena is crowded enough that lowering the effective distance of one enemy
+      // does not redirect fire usefully.  Declared here so an A/B stays valid.
+      invadeShooterFirst: false,                             // invade: shoot ranged enemies before melee
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
       // DEFAULT 'tank': invade deaths are health, not damage.  Live sampling showed
@@ -1383,7 +1389,20 @@
     const foes = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0);
     // 1) shoot: invade fires automatically, we only aim (the game aims via Input)
     let tgt = null, bd = 1e9;
-    for (const e of foes) { const d = dist(p.x, p.y, e.x, e.y); if (d < bd) { bd = d; tgt = e; } }
+    // Invade targeting: shooters first.  IV_WAVES shows shooters going 0,0,0,2,2,3,3
+    // across waves 1-7, i.e. ranged enemies appear at wave 4 and that is exactly
+    // where measured runs die (150-175 s = waves 5-6).  A ranged enemy keeps
+    // damaging us from outside melee range while we chew through the nearest baby,
+    // so the nearest-first rule spends its time on the harmless target.
+    // Rank by distance / priority: shooters get their effective distance shrunk,
+    // the cutoff stays real distance.  Switchable (opts.invadeShooterFirst).
+    for (const e of foes) {
+      const d = dist(p.x, p.y, e.x, e.y);
+      const ranged = !!(e.ivDef && e.ivDef.ranged);
+      const pri = (A.opts.invadeShooterFirst === false) ? 1 : (ranged ? 1.6 : 1);
+      const rank = d / pri;
+      if (rank < bd) { bd = rank; tgt = e; }
+    }
     if (tgt) { Input.mx = clampM(tgt.x - G.cam.x, GW()); Input.my = clampM(tgt.y - G.cam.y, GH()); }
     // 2) kite: the arena is a walled box, so "back off" alone walks into a corner
     //    and dies.  Instead we circulate: pick the tangential direction (clockwise
