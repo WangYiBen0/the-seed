@@ -8066,3 +8066,88 @@ seed  off波  on波   offLv  onLv
 | `invadeLvStyle: growth` | 4.50 波（2 对显著变差） | 不采用 |
 | `invadeCircle` | 5.00 vs 5.50（2 好 2 坏） | 保持原样，不声称收益 |
 | `invadeShooterFirst` | 5.75 vs 5.25（1 好 1 坏 2 平） | **默认关闭** |
+
+### 182. 无尽档基线尝试：**直接构造 `endless` 存档会立刻死亡，这条路不通**
+
+### 尝试
+
+`--boost '{"weapons":["hail","twin"],"wlv":{"hail":2},"ink":100,"endless":1}'`，
+即直接给一份 `endless: 1` 的存档，期望从无尽第 1 层开始跑。
+
+### 结果
+
+```
+seed 1   end=death  depth=1  gameT=13  kills=0
+seed 5   end=death  depth=1  gameT=15  kills=0
+seed 11  end=death  depth=1  gameT=14  kills=0
+```
+
+**三个种子都在 13–15 游戏秒内死亡，一次击杀都没有。**
+
+### 判断
+
+游戏里进入无尽的**正确路径**是：
+
+```js
+// game.js:411 —— 最后一层打赢 boss，点无尽传送门
+if (E) startEndless();
+
+// startEndless() 做的事（game.js:747）：
+G.powCap = powerScale();
+G.endless = 1;
+beginFloorTransition(endlessFloor());   // ← 真正的楼层生成在这里
+```
+
+也就是说 `G.endless` 只是一个计数，**无尽的楼层必须由 `beginFloorTransition(endlessFloor())` 生成**。
+存档里写 `endless: 1` 只是把计数器恢复，楼层本身仍是普通楼层，
+所以 bot 在错误的关卡里 15 秒就被打死。
+
+### 结论
+
+**建立无尽基线不能靠构造存档**，只有两条路：
+
+1. **跑完整流程**（清 3 层 + 打 boss + 点无尽门）——成本高，但正确；
+2. 直接调用 `startEndless()` 让游戏自己生成楼层（需要在 bench 里加一条专门的入口）。
+
+本代**没有建立无尽基线**，这一档仍是空白。
+
+### 183. 无尽档：**入口找到了（`startEndless()`），但基线仍未建立**
+
+### 正确的入口
+
+§182 证明了「存档里写 `endless: 1`」无效——那只是恢复计数器，楼层仍是普通楼层。
+正确做法是调用游戏自己的入口：
+
+```js
+// bench.js 的 startRunWith 之后
+if (boost && boost.endless) {
+  if (typeof startEndless === 'function') startEndless();
+}
+```
+
+### 结果（`--diff classic`，500 游戏秒预算）
+
+```
+seed 1  end=death  depth=1  gameT=16  kills=1
+seed 5  end=death  depth=1  gameT=25  kills=1
+```
+
+与 §182 的对比：
+
+| | gameT | kills |
+|---|---|---|
+| 存档写 endless（错） | 13–15 | **0** |
+| startEndless()（对） | 16–25 | **1** |
+
+**有击杀说明楼层确实建起来了**，但 bot 在这个 build 下仍然 20 秒内死亡。
+
+### 因此无尽档还缺什么
+
+1. 一个**够强的起始 build**（当前给的是 `hail` t2 + `twin`，在无尽楼层不够）；
+2. 或者从**更低的深度**开始（`endless: 1` 直接进第 4 层之后的无尽，难度已很高）；
+3. 也可能需要**先跑完整 3 层**积累 build 再进无尽——这是最接近真实的方式，但成本最高。
+
+### 诚实结论
+
+**无尽档仍是三档里唯一没有基线的**。这一轮只解决了「怎么进无尽」，
+没有解决「进去之后能活多久」。

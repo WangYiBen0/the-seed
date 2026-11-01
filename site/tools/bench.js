@@ -79,6 +79,11 @@
         wlv: (b && b.wlv) ? Object.assign({}, b.wlv) : {},
         shards: (b && b.shards) ? Object.assign({}, b.shards) : {},
         skill: null, ink: (b && b.ink) || 0, kills: 0, runT: 0, hits: 0, curses: [],
+        // Endless depth must be expressible in a boost save, otherwise the third
+        // target (endless) has no way to be measured without literally clearing
+        // every floor first.  The game reads s.endless and restores it.
+        endless: (b && b.endless) || 0,
+        ...(b && b.endless ? { powCap: b.powCap || 0 } : {}),
         rid: 'r' + Date.now().toString(36),
       };
       try {
@@ -238,6 +243,17 @@
     // a crafted save resumed through the game's loader
     await waitScripts();
     startRunWith({ diff, mods, boost });
+    // Endless must be ENTERED, not merely recorded in a save.  G.endless is just
+    // a counter; the endless floor is built by startEndless() ->
+    // beginFloorTransition(endlessFloor()).  Writing endless:1 into a save left
+    // the bot on an ordinary floor and it died in 13-15 s with zero kills
+    // (benchmark.md 182).  This calls the game's own entry point instead.
+    if (boost && boost.endless) {
+      try {
+        await new Promise((r) => setTimeout(r, 600));
+        if (typeof startEndless === 'function') startEndless();
+      } catch (e) { TSW.err('endless entry', e); }
+    }
     const G = () => window.__achroma.G;
     const t0 = performance.now();
     // the resume path needs a beat; without this the first ticks record the menu
