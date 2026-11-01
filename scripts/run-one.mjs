@@ -99,7 +99,10 @@ child.on('exit', (code) => {
   // log the single source of truth and removes a silent-data-loss path.
   const got = harvest(logPath, out, outSizeBefore);
   appendFileSync('.tmp/runner.log', 'harvested=' + got + '\n');
-  if (code !== 0 && got === 0 && !retrying) {
+  // Retry whenever NO ROW was produced — regardless of the exit code.  The
+  // bench can exit 0 having emitted nothing (measured: seed 1 exited 0 with an
+  // empty log), and gating the retry on a non-zero code lost that seed silently.
+  if (got === 0 && !retrying) {
     appendFileSync('.tmp/runner.log', 'no result (exit ' + code + '); retrying once\n');
     const again = spawn(process.execPath, [process.argv[1], ...args], { stdio: 'inherit', env: { ...process.env, RETRY: '1' } });
     again.on('exit', (c2) => { appendFileSync('.tmp/runner.log', 'retry exit=' + c2 + '\n'); process.exit(0); });
