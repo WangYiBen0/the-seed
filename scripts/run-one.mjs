@@ -14,7 +14,13 @@ const benchTimeout = +(get('timeout', '900'));
 
 const wallFromGame = gameSec ? gameSec * 0.66 + 180 : 0;
 const hard = (Math.max(benchTimeout, wallFromGame) + 150) * 1000;
-const outer = hard + 120 * 1000;
+// Each attempt is capped rather than given the full budget.  Measured: a healthy
+// run of 94 game-seconds finished in 25.9 s (3.63 game-s per wall-s), while a
+// wedged one burned the whole 912 s outer limit and only produced a row on the
+// retry.  Capping each attempt makes a hang cost a third of that, and the retry
+// path (which fires whenever no row was produced) absorbs the loss.
+const ATTEMPT_CAP_MS = 400 * 1000;
+const outer = Math.min(hard + 120 * 1000, ATTEMPT_CAP_MS);
 
 const out = get('out', '.tmp/run.jsonl');
 const cmd = ['node', 'scripts/headless-bench.mjs', '--kind', 'fullrun', '--seed', seed,

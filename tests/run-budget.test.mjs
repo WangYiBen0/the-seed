@@ -24,7 +24,10 @@ test('the CLI derives a wall budget from --game-seconds', () => {
 test('the runner computes an outer timeout that is always larger', () => {
   assert.match(RUNNER, /const wallFromGame = gameSec \? gameSec \* 0\.66 \+ 180 : 0;/, 'same formula');
   assert.match(RUNNER, /const hard = \(Math\.max\(benchTimeout, wallFromGame\) \+ 150\) \* 1000;/, 'add the CLI overhead');
-  assert.match(RUNNER, /const outer = hard \+ 120 \* 1000;/, 'and stay 120 s beyond it');
+  // outer is now capped: an attempt may be shorter than the CLI's own limit, so a
+  // hang costs less. The retry path absorbs the abandoned attempt.
+  assert.match(RUNNER, /const ATTEMPT_CAP_MS = 400 \* 1000;/, 'each attempt must be bounded');
+  assert.match(RUNNER, /const outer = Math\.min\(hard \+ 120 \* 1000, ATTEMPT_CAP_MS\);/, 'so is the outer timer');
 });
 
 test('the runner records how a batch ended, so rc=124 is visible', () => {
