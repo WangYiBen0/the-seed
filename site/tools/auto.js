@@ -1822,9 +1822,20 @@
             mx = hx / hl; my = hy / hl;
             A.status.note = '清房：追击漏网之敌';
             A.status.target = 'hunt';
+            // A straggler with no line of sight can never be targeted, so the
+            // hunt used to WALK at it without ever firing and never terminate:
+            // measured one run parked 1598 s in combat, dryNotFiring 690 s, one
+            // foe pinned at 77-82 px for the whole floor (1 room cleared).  Shoot
+            // it anyway — several weapons cross walls (pierce 999), and a shot
+            // that is blocked just wastes ammo, while never shooting guarantees
+            // the room never clears.
+            A._huntAim = anyFoe;
           }
         }
-      } else if (neF) A._hunt = 0;
+      } else if (neF) { A._hunt = 0; A._huntAim = null; }
+      // also drop the hunt aim once the straggler is gone (killed), so we never
+      // keep firing at a stale object that no longer exists in G.enemies
+      if (A._huntAim && (A._huntAim.dead || A._huntAim.spawnT > 0 || (G.enemies || []).indexOf(A._huntAim) < 0)) A._huntAim = null;
       const aimT = neF || ne;
       if (aimT) { Input.mx = clampM(aimT.x - G.cam.x, GW()); Input.my = clampM(aimT.y - G.cam.y, GH()); }
       // ---- 战斗状态机：RETREAT / FOCUS / KITE ------------------------------
@@ -1964,6 +1975,16 @@
         const retreatFire = retreat && A.opts.fireWhileRetreat !== false;
         const retreatRange = melee ? 120 : 520;
         wantFire = !!neF && d < (retreatFire ? retreatRange : (retreat ? 0 : (melee ? 90 : 450)));
+        // While hunting a straggler that has NO line of sight, fire at it anyway.
+        // Otherwise neF stays null forever (it needs los), the hunt walks and
+        // never shoots, and the room can never clear: one measured run spent
+        // 1598 s in combat with 690 s of not-firing and a single foe pinned at
+        // 77-82 px, clearing 1 room of 11.
+        if (!wantFire && A._huntAim) {
+          const ax = A._huntAim.x, ay = A._huntAim.y;
+          Input.mx = clampM(ax - G.cam.x, GW()); Input.my = clampM(ay - G.cam.y, GH());
+          wantFire = true;
+        }
         // `iai` dashes the player forward by its full range (weapons.js:189-201), so
         // firing moves us toward the enemy and sometimes into hazards.  Veto the
         // swing when the dash would end somewhere unsafe.  (This must run AFTER the
