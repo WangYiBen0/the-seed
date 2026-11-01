@@ -1,0 +1,177 @@
+name: sync upstream
+
+# Keep the mirror in step with the live game.
+#
+#   schedule  ── every 6 hours, plus manual dispatch
+#   metadata  ── sign in with DZMM_SIGN_IN_CODE, read gameId/publishedAt
+#   scripts   ── scripts/sync-scripts.mjs rewrites site/js/ from the same base
+#                (byte-identical; measured 77/77 on 2026-11-01)
+#   assets    ── `nix run .#source` (public static/ base; no login needed)
+#   gates     ── node --check (check-syntax) + unit tests
+#   commit    ── only when something actually changed
+#
+# Why the login step runs in a browser instead of curl:
+#   the metadata endpoint is cookie-authenticated and the API sends no
+#   Access-Control-Allow-* headers, so neither node nor a page we host can read
+#   it.  The request has to originate from the dzmm.ai origin, in a session the
+#   sign-in link has established.  scripts/ci-login.mjs drives headless
+#   chromium over its own DevTools protocol to do exactly that.
+#
+# The sign-in code only ever appears in a URL *fragment*, which browsers never
+# send to the server, so it is not exposed to upstream access logs; this file
+# never prints it.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync.yml'
+      - 'scripts/ci-login.mjs'
+      - 'scripts/fetch-source.mjs'
+      - 'scripts/sync-scripts.mjs'
+
+permissions:
+  contents: write
+
+# never let two syncs race on the same files
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # chromium ships with the ubuntu-latest image; make its path explicit for
+      # scripts/ci-login.mjs, which prefers $CHROMIUM.
+      - name: locate chromium
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)"
+          if [ -z "$CHROME" ]; then
+            echo "::error::no chromium on the runner; ci-login needs a real browser"
+            exit 1
+          fi
+          echo "CHROMIUM=$CHROME" >> "$GITHUB_ENV"
+          "$CHROME" --version
+
+      # gameId / publishedAt.  Anonymous reads return {"error":"请先登录"}.
+      - name: read upstream metadata (signed in)
+        env:
+          DZMM_SIGN_IN_CODE: ${{ secrets.DZMM_SIGN_IN_CODE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DZMM_SIGN_IN_CODE:-}" ]; then
+            echo "::error::DZMM_SIGN_IN_CODE is not configured for this repository"
+            exit 1
+          fi
+          node scripts/ci-login.mjs --code "$DZMM_SIGN_IN_CODE" --out .tmp/meta.json
+          node -e '
+            const m = require("./.tmp/meta.json");
+            if (!m.gameId || !m.publishedAt) throw new Error("metadata incomplete");
+            console.log("gameId=" + m.gameId);
+            console.log("publishedAt=" + m.publishedAt);
+            require("node:fs").appendFileSync(process.env.GITHUB_ENV,
+              `DZMM_GAME_ID=${m.gameId}\nDZMM_PUBLISHED_AT=${m.publishedAt}\n`);
+          '
+
+      # the static/ base itself is public — this needs no session, only the two
+      # values above.  It writes site/asset-manifest.json (and its new base) plus
+      # any missing assets, which is what the script sync below reads.
+      - name: fetch missing assets
+        run: |
+          set -euo pipefail
+          node scripts/fetch-source.mjs
+          echo "--- manifest tail ---"
+          node -e 'const m=require("./site/asset-manifest.json"); console.log("base:", m.base); console.log("assets:", Object.keys(m.assets).length);'
+
+      # site/js/ must stay byte-identical to upstream (AGENTS.md rule 1).  The
+      # public base serves the same files, so this needs no session either — and
+      # unlike a browser "save page as", it runs unattended.  GAME_V is read back
+      # out of the fetched platform.js, so a version bump shows up in the commit.
+      # The second call is the gate: it exits non-zero if upstream still differs
+      # after the write, i.e. if the sync silently failed to land.
+      - name: sync game scripts (site/js/)
+        run: |
+          set -euo pipefail
+          node scripts/sync-scripts.mjs
+          node scripts/sync-scripts.mjs --check
+
+      # ---- gates: a broken script or failing test must never be committed ----
+      - name: syntax gate (node --check)
+        run: |
+          set -euo pipefail
+          # our own code only; site/js/ and [TheSeed]/ are upstream and byte-frozen
+          mapfile -t FILES < <(git ls-files 'scripts/*.mjs' 'site/tools/*.js' 'tests/*.mjs' '*.mjs' 2>/dev/null || true)
+          if [ "${#FILES[@]}" -eq 0 ]; then echo "no files to check"; exit 0; fi
+          node scripts/check-syntax.mjs "${FILES[@]}"
+
+      - name: unit tests
+        run: node --test "tests/*.test.mjs"
+
+      # record the version we just synced to, so the commit body carries it
+      - name: record GAME_V
+        id: gamev
+        run: |
+          set -euo pipefail
+          V="$(grep -oaE "GAME_V = '[^']+'" site/js/platform.js | head -1 | sed "s/GAME_V = //; s/'/ /g" | xargs)"
+          echo "GAME_V=${V:-unknown}"
+          echo "gamev=${V:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: commit if changed
+        id: commit
+        run: |
+          set -euo pipefail
+          git config user.name  "theseed-sync-bot"
+          git config user.email "theseed-sync-bot@users.noreply.github.com"
+          # .tmp/ holds the scratch metadata file and must never be committed
+          git add -A -- . ':(exclude).tmp'
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "no upstream change; nothing to commit"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          BASE="$(node -e 'console.log(require("./site/asset-manifest.json").base)')"
+          git commit -F - <<MSG
+          chore(sync): pull upstream assets
+
+          GAME_V: ${{ steps.gamev.outputs.gamev }}
+          gameId:    ${{ env.DZMM_GAME_ID }}
+          publishedAt: ${{ env.DZMM_PUBLISHED_AT }}
+          asset base: ${BASE}
+
+          Fetched by scripts/fetch-source.mjs after a signed-in metadata read;
+          syntax gate and unit tests passed before this commit.
+          MSG
+          git log --oneline -1
+
+      - name: push
+        if: steps.commit.outputs.changed == 'true'
+        run: git push origin HEAD:main
+
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo "### upstream sync"
+            echo ""
+            echo "| item | value |"
+            echo "|---|---|"
+            echo "| GAME_V | ${{ steps.gamev.outputs.gamev }} |"
+            echo "| gameId | ${DZMM_GAME_ID:-—} |"
+            echo "| publishedAt | ${DZMM_PUBLISHED_AT:-—} |"
+            echo "| committed | ${{ steps.commit.outputs.changed }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
