@@ -60,6 +60,13 @@
       shardFit: TSW.settings.get('autoShardFit', true),                                        // explore: score shards by fit to the held weapon
       keyRoomFirst: TSW.settings.get('autoKeyRoomFirst', true),                                    // explore: clear the key room before anything else
       floorScaling: TSW.settings.get('autoFloorScaling', true),   // explore: widen the band on deeper floors (enemy hp/rate scale)
+      // Threat level at which explore mode dashes away from a bullet.  Must live in
+      // this table: runAB rejects unknown autoOpts keys and marks the experiment
+      // void, which is exactly what happened before this line existed.
+      // DEFAULT IS 99 (effectively off) because an A/B of 1.0 vs 99 measured the
+      // dash as WORSE: 31.9 vs 30.6 hits/min while dashing 8.7 vs 2.7 times.
+      // Dashing more did not mean dodging better.  See benchmark.md 157.
+      dodgeDashAt: TSW.settings.get('autoDodgeDashAt', 99),
       targetPriority: TSW.settings.get('autoTargetPriority', true), // explore: shoot gunners and spawners before melee
       mainHandBest: TSW.settings.get('autoMainHandBest', true),                                    // explore: hold the strongest weapon in the main hand
       arsenalByDps: TSW.settings.get('autoArsenalByDps', true),                                    // explore: pick the armoury weapon by measured dps
@@ -2544,6 +2551,31 @@
 
     // the hard nav fallback must win over whatever pickDir decided this tick
     if (A._forceActive) { mx = A._forceActive[0]; my = A._forceActive[1]; }
+    // ---- dodge dash in EXPLORE mode ----------------------------------------
+    // The only dash triggers lived in the invade branch, so a normal floor had
+    // no dash-based evasion at all: measured 34.6 hits/min in the dodge bench
+    // with dash enabled, and only 2-4 dashes in 40 s. Walking out of a bullet's
+    // path is often impossible; a dash is the tool that actually works.
+    // This fires when the threat field says a hit is imminent and the dash path
+    // is safe, and it dashes AWAY from the danger rather than along the walk.
+    if (A.opts.dash && p && p.dashCd <= 0 && !A._dodgeDashCD) {
+      try {
+        const threat = spotDanger(p.x, p.y, p);
+        if (threat >= (A.opts.dodgeDashAt === undefined ? 1.0 : +A.opts.dodgeDashAt)) {
+          const dd2 = dashDir(p, [mx, my]);
+          if (dd2 && dashSafe(p, dd2[0], dd2[1])) {
+            Input.keys.KeyW = dd2[1] < -.3; Input.keys.KeyS = dd2[1] > .3;
+            Input.keys.KeyA = dd2[0] < -.3; Input.keys.KeyD = dd2[0] > .3;
+            p.dashT = 0.12;                                  // commit for a beat
+            A._dodgeDashCD = G.time + 0.35;                   // do not spam Space
+            A.metrics.dash = (A.metrics.dash || 0) + 1;
+            A.status.note = '躲避冲刺';
+            mx = dd2[0]; my = dd2[1];
+          }
+        }
+      } catch (e) { }
+      if (A._dodgeDashCD && G.time > A._dodgeDashCD) A._dodgeDashCD = 0;
+    }
     moveKeys(mx, my);
     A._dbg = [mx, my];
     Input.down = !!wantFire && A.mode !== 'off' && !A.opts.noFire;

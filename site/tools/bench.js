@@ -1066,13 +1066,26 @@
     // and a 2.2 s cadence the floor often showed only 1-2 foes, which reads as
     // "it doesn't spawn anything". A dodge test wants a visible barrage.
     arena = true, keep = 16, spawnEvery = 0.9, spawnN = 5, hp = 14,
-    types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
+    types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic', autoOpts = null } = {}) {
+    // Dodge runs must accept autopilot flags too, otherwise an A/B of the dodge
+    // logic cannot be expressed at all: the first attempt produced twelve rows
+    // that were indistinguishable from each other.
+    const optSavedD = {}, optUnknownD = [];
+    if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
+      if (k in TSW.auto.opts) { optSavedD[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
+      else { optUnknownD.push(k); TSW.err('dodge: unknown autoOpts ignored → ' + k); }
+    }
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
     const wasNoFire = TSW.auto.opts.noFire;
     TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
     TSW.speed.set(speed, true);
     TSW.auto.opts.noFire = true;              // stress: never shoot back
+    // A dodge test with the dash switched off is not a dodge test — it is a
+    // walking test.  Every master switch now defaults to OFF so a player gets no
+    // autopilot, which is correct for a human and wrong here: the bench must
+    // exercise the movement tools it is measuring.
+    TSW.auto.opts.dash = true;
     const M = TSW.metrics; M.reset(); TSW.auto.metrics.reset();
     const save = {
       v: 1, at: Date.now(), floor: 4, diff: diff || 'classic', hp, armor: 3,
@@ -1140,6 +1153,7 @@
     TSW.auto.setMode('off');
     TSW.speed.set(wasSpeed, true); TSW.auto.setPolicy(wasPolicy);
     TSW.auto.opts.noFire = wasNoFire;
+    for (const k of Object.keys(optSavedD)) TSW.auto.opts[k] = optSavedD[k];   // restore dodge overrides
     if (wasMode !== 'off') TSW.auto.setMode(wasMode);
     try { window.hurtPlayer = _hp; } catch (e) { }
     TSW.rng.clear();
@@ -1154,6 +1168,15 @@
       // 'floor' is not a runDodgeOne parameter any more: referencing it threw a
       // ReferenceError on EVERY dodge run, which is why the bench appeared to
       // spawn nothing — it died before the arena was populated.
+      // Dodge rows must carry the options too, or an A/B cannot be verified after
+      // the fact (the first run of the dodge-dash A/B produced 12 rows that were
+      // all indistinguishable).
+      // Record the REQUESTED overrides, not the live values: the live ones have
+      // already been restored to defaults by the time this row is built, so the
+      // first version of this field reported dodgeDashAt=1 for a run that was
+      // explicitly launched with 99 and made both arms look identical.
+      autoOpts: (function () { try { return Object.assign({}, autoOpts || {}); } catch (e) { return {}; } })(),
+      autoOptsUnknown: optUnknownD.slice(),
       kind: 'dodge', at: Date.now(), depth, seconds, policy, seed, speed,
       diff: diff || 'classic',
       end: g.state === 'dead' ? 'death' : 'alive',
