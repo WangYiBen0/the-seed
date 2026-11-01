@@ -2718,7 +2718,12 @@
         }
         else if (it.kind === 'chip' && A.opts.chipPick && !p.skill) stops.push([it.x, it.y, 'chip']);
         else if (it.kind === 'prism' && A.opts.pickups) stops.push([it.x, it.y, 'prism']);
-        else if (it.kind === 'labvial' && A.opts.labSerum && !it.used) stops.push([it.x, it.y, 'labvial']);
+        // Reachability matters here too.  The lab-vial branch above (2694) checks
+        // it, but this power-up sweep did not, so a vial sealed behind a wall or a
+        // locked door was selected every tick: measured, the bot sat at
+        // (217,1127) for 100+ game-seconds targeting 实验血清, kills and ink
+        // frozen, four combat rooms still open.
+        else if (it.kind === 'labvial' && A.opts.labSerum && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) stops.push([it.x, it.y, 'labvial']);
       }
       let best = null, bd = 1e9;
       // Pathing can route around walls, so requiring a straight line hid most
