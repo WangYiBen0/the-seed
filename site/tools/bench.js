@@ -445,10 +445,22 @@
                 // on, and whether the pick-up handler would refuse it.
                 let extra = '';
                 try {
-                  const it = (g.inter || []).find((x) => !x.used && (x.kind === 'weapon' || x.kind === 'labvial') && Math.hypot(x.x - (g.p || {}).x, x.y - (g.p || {}).y) < 30);
-                  // wCap lives in site/js/shards2.js as a top-level const, so it is
-                  // NOT a window property and cannot be reached from here.
-                  if (it) extra = ' [' + it.kind + ':' + (it.id || '?') + ' slots=' + (g.p.weapons || []).length + ']';
+                  // Widen the radius and consider EVERY interactable: the stall may
+                  // be on a prism, a seal or a door rather than the weapon the
+                  // target label mentions first.
+                  const pp = g.p || {};
+                  const near = (g.inter || []).filter((x) => !x.used && Math.hypot(x.x - pp.x, x.y - pp.y) < 40);
+                  if (near.length) {
+                    extra = ' [' + near.slice(0, 3).map((x) => x.kind + (x.id ? ':' + x.id : '') + '@' + Math.round(Math.hypot(x.x - pp.x, x.y - pp.y))).join(',') + ']';
+                  } else {
+                    // nothing within 40px: record where it is standing instead, so a
+                    // stuck position is still identifiable
+                    // Nothing nearby yet the note says "arrived": the TARGET POINT
+                    // itself is wrong. Record it so the wrong objective is visible.
+                    let tp = '?';
+                    try { tp = A2 && A2._objCache && A2._objCache.tgt && A2._objCache.tgt.pt ? A2._objCache.tgt.pt.map(Math.round).join(',') : 'none'; } catch (e) { }
+                    extra = ' [pos=' + Math.round(pp.x) + ',' + Math.round(pp.y) + ' tpt=' + tp + ' inter=' + (g.inter || []).length + ']';
+                  }
                 } catch (e) { }
                 const kb = (st3.note || '(no note)') + ' | ' + (st3.target || '(no target)') + extra;
                 dc.idleBy = dc.idleBy || {};

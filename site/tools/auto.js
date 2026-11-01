@@ -2511,7 +2511,38 @@
               my = (oy / ol) * k;
               A.status.note = '到达目标：微调到交互点';
             }
-            else { mx = 0; my = 0; A.status.note = '已到目标点'; }
+            else {
+              // ARRIVED, BUT THERE IS NOTHING HERE.  A loot objective is built from
+              // a G.inter entry; if the bot is standing on the recorded point and no
+              // interactable is within reach, that objective is stale (the item was
+              // taken, or it never existed where the point says).
+              // Measured: 134.7 game-seconds, the entire remaining idle budget, all
+              // at pos 1494,808 == tpt 1494,808 with 16 interactables elsewhere.
+              // Without this the bot reports 已到目标点 and stands there forever.
+              const nearAny = (G.inter || []).some((it2) => !it2.used && Math.hypot(it2.x - p.x, it2.y - p.y) < 28);
+              if (tgt.room && !tgt.room.cleared && tgt.label !== 'fight') {
+                // a room objective is still valid even if we sit on its centre
+                mx = 0; my = 0; A.status.note = '已到目标点';
+              } else if (!nearAny) {
+                // Bench by COORDINATE, not by the array reference: pickObjective
+                // builds a fresh [x,y] every call, so the Map key never matched and
+                // the same stale point was re-selected on the very next tick.
+                // Measured: note became 空目标点：放弃 yet idle stayed at 134 s,
+                // because it was abandoning and immediately re-picking forever.
+                // Bench the OBJECTIVE's own handle, not the coordinate: the power-up
+                // sweep filters with unreachable(it) where `it` is the G.inter entry,
+                // so a coordinate-keyed ban is invisible to it and the same item was
+                // re-selected the moment the ban expired.  Bench the room when
+                // present, the object otherwise.
+                // Bench BOTH handles, because two different filters protect this
+                // objective: the power-up sweep asks unreachable([x,y]) (coordinate
+                // key), while the room sweep asks unreachable(room).  Benching only
+                // the room left the coordinate path free to re-select the same point.
+                benchFor(tgt.pt, 45);
+                if (tgt.room) benchFor(tgt.room, 45);
+                mx = 0; my = 0; A.status.note = '空目标点：放弃';
+              } else { mx = 0; my = 0; A.status.note = '已到目标点'; }
+            }
           }
           // stuck on this objective? bench it for a while so the run keeps moving
           if (navProg.tgt === tgt.room && G.time - navProg.t > 6 && Math.hypot(p.x - navProg.x, p.y - navProg.y) < 40) { benchFor(tgt.room || tgt.pt, 30); navProg.t = G.time; }
@@ -3065,9 +3096,20 @@
 
   // things the autopilot failed to reach get benched for a while so it keeps moving
   const bench = new Map();
-  function unreachable(t) { const until = bench.get(t); if (until && G_time() < until) return true; if (until) bench.delete(t); return false; }
+  // Bench keys must be stable across calls: a fresh [x,y] array from
+  // pickObjective is a different Map key every tick, so benching by reference
+  // never actually suppressed anything.
+  let benchSeq = 0;
+  const spotKey = (t) => {
+    try {
+      if (Array.isArray(t)) return 'p:' + Math.round(t[0]) + ',' + Math.round(t[1]);
+      if (t && typeof t === 'object') return t.__benchKey || (t.__benchKey = 'o:' + (++benchSeq));
+      return 'v:' + String(t);
+    } catch (e) { return 'x'; }
+  };
+  function unreachable(t) { const k = spotKey(t); const until = bench.get(k); if (until && G_time() < until) return true; if (until) bench.delete(k); return false; }
   const G_time = () => (window.__achroma && __achroma.G ? __achroma.G.time : 0);
-  const benchFor = (t, sec) => bench.set(t, G_time() + sec);
+  const benchFor = (t, sec) => bench.set(spotKey(t), G_time() + sec);
 
   function navPath(G, p, targetRoomId) {
     if (targetRoomId == null) return null;
