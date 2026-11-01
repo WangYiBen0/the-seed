@@ -433,7 +433,19 @@
           else {
             const p3 = g.p || {};
             const moving = Math.abs(p3.vx || 0) + Math.abs(p3.vy || 0) > 12;
-            if (moving) dc.travel += dt2; else dc.idle += dt2;
+            if (moving) dc.travel += dt2;
+            else {
+              dc.idle += dt2;
+              // WHY is it idle?  "43% idle" is not actionable; "43% idle while
+              // the note said X and the target was Y" is.  Bucket the idle seconds
+              // by (note, target) so the biggest contributor is visible.
+              try {
+                const A2 = TSW.auto, st3 = (A2 && A2.status) || {};
+                const kb = (st3.note || '(no note)') + ' | ' + (st3.target || '(no target)');
+                dc.idleBy = dc.idleBy || {};
+                dc.idleBy[kb] = (dc.idleBy[kb] || 0) + dt2;
+              } catch (e) { }
+            }
           }
         }
       } catch (e) { }
@@ -770,6 +782,14 @@
       tCombat: +(function () { try { return window.__tDecomp.combat.toFixed(1); } catch (e) { return 0; } })(),
       tTravel: +(function () { try { return window.__tDecomp.travel.toFixed(1); } catch (e) { return 0; } })(),
       tIdle: +(function () { try { return window.__tDecomp.idle.toFixed(1); } catch (e) { return 0; } })(),
+      // top idle causes, so "43% idle" becomes actionable
+      idleBy: (function () {
+        try {
+          const d = window.__tDecomp.idleBy || {};
+          return Object.entries(d).sort((a, b) => b[1] - a[1]).slice(0, 5)
+            .reduce((o, [k, v]) => { o[k] = +v.toFixed(1); return o; }, {});
+        } catch (e) { return {}; }
+      })(),
       tPaused: +(function () { try { return (window.__tDecomp.paused || 0).toFixed(1); } catch (e) { return 0; } })(),
       // Ratio not absolute: absolute combat seconds are dominated by how many
       // fights the seed happened to offer, which swamps any strategy effect.

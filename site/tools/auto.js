@@ -2711,9 +2711,16 @@
         if (it.kind === 'weapon' && A.opts.weaponPick) {
           // only chase a floor gun when it can actually be taken: capacity free,
           // or the gun is stronger than what we hold
+          // The pick-up handler (line 1721) only takes a gun when there is a free
+          // slot or the pickup is clearly better than what is HELD (cur + .5).
+          // This sweep used a different test (mine > max(held) + 5), so it selected
+          // guns the handler would refuse: measured 145.3 of 402 game-seconds,
+          // 100% of all idle time, spent standing on a 已到目标点 weapon.
           const held = (p.weapons || []).map((id) => WEAPONS[id] ? (WEAPONS[id].dmg || 0) * (WEAPONS[id].rate || 1) * (WEAPONS[id].n || 1) : 0);
           const mine = (WEAPONS[it.id] ? (WEAPONS[it.id].dmg || 0) * (WEAPONS[it.id].rate || 1) * (WEAPONS[it.id].n || 1) : 0);
-          const canTake = (p.weapons || []).length < wCap() || mine > Math.max(0, ...held) + 5;
+          const freeSlot = (p.weapons || []).length < wCap();
+          const betterThanHeld = mine > (held[p.wi] || 0) * 1.5 + 5;   // same spirit as cur + .5, scaled to dps
+          const canTake = freeSlot || betterThanHeld;
           if (canTake) stops.push([it.x, it.y, 'weapon']);
         }
         else if (it.kind === 'chip' && A.opts.chipPick && !p.skill) stops.push([it.x, it.y, 'chip']);
