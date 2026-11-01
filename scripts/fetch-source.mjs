@@ -96,18 +96,25 @@ const urlFor = (p) => (p.startsWith('api/')) ? new URL(BASE).origin + '/' + p : 
 
 // ---- manifest: merge previous entries, mark present/missing ----
 const prev = existsSync(MANIFEST_PATH) ? JSON.parse(await readFile(MANIFEST_PATH, 'utf8')) : { assets: {} };
-const manifest = { base: BASE, updatedAt: Date.now(), assets: {} };
+const manifest = { base: BASE, updatedAt: prev.updatedAt ?? Date.now(), assets: {} };
 const wanted = await buildWanted();
 for (const [p, meta] of [...wanted].sort()) {
   const old = (prev.assets || {})[p];
   const file = normalize(join(SITE, p));
   const present = existsSync(file) && !flag('force');
   manifest.assets[p] = {
-    url: old?.url || urlFor(p), from: meta.from, present,
+    // url always follows the current base: keeping the previous one left every
+    // entry pointing at the retired __v<publishedAt>/ after an upstream bump.
+    url: urlFor(p), from: meta.from, present,
     ...(present ? { bytes: (await stat(file)).size } : {}),
     ...(old?.sha256 ? { sha256: old.sha256 } : {}),
   };
 }
+// updatedAt is a timestamp, not data: bumping it on every CI run makes the
+// "commit only when something changed" step commit every six hours forever.
+const signature = JSON.stringify({ base: manifest.base, assets: manifest.assets });
+const prevSignature = JSON.stringify({ base: prev.base, assets: prev.assets });
+if (signature !== prevSignature) manifest.updatedAt = Date.now();
 await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 1) + '\n');
 
 const missing = Object.entries(manifest.assets).filter(([, a]) => !a.present);
@@ -139,6 +146,8 @@ for (const [p, a] of missing) {
     await appendFile(MISSING, JSON.stringify({ path: '/' + p, at: Date.now(), fail: true }) + '\n').catch(() => { });
   }
 }
-manifest.updatedAt = Date.now();
+// Only re-date the manifest if this run actually fetched something; otherwise
+// a no-op sync would dirty the file every run and defeat the CI commit gate.
+if (ok + gate + fail > 0) { const at = Date.now(); if (at > manifest.updatedAt) manifest.updatedAt = at; }
 await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 1) + '\n');
 console.log(`\n[source] fetched=${ok} failed=${fail} gated=${gate} | manifest: ${MANIFEST_PATH}`);

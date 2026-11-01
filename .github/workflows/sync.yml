@@ -136,8 +136,9 @@ jobs:
           set -euo pipefail
           git config user.name  "theseed-sync-bot"
           git config user.email "theseed-sync-bot@users.noreply.github.com"
-          # .tmp/ holds the scratch metadata file and must never be committed
-          git add -A -- . ':(exclude).tmp'
+          # .tmp/ holds the scratch metadata file; it is gitignored already, and
+          # naming an ignored path in a pathspec makes git refuse the whole add.
+          git add -A
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "no upstream change; nothing to commit"
