@@ -6511,3 +6511,62 @@ hard = (max(--timeout, gameSec*0.66 + 180) + 150) 秒
 这三批白跑了约 1.5 小时墙钟。同样的道理在别的测量里也成立：
 **测一个东西之前，先把它的时间预算和观测通道落实**，否则得到的是「没有数据」，
 而不是「数据说明它不行」。
+
+## 153. 结论 136：官方云存档端点**登录后可用**（200 + 空列表），推翻旧文档的悲观结论
+
+`site/docs/iframe-sso.md` 曾写「跨站不可行」，并附了三条约束（无 CORS / SameSite=Lax / HttpOnly）。
+那些约束对**我们的域名直连**都成立，但因此推出「云存档没戏」是错的 —— 它漏掉了一个变量：
+**请求从哪个 origin 发出**。
+
+### 实测（CI，真实登录态）
+
+`scripts/ci-login.mjs` 现在在登录后的 dzmm 页面里发一次**只读 GET**：
+
+```
+fetch('/api/gamefy/<gameId>/kv', {credentials:'include'})
+```
+
+CI 日志（run 41294288115 @ f6c5a0f）：
+
+```
+gameId=90e4b323-9859-482f-9eb0-7cba6f44a51b
+publishedAt=1792749394892
+kvProbe=status=200 body={"data":[],"count":0}
+```
+
+**200，不是 401。** 说明：
+
+1. 端点存在，且 **cookie 会话可直接使用**；
+2. `count:0` 是该账号在官网上从未存过档的结果，不是权限问题；
+3. 旧文档记录的 401 是**匿名请求**的答案 —— 两者都对，但含义完全不同。
+
+### 这对「云存档」意味着什么
+
+唯一正确的载体是**在 dzmm origin 内发起请求**。两种形态都已具备：
+
+| 形态 | 状态 |
+|---|---|
+| 官方页内注入（`site/inject.js`） | 现成可用，同源、cookie 自动携带 |
+| **把游戏作为 iframe 挂在宿主页下**（`site/dzmm-host.js`） | **本轮打通并 E2E 验证** |
+
+后者的关键不在渲染，而在**谁来发请求**：宿主若在 dzmm origin 上（那个 sign-in 页面本身），
+`kvFetch` 就能带着 cookie 打真实端点，iframe 里的游戏对此无感。
+
+### 已验证的协议通路（不是推测）
+
+headless chromium，游戏跑在 iframe 里，宿主用假 backend：
+
+```
+BACKEND {"calls":2,"ops":["put:probe-key","get:probe-key"]}
+KVOUT   {"value":{"fromServer":true},"updated_at":"2026-11-01T00:00:00Z"}
+```
+
+游戏的 `dzmm.kv.put` → postMessage → 宿主 → backend → 回传。协议来自官方 SDK
+（`{type:'dzmm:request'}` / `{type:'dzmm:response'}` 是它**唯一**的数据通道）。
+
+### 仍未做的一步（需要真实会话 + 用户许可）
+
+把 `kvFetch` 指向真实端点、跑一次真实存档往返。CI 里有 secret 可以做到，
+但**写入会改动用户账号**，不应由自动任务随意触发。
+
+下一步前提：**用户确认可以写其云存档**，然后在 CI 或其本机跑一次真实验证。
