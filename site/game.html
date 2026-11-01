@@ -15,22 +15,16 @@
 <body>
 <canvas id="c" width="1440" height="810"></canvas>
 
-<!-- 1) our dzmm platform shim (window.dzmm + localStorage persistence) -->
+<!-- This frame is the GAME ONLY.  Tools are NOT preloaded here: the host page
+     injects them on request, exactly like the official site (where the host
+     decides what to attach).  Opening this file directly gives you the vanilla
+     game with no autopilot, no workshop, no HUD.
+
+     Load order that the game itself needs:
+       1) dzmm-shim.js  — the dzmm SDK stand-in (saves to localStorage)
+       2) js/platform.js — upstream loader, byte-for-byte; it pulls every
+                           script from js/ in GAME_SCRIPTS order. -->
 <script src="dzmm-shim.js"></script>
-<!-- 2) tool core: speed warp, seeded RNG, perf mode — must run before the game boots -->
-<script src="tools/core.js"></script>
-<!-- 3) upstream platform layer, byte-for-byte -->
 <script src="js/platform.js"></script>
-<!-- 4) the workshop (attaches once the game has booted) -->
-<script src="tools/macro.js"></script>
-<script src="tools/auto.js"></script>
-<script src="tools/hud.js"></script>
-<script src="tools/bench.js"></script>
-<script src="tools/explore.js"></script>
-<script src="tools/evolve.js"></script>
-<script src="tools/cloud.js"></script>
-<script src="tools/cloudhost.js"></script>
-<script src="tools/cheats.js"></script>
-<script src="tools/panel.js"></script>
 </body>
 </html>

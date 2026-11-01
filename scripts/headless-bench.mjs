@@ -35,11 +35,12 @@ function serve() {
     const srv = createServer(async (req, rsp) => {
       try {
         const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-        // '/' serves the GAME frame, not the host page: the bench reads the
-        // game's own console (TSW_RESULT) and its globals, which live inside
-        // game.html now that index.html is a host that mounts the game in an
-        // iframe (same structure as the official site).
-        let file = join(SITE, path === '/' ? 'game.html' : path);
+        // '/' serves auto.html: the bench drives the game through tools/panel.js's
+        // ?autotest= protocol, so it needs the tools preloaded.  index.html is a
+        // host page that mounts the game in an iframe, and game.html is the
+        // vanilla game with NO tools — pointing the bench at either one breaks
+        // measurement silently (verified: the run timed out with no TSW_RESULT).
+        let file = join(SITE, path === '/' ? 'auto.html' : path);
         if (!existsSync(file)) {
           rsp.writeHead(404); rsp.end('nope');
           appendFile(join(ROOT, '.tmp', 'missing.log'), JSON.stringify({ path, at: Date.now() }) + '\n').catch(() => { });

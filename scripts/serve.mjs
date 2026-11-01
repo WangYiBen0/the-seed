@@ -21,9 +21,18 @@ console.log(`[serve] root=${ROOT}  port=${PORT}  (404s → ${MISSING})`);
 createServer(async (rq, rs) => {
   let path = decodeURIComponent(new URL(rq.url, 'http://x').pathname);
   try {
-    const file = normalize(join(ROOT, path));
+    // '/' and any directory must resolve to index.html. Without this, opening
+    // http://127.0.0.1:8000/ looked up the ROOT DIRECTORY, stat() said "not a
+    // file", and the server answered 404 — the mirror's front page was
+    // unreachable while /game.html worked.
+    if (path === '/' || path === '') path = '/index.html';
+    let file = normalize(join(ROOT, path));
     if (!file.startsWith(ROOT)) { rs.writeHead(403); rs.end(); return; }
-    const st = await stat(file).catch(() => null);
+    let st = await stat(file).catch(() => null);
+    if (st && st.isDirectory()) {
+      file = join(file, 'index.html');
+      st = await stat(file).catch(() => null);
+    }
     const body = st && st.isFile() ? await readFile(file) : null;
     if (body == null) {
       rs.writeHead(404, { 'content-type': 'text/plain' }); rs.end('404');

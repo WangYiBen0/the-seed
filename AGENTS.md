@@ -2,6 +2,10 @@
 
 给在本仓库工作的 AI agent（以及未来的我）的操作手册。**先读这页再动手。**
 
+> **开工前也读 `TASKS.md`。** 会话里的 `todo` 工具是「本轮工作计划」，DSH 每次
+> **新一轮开始就清空**（`todo/tool-todo` 在 `turn/start` 时置 `null`），而 goal 每推进一轮
+> 就是新一轮 —— 所以要跨轮跟踪，只能落盘到 `TASKS.md`：开工读它、做完勾掉并提交。
+
 ---
 
 ## 0. 这个仓库是什么
@@ -58,6 +62,12 @@
 ```bash
 nix develop                 # node + chromium + gh + jq + seed-* 助手；并安装 pre-commit 钩子
 nix run .#serve             # 起静态服（默认 8000）
+# 若报 "opening lock file ~/.cache/nix/... Read-only file system"（沙箱/只读 HOME），
+# 仓库本身没问题，只是 nix 想写缓存。两种解法：
+#   1) XDG_CACHE_HOME=$PWD/.tmp/nix-cache nix run .#serve
+#   2) 完全绕开 nix：node scripts/serve.mjs --port 8000
+# 打开 http://127.0.0.1:8000/ 看到的是**宿主页**（iframe + 注入按钮）。
+# 直接玩原版游戏（无工具）是 /game.html
 nix run .#sync              # 从 [TheSeed]/ 重新同步 site/js/（会校验 GAME_SCRIPTS 完整性）
 nix run .#source            # 补抓游戏请求过但仓库里没有的资源（写 asset-manifest.json）
 nix run .#bench -- --kind fullrun --seed 7 --policy rounded --goal-depth 1 --speed 8
