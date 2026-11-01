@@ -641,6 +641,30 @@
       hurtMechanic: (function () { try { return (window.__hurtLog || []).filter((x) => x.m).length; } catch (e) { return 0; } })(),
       hurtPierce: (function () { try { return (window.__hurtLog || []).filter((x) => x.p && !x.m).length; } catch (e) { return 0; } })(),
       hurtPlain: (function () { try { return (window.__hurtLog || []).filter((x) => !x.p && !x.m).length; } catch (e) { return 0; } })(),
+      // WHO and HOW FAR.  "hurtPlain 160 / hurtDmg 160" says contact hits at
+      // 1 damage each, but not whether they came from melee the bot walked into
+      // or from ranged enemies it failed to dodge. Summarise the log instead of
+      // leaving the next reader to re-derive it from a repro.
+      hurtBy: (function () {
+        try {
+          const log = window.__hurtLog || [];
+          const by = {};
+          for (const x of log) {
+            if (!x.res) continue;                       // only hits that landed
+            const k = (x.nt || '?') + (x.nr ? '(ranged)' : '');
+            by[k] = (by[k] || 0) + 1;
+          }
+          return by;
+        } catch (e) { return {}; }
+      })(),
+      hurtDist: (function () {
+        try {
+          const log = (window.__hurtLog || []).filter((x) => x.res);
+          if (!log.length) return null;
+          const in6 = log.filter((x) => (x.nd == null ? 999 : x.nd) < 6).length;
+          return { hits: log.length, within6px: in6, medianDist: log.map((x) => x.nd).sort((a, b) => a - b)[Math.floor(log.length / 2)] };
+        } catch (e) { return null; }
+      })(),
       hurtDmg: (function () { try { return Math.round((window.__hurtLog || []).reduce((a, x) => a + (x.d || 0), 0)); } catch (e) { return 0; } })(),
       // opening survival: damage taken in the first 30 game-seconds.  Half the
       // runs clear nothing at all, so the start is where they collapse.
