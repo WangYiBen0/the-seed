@@ -120,7 +120,14 @@
       invadeCircle: true,                                    // invade: circulate instead of straight backoff
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
-      invadeLvStyle: 'dps',                                   // invade: 'dps' | 'tank' upgrade order
+      // DEFAULT 'tank': invade deaths are health, not damage.  Live sampling showed
+      // hp 25/25 -> 9/29 -> 0/29 across waves 5-6 while the enemy count doubled,
+      // and invade has NO armour (0/0 throughout).  A balanced 4-pair A/B:
+      //   dps   waves 3,5,6,5  (mean 4.75)
+      //   tank  waves 6,7,7,5  (mean 6.25)
+      // three pairs improved by +3/+2/+1, one tied, none regressed.
+      // See benchmark.md 178.
+      invadeLvStyle: 'tank',                                  // invade: 'dps' | 'tank' | 'growth' upgrade order
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set

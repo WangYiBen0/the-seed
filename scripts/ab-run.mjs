@@ -22,7 +22,16 @@ const args = (() => {
   const o = {};
   const a = process.argv.slice(2);
   for (let i = 0; i < a.length; i++) {
-    if (a[i].startsWith('--')) { const k = a[i].slice(2); const v = (a[i + 1] && !a[i + 1].startsWith('--')) ? a[++i] : true; o[k] = v; }
+    if (!a[i].startsWith('--')) continue;
+    const k = a[i].slice(2);
+    // --extra is the ONE flag whose value legitimately starts with "--"
+    // (it forwards benchmark flags verbatim).  Treating that like a missing
+    // value made --extra silently become true, so the runner fell back to the
+    // benchmark's own defaults (invade: startWave 5, seconds 12) and measured
+    // something else entirely.
+    if (k === 'extra' || k === 'mods' || k === 'autoOpts') { o[k] = a[++i] ?? ''; continue; }
+    const v = (a[i + 1] && !a[i + 1].startsWith('--')) ? a[++i] : true;
+    o[k] = v;
   }
   return o;
 })();
@@ -42,11 +51,16 @@ if (seeds.length < 2) { console.error('[ab] need at least 2 seeds'); process.exi
 rmSync(OUT, { force: true });
 
 function runOnce(seed, optJson) {
+  // Pass-through args.  Every benchmark kind has its own parameter names: fullrun
+  // takes --game-seconds, but invade takes --wave and --seconds.  Without a
+  // pass-through this runner silently used invade defaults (startWave 5,
+  // seconds 12) and produced a batch that measured the wrong thing entirely —
+  // rows showed startWave 5 / seconds 12 while the intent was wave 1 / 300 s.
+  const extra = String(args.extra || '').split(' ').filter(Boolean);
   const r = spawnSync(process.execPath, ['scripts/headless-bench.mjs',
     '--kind', KIND, '--seed', String(seed), '--policy', 'rounded', '--goal-depth', '1',
     '--speed', '8', '--diff', DIFF, '--mods', MODS,
-    '--game-seconds', GAME_SECONDS, '--timeout', TIMEOUT,
-    '--autoOpts', optJson, '--out', OUT,
+    '--autoOpts', optJson, '--out', OUT, ...extra,
   ], { encoding: 'utf8' });
   // the row is only trustworthy if it landed AND carries the options we asked for
   if (!existsSync(OUT)) return null;

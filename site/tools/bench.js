@@ -1319,7 +1319,16 @@
   // own ivLoadSave validates every field) and let ivResume() set up the arena.
   async function runInvade({ speed = 8, seed = null, diff = 'despair', role = 'rounded',
     wave = 5, weapons = [{ id: 'edge', t: 2 }, { id: 'hammer', t: 1 }], seconds = 120,
-    timeoutS = 900, hpCap = null } = {}) {
+    timeoutS = 900, hpCap = null, autoOpts = null } = {}) {
+    // Invade must accept autopilot flags too.  Without this, an A/B on
+    // invadeLvStyle ran both arms with the DEFAULT priority and the rows carried
+    // no autoOpts at all, so the comparison was between a setting and itself.
+    // (Same defect the dodge bench had; see benchmark.md 157.)
+    const optSavedI = {}, optUnknownI = [];
+    if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
+      if (k in TSW.auto.opts) { optSavedI[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
+      else { optUnknownI.push(k); TSW.err('invade: unknown autoOpts ignored → ' + k); }
+    }
     await waitScripts();
     const wasSpeed = TSW.speed.get(), wasMode = TSW.auto.mode;
     if (seed != null) TSW.rng.seed(seed);
@@ -1386,12 +1395,17 @@
     clearInterval(mon);
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
+    for (const k of Object.keys(optSavedI)) TSW.auto.opts[k] = optSavedI[k];   // restore invade overrides
     TSW.speed.set(wasSpeed, true);
     if (wasMode !== 'off') TSW.auto.setMode(wasMode);
     TSW.rng.clear();
     const g = window.__achroma.G, iv = g.iv || {};
     const gameS = Math.max(1, (g.runT || 0) - runT0);
     return {
+      // Record the REQUESTED overrides (not the restored live values), so an A/B
+      // can tell the arms apart after the fact.
+      autoOpts: (function () { try { return Object.assign({}, autoOpts || {}); } catch (e) { return {}; } })(),
+      autoOptsUnknown: optUnknownI.slice(),
       kind: 'invade', at: Date.now(), seed, diff, role, startWave: wave, seconds, speed,
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1),
