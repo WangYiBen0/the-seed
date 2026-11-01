@@ -39,25 +39,104 @@
   const val = (v) => typeof v === 'string' ? v : JSON.stringify(v);
   const unwrap = (r) => r && typeof r === 'object' && 'value' in r ? r.value : r;
 
+  // ---- optional: talk to a dzmm HOST over postMessage -----------------------
+  // The official SDK's whole data channel is postMessage:
+  //   iframe -> parent  {type:'dzmm:request', id, method, params}
+  //   parent -> iframe  {type:'dzmm:response', id, result|error}
+  // (extracted from gamefy/sdk/v1.js).  A page that mounts us in an iframe and
+  // answers that pair is a legitimate host — site/dzmm-host.js is one.  When a
+  // host is present, kv goes there instead of localStorage, which is how the
+  // official cloud save becomes reachable without faking a session: the HOST
+  // does the fetch, from its own origin, with its own cookies.
+  //
+  // Opt-in via ?dzmmhost=1 (or window.__DZMM_HOST__ = true before load) so the
+  // offline mirror keeps its current behaviour by default.
+  const WANT_HOST = (function () {
+    try {
+      if (window.__DZMM_HOST__ === true) return true;
+      const q = new URLSearchParams(location.search);
+      return q.get('dzmmhost') === '1' || q.get('dzmm-host') === '1';
+    } catch (e) { return false; }
+  })();
+  const hostBridge = (function () {
+    if (!WANT_HOST) return null;
+    if (window.parent === window) return null;        // not embedded: nothing to talk to
+    const pending = new Map();
+    let seq = 1, ready = false;
+    const send = (method, params) => new Promise((resolve, reject) => {
+      const id = 'h' + (seq++);
+      pending.set(id, { resolve, reject });
+      try { window.parent.postMessage({ type: 'dzmm:request', id, method, params: params || {} }, '*'); }
+      catch (e) { pending.delete(id); reject(Object.assign(new Error('postMessage failed'), { code: 'NO_HOST' })); return; }
+      setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(Object.assign(new Error('host timeout: ' + method), { code: 'HOST_TIMEOUT' })); } }, 1500);
+    });
+    window.addEventListener('message', (ev) => {
+      const d = ev.data;
+      if (typeof d === 'string') return;
+      if (!d || typeof d !== 'object') return;
+      if (d.type === 'dzmm:ready' || d.type === 'dzmm:parent-ready') { ready = true; return; }
+      if (d.type === 'dzmm:response' && pending.has(d.id)) {
+        const p = pending.get(d.id); pending.delete(d.id);
+        if (d.error) p.reject(Object.assign(new Error(String(d.error)), { code: d.errorCode || 'HOST_ERROR' })); else p.resolve(d.result);
+      }
+    });
+    // announce ourselves; the host replies with dzmm:ready
+    try { window.parent.postMessage('iframe:content-ready', '*'); } catch (e) { }
+    return { send, isReady: () => ready };
+  })();
+
   // ---- window.dzmm ----
   const dzmm = {
     __shim: { name: 'theseed-offline-mirror', version: VERSION },
+    __host: hostBridge ? true : false,
 
     kv: {
+      // Every method prefers the HOST when one is present, and falls back to
+      // localStorage otherwise (offline mirror unchanged).  A host failure must
+      // never lose the local save, so the fallback is per-call rather than
+      // "pick a backend once".
       async get(k) {
+        if (hostBridge) {
+          try { const r = await hostBridge.send('kv.get', { key: k }); return { key: k, value: r && 'value' in r ? r.value : null, updated_at: (r && r.updated_at) || null }; }
+          catch (e) { console.warn('[dzmm-shim] host kv.get failed, local fallback', e); }
+        }
         const v = lsGet(k);
         return { key: k, value: v, updated_at: null }; // value === null when absent
       },
       async batchGet(keys) {
         const out = {}; // every requested key must exist (platform.js checks hasOwnProperty)
+        if (hostBridge) {
+          try {
+            const r = await hostBridge.send('kv.batchGet', { keys });
+            for (const k of keys) out[k] = (r && r[k]) || { key: k, value: null, updated_at: null };
+            return out;
+          } catch (e) { console.warn('[dzmm-shim] host kv.batchGet failed, local fallback', e); }
+        }
         for (const k of keys) out[k] = { key: k, value: lsGet(k), updated_at: null };
         return out;
       },
-      async put(k, v, _opts) { lsSet(k, val(v)); return { ok: true }; },
-      async batchPut(obj, _opts) { for (const k of Object.keys(obj)) lsSet(k, val(obj[k])); return { ok: true }; },
+      async put(k, v, _opts) {
+        if (hostBridge) { try { await hostBridge.send('kv.put', { key: k, value: v }); return { ok: true }; } catch (e) { console.warn('[dzmm-shim] host kv.put failed', e); } }
+        lsSet(k, val(v)); return { ok: true };
+      },
+      async batchPut(obj, _opts) {
+        if (hostBridge) { try { await hostBridge.send('kv.batchPut', { entries: obj }); return { ok: true }; } catch (e) { console.warn('[dzmm-shim] host kv.batchPut failed', e); } }
+        for (const k of Object.keys(obj)) lsSet(k, val(obj[k])); return { ok: true };
+      },
       async putIfAbsent(k, v) { if (lsGet(k) == null) lsSet(k, val(v)); return { ok: true }; },
-      async delete(k) { lsDel(k); return { ok: true }; },
-      async list(prefix) { return lsKeys().filter((k) => !prefix || k.startsWith(prefix)).map((k) => ({ key: k })); },
+      async delete(k) {
+        if (hostBridge) { try { await hostBridge.send('kv.delete', { key: k }); return { ok: true }; } catch (e) { console.warn('[dzmm-shim] host kv.delete failed', e); } }
+        lsDel(k); return { ok: true };
+      },
+      async list(prefix) {
+        if (hostBridge) {
+          try {
+            const r = await hostBridge.send('kv.list', { prefix: prefix || '' });
+            if (r && Array.isArray(r.keys)) return r.keys.map((k) => ({ key: k }));
+          } catch (e) { console.warn('[dzmm-shim] host kv.list failed, local fallback', e); }
+        }
+        return lsKeys().filter((k) => !prefix || k.startsWith(prefix)).map((k) => ({ key: k }));
+      },
     },
 
     capabilities: {
