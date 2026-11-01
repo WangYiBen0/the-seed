@@ -4,7 +4,7 @@
 //   CLI hard       = max(--timeout, gameSec*0.66 + 180) + 150
 // Recomputing this by hand has killed three batches, so it is a script now.
 import { spawn } from 'node:child_process';
-import { appendFileSync, openSync } from 'node:fs';
+import { appendFileSync, openSync, statSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const get = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 && args[i + 1] ? args[i + 1] : d; };
@@ -35,16 +35,38 @@ appendFileSync(logPath, '[' + new Date().toISOString().slice(11, 19) + '] ' + cm
 // a hole where a row should be.  ESM has no require(), hence re-exec.
 const retrying = process.env.RETRY === '1';
 const child = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', logFd, logFd], detached: false });
+
+// Watchdog on LOG STALL, not on total time.  A bench that emits nothing for
+// STALL_MS after the launch line is genuinely hung (measured: seed 5 sat for 4+
+// minutes against a ~120 s budget with the log frozen at the launch line), while
+// a slow-but-working run keeps writing.  Without this, a hang burns the whole
+// outer budget and the batch loses that seed silently.
+const STALL_MS = 120000;
+let lastSize = 0, lastGrowth = Date.now();
+const watch = setInterval(() => {
+  let size = 0;
+  try { size = statSync(logPath).size; } catch (e) { }
+  if (size > lastSize) { lastSize = size; lastGrowth = Date.now(); return; }
+  if (Date.now() - lastGrowth > STALL_MS) {
+    clearInterval(watch);
+    try { child.kill('SIGKILL'); } catch (e) { }
+    appendFileSync('.tmp/runner.log', 'log stalled >' + (STALL_MS / 1000) + 's; killed\n');
+  }
+}, 5000);
+
 const outerTimer = setTimeout(() => {
   try { child.kill('SIGKILL'); } catch (e) { }
   appendFileSync('.tmp/runner.log', 'killed by outer timeout\n');
-  process.exit(3);
 }, outer);
+
 child.on('exit', (code) => {
+  clearInterval(watch);
   clearTimeout(outerTimer);
   appendFileSync('.tmp/runner.log', 'exit=' + code + '\n');
-  if (code === 3 && !retrying) {
-    appendFileSync('.tmp/runner.log', 'boot failure; retrying once\n');
+  // exit 3 = headless-bench captured no TSW_RESULT (boot failure or stall).
+  // Retry once; ESM has no require(), so re-exec.
+  if (code !== 0 && !retrying) {
+    appendFileSync('.tmp/runner.log', 'no result (exit ' + code + '); retrying once\n');
     const again = spawn(process.execPath, [process.argv[1], ...args], {
       stdio: 'inherit', env: { ...process.env, RETRY: '1' },
     });
