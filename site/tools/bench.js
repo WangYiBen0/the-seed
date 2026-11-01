@@ -226,15 +226,21 @@
     // Measured: runT 21.6 -> 46.8 -> frozen at 46.8 with state='cards'.
     // A benchmark must always drive its own modals, so this is forced on here,
     // after any caller-supplied autoOpts has been applied.
-    TSW.auto.opts.autoCards = true;
-    // Every income/growth switch also defaults to OFF so a human's run does not
-    // silently spend ink.  A benchmark measuring "how far can this build get"
-    // must be allowed to grow, or it measures a bot that never upgrades: the
-    // five-lock baseline showed wlv {} and shardN 0 on 2 of 3 seeds, i.e. still
-    // holding the starting nail at the end of 400 game-seconds.
-    TSW.auto.opts.shop = true;
-    TSW.auto.opts.forge = true;
-    TSW.auto.opts.labSerum = true;
+    // Every income/growth switch defaults to OFF so a human's run does not
+    // silently spend ink.  A benchmark must be allowed to grow, or it measures a
+    // bot that never upgrades (five-lock showed wlv {} and shardN 0 on 2 of 3
+    // seeds, still holding the starting nail after 400 game-seconds).
+    //
+    // BUT: forcing must not override an EXPLICIT request, or an A/B on these
+    // switches becomes impossible.  That is exactly what happened: a labSerum
+    // A/B asked for false, the forcing code set it true anyway, and both arms ran
+    // the same configuration while printing a plausible-looking result
+    // (benchmark.md 186½).  Now "forced" means "defaulted unless asked".
+    const forced = { autoCards: true, shop: true, forge: true, labSerum: true };
+    const askedFor = (autoOpts && typeof autoOpts === 'object') ? autoOpts : {};
+    for (const [k, v] of Object.entries(forced)) {
+      if (!(k in askedFor)) TSW.auto.opts[k] = v;
+    }
     TSW.auto.setMode('full');
     TSW.speed.set(speed, true);
     const M = TSW.metrics;
