@@ -761,6 +761,7 @@
       autoOpts: q.get('autoOpts') ? JSON.parse(q.get('autoOpts')) : null,
       gameSeconds: q.get('gameSeconds') ? +q.get('gameSeconds') : 0,
       abortOn: q.get('abortOn') || null,
+      perf: q.get('perf') != null ? q.get('perf') !== '0' : true,
       hp: q.get('hp') ? +q.get('hp') : undefined, armor: q.get('armor') ? +q.get('armor') : undefined,
       floor: q.get('floor') ? +q.get('floor') : undefined,
     };

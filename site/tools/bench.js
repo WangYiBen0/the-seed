@@ -102,9 +102,12 @@
   }
 
   // ---------------- scenarios ----------------
-  async function runThroughput({ seconds = 12, speed = 8, startRun = true } = {}) {
+  async function runThroughput({ seconds = 12, speed = 8, startRun = true, perf = true } = {}) {
     const wasPerf = TSW.perf.active, wasSpeed = TSW.speed.get(), wasMode = TSW.auto.mode;
-    if (!wasPerf) TSW.perf.enable();
+    // perf=0 measures the mode OFF, so "does performance mode help" becomes a
+    // number instead of a claim.  It used to be unconditional.
+    if (perf && !wasPerf) TSW.perf.enable();
+    else if (!perf && wasPerf) TSW.perf.disable();
     if (startRun) ensureInRun();
     await new Promise((r) => setTimeout(r, 1500)); // let the run spin up
     TSW.auto.setMode('combat'); // hold position, shoot anything near
@@ -114,6 +117,7 @@
     const m = await measureTicks(seconds * 1000);
     TSW.speed.set(wasSpeed, true); if (wasMode === 'off') TSW.auto.setMode('off');
     if (!wasPerf) TSW.perf.disable();
+    else if (!perf) TSW.perf.enable();
     return {
       kind: 'throughput', at: Date.now(), speed, seconds,
       ticks: m.ticks, tps: +m.tps.toFixed(1), gameS: +m.gameS.toFixed(1),
@@ -1101,7 +1105,10 @@
     // normalise on measured play ticks: G.runT resets when a run restarts, ticks do not
     const mins = Math.max(1 / 60, (A.ticks || 0) / 3600);
     return {
-      kind: 'dodge', at: Date.now(), depth, floor, seconds, policy, seed, speed,
+      // 'floor' is not a runDodgeOne parameter any more: referencing it threw a
+      // ReferenceError on EVERY dodge run, which is why the bench appeared to
+      // spawn nothing — it died before the arena was populated.
+      kind: 'dodge', at: Date.now(), depth, seconds, policy, seed, speed,
       diff: diff || 'classic',
       end: g.state === 'dead' ? 'death' : 'alive',
       gameS: +gameS.toFixed(1),

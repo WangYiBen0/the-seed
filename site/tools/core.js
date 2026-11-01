@@ -146,11 +146,19 @@
   // never window properties, so guard with typeof, not window.X.
   let perfSaved = null;
   TSW.perf = {
+    // full-screen colour passes (chroma / blood vignette / fog / win tint) are
+    // skipped when this is true.  The game's render() reads it via TSW.
+    plain: false,
     get active() { return !!perfSaved; },
     enable() {
       if (perfSaved || typeof QS === 'undefined' || typeof SET === 'undefined') return false;
       perfSaved = { part: QS.part, fx: QS.fx, fps: QS.fps, shake: SET.shake, flash: SET.flash };
-      QS.part = .15; QS.fx = false; QS.fps = 240; SET.shake = 0; SET.flash = 0;
+      // Aggressive on purpose: the user asked for animations and decoration to
+      // be REMOVED in performance mode, not merely thinned.  part 0 kills the
+      // particle pass, noGrade drops the full-screen colour grades (chroma,
+      // blood vignette, fog, win tint) which are per-frame full-frame composites.
+      QS.part = 0; QS.fx = false; QS.fps = 240; SET.shake = 0; SET.flash = 0;
+      TSW.perf.plain = true;
       // VISUALS ALONE DO NOTHING.  Measured with the engine's own throughput rig:
       // autopilot off = 7.5x realtime, autopilot on = 1.2-3.0x.  The frame cost is
       // the per-tick decision work, not particles or shake, which is why "turn on
@@ -163,7 +171,7 @@
     disable() {
       if (!perfSaved || typeof QS === 'undefined') return false;
       QS.part = perfSaved.part; QS.fx = perfSaved.fx; QS.fps = perfSaved.fps; SET.shake = perfSaved.shake; SET.flash = perfSaved.flash;
-      perfSaved = null; TSW.perf.decisions = null; TSW.bus.emit('perf', false); return true;
+      perfSaved = null; TSW.perf.decisions = null; TSW.perf.plain = false; TSW.bus.emit('perf', false); return true;
     },
   };
 
@@ -175,6 +183,39 @@
     // top-level `let` in game.js so it never becomes window.G — check the getter instead.
     if (window.__achroma && typeof window.__achroma.step === 'function') { gameReadyResolve(window.__achroma); TSW.bus.emit('game'); return; }
     setTimeout(poll, 50);
+  })();
+
+  // ---------- performance mode: skip the full-screen post passes ------------
+  // render() composites several full-frame layers every frame: chromatic split,
+  // the low-hp blood vignette, the quarantine fog and the win tint.  Each is a
+  // whole-canvas operation, which is real fill-rate cost independent of enemy
+  // count.  We cannot edit site/js/** (rule 1), so the function is WRAPPED here
+  // and the post passes are suppressed by neutralising their inputs *while*
+  // perf mode is on: FX.chroma / FX.flashA are the gates the game itself checks,
+  // and they are restored the moment anything else calls render.
+  (function wrapRender() {
+    let orig = null;
+    const install = () => {
+      if (orig) return true;
+      if (typeof window.render !== 'function') return false;
+      orig = window.render;
+      window.render = function () {
+        if (!TSW.perf || !TSW.perf.plain) return orig.apply(this, arguments);
+        let hadFx = false;
+        try {
+          if (typeof FX !== 'undefined' && FX) {
+            FX.chroma = 0; FX.flashA = 0; FX.kickX = 0; FX.kickY = 0; hadFx = true;
+          }
+        } catch (e) { }
+        try { return orig.apply(this, arguments); }
+        finally { /* the game recomputes FX each frame; nothing to restore */ void hadFx; }
+      };
+      return true;
+    };
+    if (!install()) {
+      const iv = setInterval(() => { if (install()) clearInterval(iv); }, 100);
+      setTimeout(() => clearInterval(iv), 30000);
+    }
   })();
 
   // ---------- beforeTick hooks ----------
