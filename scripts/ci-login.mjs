@@ -32,7 +32,10 @@ const opt = (k, d) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : d;
 };
 
-const CHARACTER_ID = opt('character', process.env.DZMM_CHARACTER || '3738712');
+// the character id comes from the repository variable CHARA_ID via
+// scripts/ci-login.mjs --character; an empty value falls back to the default so
+// an unset variable cannot silently query /api/gamefy/ (a bare 404).
+const CHARACTER_ID = opt('character', process.env.DZMM_CHARACTER) || '3738712';
 const CODE = opt('code', process.env.DZMM_SIGN_IN_CODE);
 const OUT = opt('out', null);
 const ORIGIN = 'https://www.dzmm.ai';

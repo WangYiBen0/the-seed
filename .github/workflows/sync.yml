@@ -23,15 +23,15 @@ name: sync upstream
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/sync.yml'
-      - 'scripts/ci-login.mjs'
-      - 'scripts/fetch-source.mjs'
-      - 'scripts/sync-scripts.mjs'
+      - ".github/workflows/sync.yml"
+      - "scripts/ci-login.mjs"
+      - "scripts/fetch-source.mjs"
+      - "scripts/sync-scripts.mjs"
 
 permissions:
   contents: write
@@ -46,13 +46,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: "24"
 
       # chromium ships with the ubuntu-latest image; make its path explicit for
       # scripts/ci-login.mjs, which prefers $CHROMIUM.
@@ -71,13 +71,17 @@ jobs:
       - name: read upstream metadata (signed in)
         env:
           DZMM_SIGN_IN_CODE: ${{ secrets.DZMM_SIGN_IN_CODE }}
+          # set in the repository variables as CHARA_ID; the character id used to
+          # be hardcoded in scripts/ci-login.mjs, which meant every mirror of a
+          # different character needed a source edit.
+          DZMM_CHARACTER: ${{ vars.CHARA_ID }}
         run: |
           set -euo pipefail
           if [ -z "${DZMM_SIGN_IN_CODE:-}" ]; then
             echo "::error::DZMM_SIGN_IN_CODE is not configured for this repository"
             exit 1
           fi
-          node scripts/ci-login.mjs --code "$DZMM_SIGN_IN_CODE" --out .tmp/meta.json
+          node scripts/ci-login.mjs --code "$DZMM_SIGN_IN_CODE" --character "$DZMM_CHARACTER" --out .tmp/meta.json
           node -e '
             const m = require("./.tmp/meta.json");
             if (!m.gameId || !m.publishedAt) throw new Error("metadata incomplete");
