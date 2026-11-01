@@ -278,12 +278,17 @@
   prIn.onchange = () => { TSW.settings.set('serumPriority', prIn.value.split(',').map((x) => x.trim()).filter(Boolean)); note('优先级已保存'); };
   sAuto.append(prIn);
   const ao = TSW.auto.opts;
+  // Every toggle must write through TSW.settings, or the choice dies with the
+  // page.  The four main switches used to assign to TSW.auto.opts only, so they
+  // were the ONE group that never survived a reload — reported as "选项不会跨
+  // 浏览器会话记忆", and it was literally true for these four.
+  const mainOpt = (label, key, sk) => check(label, () => ao[key], (v) => { ao[key] = v; TSW.settings.set(sk, v); });
   row(sAuto).append(
-    check('自动选血清', () => ao.autoCards, (v) => ao.autoCards = v),
-    check('死亡自动重开', () => ao.autoRestart, (v) => ao.autoRestart = v));
+    mainOpt('自动选血清', 'autoCards', 'autoCards'),
+    mainOpt('死亡自动重开', 'autoRestart', 'autoRestart'));
   row(sAuto).append(
-    check('优先无尽传送门', () => ao.preferEndless, (v) => ao.preferEndless = v),
-    check('购物/锻造', () => ao.shop, (v) => ao.shop = v));
+    mainOpt('优先无尽传送门', 'preferEndless', 'preferEndless'),
+    mainOpt('购物/锻造', 'shop', 'autoShop'));
   // ---- 细项：逐项决定挂机要不要碰它们 ----
   const setOpt = (k, sk) => check(k, () => ao[k], (v) => { ao[k] = v; TSW.settings.set(sk, v); });
   row(sAuto).append(setOpt('自动开箱', 'autoChest'), setOpt('治疗泉', 'autoFount'));
@@ -294,7 +299,7 @@
   row(sAuto).append(setOpt('技能芯片（E）', 'autoSkill'), setOpt('主动换弹（R）', 'autoReload'));
   row(sAuto).append(setOpt('搭档技能（F）', 'autoPartner'), setOpt('换弹切副武器（X）', 'autoWeaponSwap'));
   row(sAuto).append(setOpt('招募伙伴（篝火）', 'autoMate'), setOpt('冲刺避开陷阱/虚空', 'autoDashHazards'));
-  row(sAuto).append(check('启用冲刺', () => ao.dash, (v) => { ao.dash = v; TSW.settings.set('autoDash', v); }));
+  row(sAuto).append(setOpt('启用冲刺', 'autoDash'));
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------

@@ -538,8 +538,11 @@
         const ticksDone = (TSW.det && TSW.det.on && TSW.det.ticks) ? (TSW.det.ticks - detT0) : 0;
         const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
           || (detMode && ticksDone >= tickBudget);
+        // the wall backstop is derived from the measured ratio (gameT/wall is
+        // 3.29-4.68, so a run costs about a third of its game seconds); allow
+        // double that so a slow machine still finishes, but a hung browser dies.
         const ranOut = (gameBudget > 0)
-          ? ((g.runT || 0) >= gameBudget || wall > gameBudget * 6 + 60)
+          ? ((g.runT || 0) >= gameBudget || wall > gameBudget * 0.66 + 180)
           : wall > timeoutS;
         if (done || ranOut) {
           clearInterval(iv);

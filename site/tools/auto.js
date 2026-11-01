@@ -14,17 +14,29 @@
     mode: TSW.settings.get('autoMode', 'off'),        // off | combat | full
     policy: TSW.settings.get('autoPolicy', 'rounded'),  // 12 个入侵偏好之一，见 POLICY_W
     opts: {
-      autoCards: TSW.settings.get('autoCards', true),
-      autoRestart: TSW.settings.get('autoRestart', true),
-      preferEndless: TSW.settings.get('preferEndless', true),
-      shop: TSW.settings.get('autoShop', true),
-      forge: TSW.settings.get('autoForge', true),
-      dash: TSW.settings.get('autoDash', true),
+      // ---- main switches: OFF by default (user requirement) -----------------
+      // Autopilot turning itself on when the page opens was reported as
+      // disruptive; the panel is where these get switched on, and their value
+      // persists there.  The per-item switches below default the other way:
+      // everything with no cost is ON, so a fresh session still plays well once
+      // the master switch is thrown.
+      autoCards: TSW.settings.get('autoCards', false),
+      autoRestart: TSW.settings.get('autoRestart', false),
+      preferEndless: TSW.settings.get('preferEndless', false),
+      shop: TSW.settings.get('autoShop', false),
+      forge: TSW.settings.get('autoForge', false),
+      dash: TSW.settings.get('autoDash', false),
       noFire: false,                                       // dodge-bench stress mode: never shoot
       // ---- fine-grained "wire it up" switches (panel: 挂机 → 细项) ----
       chest: TSW.settings.get('autoChest', true),          // open chests
-      labSerum: TSW.settings.get('autoLabSerum', true),    // inject the experimental serum in the lab
-      fount: TSW.settings.get('autoFount', false),         // healing founts: off by default
+      // experimental serums all cost something for their first 3 fights (alpha
+      // takes it out of MAX hp, beta halves attack speed, omega halves armour
+      // regen), so they are not a free pick and default OFF.
+      labSerum: TSW.settings.get('autoLabSerum', false),
+      // a fount heals 2 hp ONCE and cannot help at full health, so letting the
+      // bot wander to one at full hp was pure waste (reported: "满血的时候也喜欢
+      // 在治疗泉转悠").  The gate now lives in the objective, not in the default.
+      fount: TSW.settings.get('autoFount', true),
       weaponPick: TSW.settings.get('autoWeaponPick', true),// walk to floor weapons / take better ones
       chipPick: TSW.settings.get('autoChipPick', true),    // pick skill chips
       pickups: TSW.settings.get('autoPickups', true),      // prisms & keys
@@ -70,9 +82,9 @@
       fireWhileRetreat: TSW.settings.get('autoFireWhileRetreat', true),                                // explore: keep firing while backing off
       powerupRange: TSW.settings.get('autoPowerupRange', 700),                                     // explore: how far to walk for a loose weapon/chip
       vault: TSW.settings.get('autoVault', true),                                           // explore: open the vault when ink allows
-      idol: TSW.settings.get('autoIdol', true),                                            // explore: take an idol wish with a curse
+      idol: TSW.settings.get('autoIdol', false),   // costs a curse: not a free pick
       altar: TSW.settings.get('autoAltar', true),                                           // explore: use blood altars
-      altarPact: TSW.settings.get('autoAltarPact', true),                                       // explore: trade 1 hp for a card at an altar
+      altarPact: TSW.settings.get('autoAltarPact', false), // trades max hp for a card
       trial: TSW.settings.get('autoTrial', true),                                           // explore: start trial totems
       fireWithoutLos: TSW.settings.get('autoFireWithoutLos', false),                                 // explore: shoot point-blank without clear sight
       noLosRange: TSW.settings.get('autoNoLosRange', 150),                                       // explore: range at which sight is not required
@@ -337,7 +349,8 @@
     const { adj } = graph();
     if (fromId === toId) return [toId];
     const prev = { [fromId]: -1 }, q = [fromId];
-    while (q.length) { const cur = q.shift(); for (const n of adj[cur] || []) if (!(n in prev)) { prev[n] = cur; if (n === toId) { const path = [n]; let c = n; while (prev[c] !== -1) { c = prev[c]; path.unshift(c); } return path; } q.push(n); } }
+    let qh = 0;                                        // same O(1)-dequeue BFS
+    while (qh < q.length) { const cur = q[qh++]; for (const n of adj[cur] || []) if (!(n in prev)) { prev[n] = cur; if (n === toId) { const path = [n]; let c = n; while (prev[c] !== -1) { c = prev[c]; path.unshift(c); } return path; } q.push(n); } }
     return null;
   }
 
@@ -366,7 +379,18 @@
     // prefer routes that do not cross a live hazard; fall back to plain walkable
     // tiles when the only way through is past a blade/flame/pool.
     const hazardFree = (gx, gy) => hazardAt(gx * 16 + 8, gy * 16 + 8, 10, .3) < .9;
-    const okT = (gx, gy) => walkable(gx, gy) && (A._plainPath === true || hazardFree(gx, gy));
+    // hazardAt is expensive (it walks G.foeFx and G.zones), and the BFS asks it
+    // once per visited cell — the same hazard test repeated for every search.
+    // Memoise per search and cap the lookup count so a pathological floor cannot
+    // turn the autopilot into the frame cost that "x8 倍速还是会卡顿" reported.
+    const hazCache = new Map();
+    const hazardFreeCached = (gx, gy) => {
+      const k = gy * Wd + gx;
+      let v = hazCache.get(k);
+      if (v === undefined) { v = hazardFree(gx, gy); hazCache.set(k, v); }
+      return v;
+    };
+    const okT = (gx, gy) => walkable(gx, gy) && (A._plainPath === true || hazardFreeCached(gx, gy));
     const sx = Math.floor(p.x / 16), sy = Math.floor(p.y / 16);
     const gx2 = Math.floor(tx / 16), gy2 = Math.floor(ty / 16);
     // A blocked START or GOAL used to abort the whole search.  That is fatal: when
@@ -403,9 +427,12 @@
     const okHere = (nx, ny) => ((nx === sx && ny === sy) ? true : okT2(nx, ny));
     if (start === goal) return [];
     const prev = new Map([[start, start]]);
+    // array shift() is O(n): on a large floor this BFS copied the whole queue
+    // every node.  An index cursor is the same BFS with O(1) dequeue.
     const q = [start];
-    while (q.length) {
-      const cur = q.shift();
+    let qh = 0;
+    while (qh < q.length) {
+      const cur = q[qh++];
       if (cur === goal) break;
       const cx = cur % Wd, cy = (cur / Wd) | 0;
       for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -1572,7 +1599,13 @@
       for (const it of G.inter) {
         const d = dist(p.x, p.y, it.x, it.y); if (d > 24) continue;
         if (A.opts.interDebug) console.info('[inter] ' + it.kind + ' d=' + d.toFixed(0) + ' used=' + !!it.used);
-        if (it.kind === 'fount' && A.opts.fount && !it.used && p.hp < p.maxHp - 1 && !hasCurse('drought') && G.ink >= it.cost) { A.status.note = '治疗'; tap('KeyE'); break; }
+        // The objective gate (below) only routes to a fount when 2 hp actually
+        // finishes the job (hp + 2 >= maxHp); this interaction gate demanded the
+        // OPPOSITE (hp < maxHp - 1).  At exactly hp = maxHp - 2 the bot walked to
+        // the fount, refused the key, and walked back — the reported "满血的时候
+        // 也喜欢在治疗泉转悠，又不能回血所以反复横跳".  Both now use one predicate.
+        if (it.kind === 'fount' && A.opts.fount && !it.used && G.ink >= it.cost && !hasCurse('drought')
+            && p.hp + 2 >= p.maxHp && p.hp < p.maxHp) { A.status.note = '治疗'; tap('KeyE'); break; }
         if (it.kind === 'chest' && A.opts.chest && !it.used) { A.metrics.interChest = (A.metrics.interChest || 0) + 1; A.status.note = '开箱'; tap('KeyE'); break; }
         // ---- every remaining interactable kind --------------------------------
         // Enumerated from game.js: 19 kinds exist and the bot used to handle eight,
@@ -2130,7 +2163,14 @@
               : (p.hp <= 3 || spotDanger(p.x, p.y, p) >= 1.6);
           if (!stillNeeded && p.skillT > 1.2) tap('KeyE');       // manual skills: end early
         } else if (want && p.skillCd <= 0 && (active || G.trial || near)) {
-          tap('KeyE');
+          // A skill cast with nothing to fight is a wasted 25 s cooldown, and the
+          // danger probes below also fire on traps/pools/void, so "about to be hit"
+          // could be true while standing in an empty corridor (reported: "喜欢虚空
+          // 放技能，真遇到敌人又不会放了").  Require an actual foe for every skill
+          // whose payoff is combat (limit/dash/risk all are): cast, then the crowd.
+          const foeInPlay = foesNow > 0 || closeFoes > 0;
+          const ok = (p.skill === 'dash' || p.skill === 'risk') ? (foeInPlay || p.hp <= 2) : foeInPlay;
+          if (ok) tap('KeyE');
         }
       }
     }
@@ -2328,6 +2368,17 @@
             const wl = Math.hypot(wp[0] - p.x, wp[1] - p.y);
             if (wl > 8) { [mx, my] = pickDir(p, wp[0] - p.x, wp[1] - p.y); A.status.note = '目标贴墙：改走路标'; }
           }
+          // Standing ON the objective but the interaction never fired: the bot
+          // reached the point and had no further command, so it sat exactly still
+          // (x-span 0 px for 45 s while chasing an idol at 1046,~550) waiting for a
+          // prompt that needs both proximity AND a key tap.  Nudge onto the point
+          // so the 24 px interaction branch can actually see it.
+          else if (dl <= 12 && clear) {
+            const ox = tgt.pt[0] - p.x, oy = tgt.pt[1] - p.y;
+            const ol = Math.hypot(ox, oy);
+            if (ol > 2) { [mx, my] = pickDir(p, ox, oy); A.status.note = '到达目标：微调到交互点'; }
+            else { mx = 0; my = 0; A.status.note = '已到目标点'; }
+          }
           // stuck on this objective? bench it for a while so the run keeps moving
           if (navProg.tgt === tgt.room && G.time - navProg.t > 6 && Math.hypot(p.x - navProg.x, p.y - navProg.y) < 40) { benchFor(tgt.room || tgt.pt, 30); navProg.t = G.time; }
           else if (navProg.tgt !== tgt.room) { navProg.tgt = tgt.room; navProg.x = p.x; navProg.y = p.y; navProg.t = G.time; }
@@ -2380,6 +2431,18 @@
   const REWARD_ROOMS = ['treasure', 'shop', 'arsenal', 'vault', 'camp', 'forge', 'dialysis', 'barracks', 'shrine', 'trial', 'idol'];
   const TRAPPED_ROOMS = ['blades', 'flames', 'spikes'];
   function roomWeight(r) {
+    // A reward room is born cleared (world.js:75: cleared unless combat/boss), so
+    // the blanket `cleared -> 99` rule made chests, forges, shops and arsenals
+    // PERMANENTLY unselectable: the bot only ever used one it happened to walk
+    // past, which is the reported "宝箱不会主动去找然后开" and "增益房间在叶子
+    // 节点的时候跑到增益房间又转头回去了，根本没使用".  An unvisited reward room
+    // still has its interactables, so it is a real objective.
+    // Weight 1 for an unvisited reward room: it must outrank plain combat (3)
+    // but NOT the key room, which is what actually gates the floor.  Returning 0
+    // here sent the bot past a 2-room-away key to a 6-room-away serum, which is
+    // the reported "近在咫尺的钥匙不拿而去找几个房间远的血清".
+    if (r.key) return 0;
+    if (r.cleared && !r.visited && REWARD_ROOMS.includes(r.type)) return 1;
     if (r.cleared) return 99;
     // "rush" mode: reward rooms are the main time sink before the boss gate, so
     // push them behind combat rooms when the goal is to reach the boss quickly.
@@ -2697,11 +2760,16 @@
           // nearer room wins, yet a weight gap of one sends the bot across the
           // whole floor.  Fold distance into the score so a room that is an order
           // of magnitude farther has to be genuinely better.
-          const w = roomWeight(r) - (debuff > 0 && r.type === 'combat' && !r.visited ? .5 : 0);
+          const base = roomWeight(r) - (debuff > 0 && r.type === 'combat' && !r.visited ? .5 : 0);
           const d = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
-          // Distance-aware ranking was tested and disproven: six pairs read 2.3 vs 3.8
-          // but ten pairs read 2.2 vs 2.4 with an interval spanning zero, so the first
-          // batch's sixty-five percent was noise.  Weight decides, distance breaks ties.
+          // Distance is folded into the SCORE, not used as a tie-break.  As a
+          // tie-break alone, a weight gap of one sent the bot across the whole
+          // floor and back (reported: a nearby key ignored while it fetched a
+          // serum several rooms away, then walked back).  The earlier A/B that
+          // "disproved" distance ranking had replaced the weight with distance;
+          // this keeps the weight and adds a bounded cost, so distance can only
+          // override a weaker objective, never a stronger one.
+          const w = base + Math.min(1.5, d / 420);
           if (w < bw || (w === bw && d < bd)) { bw = w; bd = d; best = r; }
         }
         if (best && !portalReady) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: best.type, room: best };

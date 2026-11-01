@@ -27,5 +27,5 @@ test('the budget is wired end to end', () => {
 });
 
 test('a wall ceiling still exists so a hung browser cannot run forever', () => {
-  assert.match(BENCH, /wall > gameBudget \* 6 \+ 60/, 'game budget needs a wall backstop');
+  assert.match(BENCH, /wall > gameBudget \* 0\.66 \+ 180/, 'game budget needs a wall backstop derived from the measured ratio');
 });

@@ -101,8 +101,14 @@ async function main() {
   // that only reached 274 game-seconds, so (game)/speed is a lower bound, not an
   // estimate.  Charge the overhead generously; a slightly long budget only wastes
   // an idle tail, a short one throws the whole evolution away.
+  // a --game-seconds budget is converted to wall time here too: the browser
+  // reaches only ~4x realtime, and the in-page backstop allows gameBudget*6+60.
+  // Without this the outer chromium is killed BEFORE the page decides the run is
+  // over, and the whole result is thrown away as "no TSW_RESULT".
+  const gameSec = +(args['game-seconds'] ?? args.gameSeconds ?? 0);
+  const wallFromGame = gameSec ? gameSec * 0.66 + 180 : 0;
   const perRun = args.kind === 'evolve' ? (gens * popN * seedsN * ((+(args.timeout || 120) + 60) / evSpeed + 55))
-    : args.kind === 'ab' ? (+args.timeout || 200) : (+args.timeout || 900);
+    : args.kind === 'ab' ? (+args.timeout || 200) : Math.max(+args.timeout || 900, wallFromGame);
   // one pair = 2 runs, and each run costs ~timeout + start/measure overhead
   // AB spends (rounds*2 + warmup 2) runs of perRun seconds each; forgetting the
   // warm-up pair made every AB invocation die on the hard timeout.
