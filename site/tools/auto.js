@@ -1164,6 +1164,26 @@
   }
   // the lab serum question: inject (sel 0) or walk away (sel 1).  Without this
   // the modal freezes the run — it was a genuine soft-lock before.
+  // Camp-fire survivor talk.  The game loop: Enter/Space/KeyE advances a line
+  // (or finishes the typewriter), Escape recruits, and the closing 2.2 s window
+  // accepts any of those to dismiss.  Nothing in the autopilot used to handle
+  // this state at all, so a run that reached a survivor froze in the dialogue.
+  function driveTalk(G, tap) {
+    const T = G.talk;
+    if (!T) { tap('Escape'); return; }          // stale state: get out
+    A.status.note = '营地对话';
+    // end window: any key closes it; Enter is edge-safe here
+    if (T.end >= 0) { if (T.end > .8) tap('Enter'); return; }
+    // let the line render before advancing, or the tap only skips the typewriter
+    if (T.t < .5) return;
+    if (A.opts.mate && T.i >= 0) {
+      // recruit once the conversation has gone a couple of lines: that is what
+      // Escape does, and recruiting is the whole reason to come to a camp fire
+      if (T.t > 1.2) { tap('Escape'); return; }
+    }
+    tap('Enter');
+  }
+
   function driveLabQ(G, tap) {
     const q = (typeof LABQ !== 'undefined' && LABQ) || null;
     if (!q) { tap('Escape'); return; }
@@ -1225,6 +1245,11 @@
         if (typeof restartRun === 'function') { restartRun(); TSW.bus.emit('newRun'); A.status.note = ''; }
         return;
       }
+      // Survivor talk (camp fires): startTalk() sets G.state='talk' and NOTHING
+      // else advances it — without this branch the whole run froze at the first
+      // camp fire with a survivor on it.  Advance lines with Enter, then either
+      // recruit (Escape) or close; recruiting is gated on the mate option.
+      case 'talk': return driveTalk(G, tap);
       case 'labq': return driveLabQ(G, tap);
       case 'dialysis': return driveDialysis(G, tap);
       case 'pause': tap('Escape'); return;
@@ -1707,9 +1732,13 @@
         if (it.kind === 'forge' && A.opts.forge) { const lv = p.wlv[w.id] || 0, cost = 30 + lv * 25; if (lv < 3 && G.ink >= cost + 15) { A.status.note = '锻造 +' + (lv + 1); tap('KeyE'); } break; }
         if (it.kind === 'shop' && A.opts.shop && !it.sold) {
           if (it.what === 'heart' && p.hp < p.maxHp && G.ink >= it.price) { tap('KeyE'); break; }
-          {   // configurable bar (the earlier attempt never landed — verified by grep this time)
-            const bar = (A.opts.shopShardBar === undefined) ? 2 : A.opts.shopShardBar;
-            if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= bar) { tap('KeyE'); break; }
+          {   // Serums are the run's damage growth, so they are bought BEFORE the
+            // weapon branch, not after it: the shop has a fixed ink budget and a
+            // gun that replaces a decent one is worth less than a permanent stat.
+            // 4 rather than 2 by default, because a serum the run already has one
+            // copy of is still usually the best purchase on offer.
+            const bar = (A.opts.shopShardBar === undefined) ? 4 : A.opts.shopShardBar;
+            if (it.what === 'shard' && G.ink >= it.price && !excluded(it.id) && scoreShard(it.id, (p.shards[it.id] || 0) + 1) >= bar) { tap('KeyE'); A.status.note = '买血清 ' + it.id; break; }
           }
           if (it.what === 'weapon' && G.ink >= it.price) {
             // Rank by measured damage, not the policy table — the shop is one of
@@ -1719,8 +1748,14 @@
               ? wScore(w.id) * 20
               : wDps(w.id) * (1 + .25 * (((p.wlv && p.wlv[w.id]) | 0)));
             const room = p.weapons.length < wCap();
-            const better = shopD > heldD * 1.1 + 1;
-            if (room || better) { tap('KeyE'); A.status.note = '商店买枪 ' + it.id; break; }
+            // With no free slot, buying REPLACES whatever is drawn, so the new
+            // gun has to be clearly better or the run trades a good weapon for a
+            // worse one and walks back for the old gun later — the reported
+            // "手上拿着好武器还要买新武器，然后好的丢掉，之后又回去拿好的".
+            // The margin is wide on purpose: DPS estimates differ by more than a
+            // few percent between two weapons that actually play the same.
+            const required = room ? 1 : 1.6;
+            if (room || shopD > heldD * required + 1) { tap('KeyE'); A.status.note = '商店买枪 ' + it.id; break; }
           }
           if (it.what === 'chip' && G.ink >= it.price && !p.skill) { tap('KeyE'); break; }
           continue;

@@ -189,7 +189,7 @@
     } catch (e) { }
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null, autoOpts = null, gameSeconds = 0 } = {}) {
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null, autoOpts = null, gameSeconds = 0, abortOn = null } = {}) {
     const detMode = !!(TSW.det && TSW.det.on);
     const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
     // log every hurtPlayer call (dmg, pierce, mechHit) so death causes are visible
@@ -536,7 +536,27 @@
       const iv = setInterval(() => {
         const g = G(), wall = (performance.now() - t0) / 1000;
         const ticksDone = (TSW.det && TSW.det.on && TSW.det.ticks) ? (TSW.det.ticks - detT0) : 0;
-        const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
+        // --abort-on makes the two strict evaluation rules expressible without
+        // changing the default run:
+        //   alphaHp  : any hp loss while an experimental serum α is active
+        //              (α takes losses out of MAX hp, so one hit is permanent)
+        //   zeroArmor: armour reached 0 and stayed 0 for a moment
+        // Without these a "did it survive" experiment silently measures a
+        // different question than the one asked.
+        let aborted = false;
+        if (abortOn) {
+          try {
+            const p2 = g.p;
+            if (abortOn === 'alphaHp' && g.exp && g.exp.id === 'a' && (g.exp.left | 0) > 0) {
+              if ((window.__abortHp0 === undefined)) window.__abortHp0 = p2.hp;
+              else if (p2.hp < window.__abortHp0) aborted = true;
+            } else if (abortOn === 'zeroArmor') {
+              if ((p2.maxArmor | 0) > 0 && (p2.armor | 0) <= 0) { window.__zeroArmT = (window.__zeroArmT || 0) + 1; if (window.__zeroArmT >= 4) aborted = true; }
+              else window.__zeroArmT = 0;
+            }
+          } catch (e) { }
+        }
+        const done = aborted || (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
           || (detMode && ticksDone >= tickBudget);
         // the wall backstop is derived from the measured ratio (gameT/wall is
         // 3.29-4.68, so a run costs about a third of its game seconds); allow
@@ -546,7 +566,7 @@
           : wall > timeoutS;
         if (done || ranOut) {
           clearInterval(iv);
-          resolve({ end: g.state === 'dead' ? 'death' : g.state === 'win' ? 'ascend' : g.endless >= goalDepth ? 'goal' : 'timeout', wall });
+          resolve({ end: aborted ? 'aborted' : (g.state === 'dead' ? 'death' : g.state === 'win' ? 'ascend' : g.endless >= goalDepth ? 'goal' : 'timeout'), wall, aborted });
         }
       }, 500);
     });
@@ -582,7 +602,19 @@
       modifiers: modsEarly,
       modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
       end: res.end, wall: +res.wall.toFixed(1),
+      // what strict rule ended the run, so 'aborted' is never mistaken for a timeout
+      abortOn: abortOn || null,
       gameT: +g.runT.toFixed(0), floor: g.floor, maxFloor: maxFloor, depth: g.endless | 0,
+      // The endgame the objectives actually ask for: endless depth × modifiers ×
+      // damage-free × full pickups.  Each term is recorded separately so the
+      // composite is auditable instead of a single opaque score.
+      //   hpLostTotal : how many hp points were lost (0 = a damage-free run;
+      //                 armour absorption is NOT damage and does not count)
+      //   pickups     : serums taken, the "满增益" half
+      //   mods5       : all five despair modifiers were active at the end
+      hpLostTotal: (function () { try { return (window.__hurtLog || []).reduce((a, x) => a + Math.max(0, (x.hp || 0) - (x.php === undefined ? x.hp : x.php)), 0); } catch (e) { return 0; } })(),
+      pickups: (function () { try { return (g.p ? (g.p.shards ? Object.keys(g.p.shards).length : 0) : 0) + (window.__orbs | 0); } catch (e) { return 0; } })(),
+      mods5: (Array.isArray(modsEarly) && modsEarly.length >= 5 && Array.isArray((window.__achroma.G || {}).modifiers) && window.__achroma.G.modifiers.length >= 5) ? 1 : 0,
       kills: g.kills | 0, hits: g.hits | 0, dmg: Math.round(M.dmgTotal), stall: (TSW.auto.metrics && TSW.auto.metrics.navStall) | 0, replan: (TSW.auto.metrics && TSW.auto.metrics.navReplan) | 0,
       // where the damage actually comes from, from the hurtPlayer log
       hurtMechanic: (function () { try { return (window.__hurtLog || []).filter((x) => x.m).length; } catch (e) { return 0; } })(),

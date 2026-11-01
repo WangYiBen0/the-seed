@@ -15,7 +15,7 @@ const CLI = readFileSync(join(ROOT, 'scripts', 'headless-bench.mjs'), 'utf8');
 const PANEL = readFileSync(join(ROOT, 'site', 'tools', 'panel.js'), 'utf8');
 
 test('fullrun accepts a game-time budget, not only a wall one', () => {
-  assert.match(BENCH, /gameSeconds = 0 \} = \{\}/, 'runFullRun must take gameSeconds');
+  assert.ok(/runFullRun\(\{[^}]*gameSeconds/.test(BENCH), 'runFullRun must take gameSeconds');
   assert.match(BENCH, /const gameBudget = \+\(gameSeconds \|\| 0\)/, 'the budget must be read');
   assert.match(BENCH, /ranOut/, 'the budget must gate the end condition');
 });

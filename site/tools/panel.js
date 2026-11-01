@@ -691,6 +691,7 @@
       // run stalls at gameT 9), so single runs with a flag are how arms are paired.
       autoOpts: q.get('autoOpts') ? JSON.parse(q.get('autoOpts')) : null,
       gameSeconds: q.get('gameSeconds') ? +q.get('gameSeconds') : 0,
+      abortOn: q.get('abortOn') || null,
       hp: q.get('hp') ? +q.get('hp') : undefined, armor: q.get('armor') ? +q.get('armor') : undefined,
       floor: q.get('floor') ? +q.get('floor') : undefined,
     };
