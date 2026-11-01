@@ -6624,52 +6624,85 @@ kvProbe=status=200 body={"data":[],"count":0}
 如果将来找到带正确凭据的宿主路由，`writeBody` 可注入、`verifyWrites` 会回读验证，
 代码不需要重写。但**不要对外宣称云存档能写**。
 
-## 155. 结论 138：kv 写入 403 的真因是「需要 VIP1 开发者权限」，与格式/登录无关
+## 155. 结论 138：kv 写入的机制是「Host 代写」，不是「需要 VIP1」——原结论已作废
 
-上一节记录了 PUT 返回 `403 {"code":"FORBIDDEN","message":"没有访问权限"}`。
-本轮用**用户本人的真实会话**（本地 chromium + sign-in code）把六个变量逐一排除，结论如下。
+> **本节原版（2026-11-01 白天）写的是「kv 写入需要 VIP1 开发者权限」。这个结论是错的，已重写。**
 
-### 已排除的变量（全部有实测）
+### 为什么原结论站不住
 
-| 变量 | 实测 | 结论 |
-|---|---|---|
-| body 形状 | `{value}` / `{key,value}` / 裸 JSON / 带 `updated_at` | `INVALID_REQUEST: [value] value 不能缺失` 说明**字段名是对的**，形状不是问题 |
-| 方法 | POST → 406 | 只接受 PUT |
-| 登录状态 | 见下 | **登录是成功的** |
-| 会话 cookie | 521 字节，`sign-in-code/exchange` + `auth/token` 都命中 | 会话已建立 |
-| Bearer token | `access_token` JWT，`authorization: Bearer …` | **仍然 403** |
-| Origin/Referer | 显式同源 | 仍然 403 |
-| CSRF 头 | `x-csrf-token` / `x-requested-with` | 仍然 403 |
-| gameId | `90e4b323-…`（与 asset base 一致） | kvList 返回 200，ID 正确 |
-
-### 真正的原因
-
-`GET /api/gamefy/mine` 在**同一会话**里返回：
+我探到 `GET /api/gamefy/mine` 返回：
 
 ```
 {"developer":{"eligible":false,"reason":"VIP_REQUIRED",
   "message":"需要 VIP1 及以上会员才能开发游戏"},"games":[]}
 ```
 
-kv **写入**属于开发者能力，而该账号不满足 `VIP_REQUIRED`。
-所以：
+这里的 `VIP_REQUIRED` 说的是**「开发并发布自己的游戏」需要 VIP1**，
+与**「玩家保存自己玩过的游戏」**是两件事。把所有 403 都归因到它，是过度解读。
 
-- **读**（GET kv）对玩家开放 → 200，已实现；
-- **写**（PUT kv）只对作品开发者开放 → 403，**不是我们能绕过的**；
-- 之前记录的 `401 请先登录` / `403 没有访问权限` 是**两种不同失败**，混在一起会让下一代误以为“登录就能写”。
+### 真正的机制：写入由 Host 完成，游戏不碰 HTTP
 
-### 这对云存档意味着什么
+`site/js/platform.js:31` 实测，游戏保存时只做一件事：
 
-在**当前账号**上，官方云存档**只能读、不能写**。这不是实现缺陷，是平台权限模型。
+```js
+await dzmm.kv.put(k, v, { flush: true })
+```
 
-因此正确的产品形态是：
+没有任何 HTTP 请求。链路是：
 
-1. **读云端存档并导入镜像**（可用）；
-2. **写只能是本地的**：导出/导入存档串（`site/tools/cloud.js` 已有），或用 GitHub Pages 之外的载体；
-3. 若账号升级到 VIP1，`site/dzmm-cloud.js` 的写路径**无需改代码**即可生效（body 可注入、写后有回读校验）。
+```
+game → dzmm.kv.put → SDK postMessage → 宿主页(dzmm.ai 的网页代码) → 宿主自己发 HTTP
+```
 
-### 别再浪费时间的点
+官方 SDK 文档（`gamefy/docs/sdk/kv.md`）原文：
 
-- 不要再试 PUT 的各种 body 形状（已证明字段名正确）；
-- 不要以为缺 Bearer/CSRF/Origin；
-- 不要以为 gameId 错（list 返回 200）。
+> 生产 Web Host 默认会对普通 `put` 做 leading/trailing debounce：
+> `await put(...)` 表示 Host 已接受这次写入，不一定表示后台请求已经成功。
+>
+> 后台自动存档遇到 `UNAUTHORIZED` / `FORBIDDEN` / 校验类错误不会再自动重试，**会通过 Host 提示玩家**。
+
+三点结论：
+
+1. **HTTP 写入是 Host 的职责**，游戏与 SDK 都不碰；
+2. `FORBIDDEN` 是这套系统里真实存在的一种失败，Host 会提示给玩家；
+3. 从外部猜一个 PUT 路径去打，**本来就不是玩家存档的写入路由**。
+
+### 我实际探错了什么
+
+我直接对 `PUT /api/gamefy/<gameId>/kv/<key>` 发请求，试了 6 种 body 形状、
+Bearer token、Origin、CSRF 头（全部 403）。**这个路径不是玩家写入入口**，
+所以「403 说明 VIP1 不够」不成立。
+
+已排除的变量（这些记录仍然有用）：
+
+| 变量 | 实测 | 结论 |
+|---|---|---|
+| body 形状 | `[value] value 不能缺失` | 字段名是对的，形状不是问题 |
+| 方法 | POST → 406 | 只接受 PUT |
+| 登录 | `sign-in-code/exchange` + `auth/token` 均命中 | 会话确实建立 |
+| Bearer | `access_token` JWT | 仍 403 |
+| Origin / CSRF | 显式同源、两种头 | 仍 403 |
+| gameId | kvList 返回 200 | ID 正确 |
+
+### 正确的形态（回到 `docs/iframe-sso.md` 早就写过的结论）
+
+云存档写入必须**让真正的 dzmm 宿主页执行 `dzmm.kv.put`**，而不是自己拼 HTTP：
+
+| 载体 | 可行性 |
+|---|---|
+| **在官方页内注入工具**（`site/inject.js`） | ✅ 同源、cookie 自动带、Host 会执行写入 |
+| 自建宿主猜 HTTP 路由 | ❌ 已证明不可行（本节 6 次 403） |
+| 自建后端 | 用户明确不考虑 |
+
+### 仍然成立的部分
+
+- **读**（`GET /kv` 与 `GET /kv/<key>`）在登录会话里可用，返回 `{value, updated_at}`，
+  与 `platform.js` 的 `storeLoad()` 期望完全一致 —— `site/dzmm-cloud.js` 的读路径可用；
+- `site/dzmm-cloud.js` 的 **`kvFetch({op:'put'})` 不要用于生产**：其 HTTP 形状是猜测，
+  在此端点必然 403。保留是因为 `writeBody`/`verifyWrites` 可注入，
+  将来接入真正的宿主路由可直接复用。
+
+### 教训
+
+**「端点上有个 403」不等于「权限不够」。** 先确认自己打的 URL 是不是那套系统真正使用的路由——
+原始游戏自己根本不发 HTTP，它在调 SDK。

@@ -76,7 +76,7 @@ test('a rejected PUT raises instead of reporting success', async () => {
   await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /HTTP 403/);
 });
 
-test('a 403 says WHY: cloud writes need a VIP1 developer account', async () => {
+test('a 403 explains that this REST path is not the player save route', async () => {
   // Measured on a real session (2026-11-01): PUT -> 403 FORBIDDEN {没有访问权限},
   // and /api/gamefy/mine -> developer.eligible=false, reason=VIP_REQUIRED.
   globalThis.fetch = async (url, init) => {
@@ -86,7 +86,7 @@ test('a 403 says WHY: cloud writes need a VIP1 developer account', async () => {
     return { ok: true, status: 200, json: async () => ({ value: null, updated_at: null }) };
   };
   const kv = load().make({ gameId: 'g1' });
-  await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /VIP1 developer/);
+  await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /not the player save route/);
 });
 
 test('the write body is configurable, because the real shape is unmeasured', () => {

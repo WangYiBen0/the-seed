@@ -558,11 +558,15 @@
         }
         const done = aborted || (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
           || (detMode && ticksDone >= tickBudget);
-        // the wall backstop is derived from the measured ratio (gameT/wall is
-        // 3.29-4.68, so a run costs about a third of its game seconds); allow
-        // double that so a slow machine still finishes, but a hung browser dies.
+        // The wall backstop must never be the thing that ends a healthy run: a
+        // 900 game-second budget was cut at wall=774 (= 900*0.66+180, the old
+        // formula's number) while the game had only reached 221 s, i.e. this
+        // machine delivered 0.29x realtime, not the 0.66x the formula assumed.
+        // A truncated run is indistinguishable from a failed one, so the ratio is
+        // now deliberately pessimistic: 0.25 game-seconds per wall-second plus a
+        // generous constant. The hard ceiling still bounds a hung browser.
         const ranOut = (gameBudget > 0)
-          ? ((g.runT || 0) >= gameBudget || wall > gameBudget * 0.66 + 180)
+          ? ((g.runT || 0) >= gameBudget || wall > gameBudget * 4 + 300)
           : wall > timeoutS;
         if (done || ranOut) {
           clearInterval(iv);

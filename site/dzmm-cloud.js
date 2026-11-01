@@ -12,6 +12,11 @@
 //
 // The rule that matters: a write that cannot be verified is reported as a FAILURE.
 // An unverified "ok" is the only outcome that silently loses saves.
+//
+// IMPORTANT (docs/benchmark.md 155): this REST write path is NOT the player save
+// route. The real save is dzmm.kv.put over postMessage, executed by the dzmm HOST
+// (platform.js:31 does no HTTP at all). Keeping this path is only useful if a
+// real host route is found later; do not wire it into production as-is.
 'use strict';
 (function () {
   function make(opts) {
@@ -75,7 +80,8 @@
           try { detail = (await r.text()).slice(0, 120); } catch (e2) { }
           const forbidden = r.status === 403;
           throw Object.assign(
-            new Error('kv put HTTP ' + r.status + (detail ? ' ' + detail : '') + (forbidden ? ' (cloud writes need a VIP1 developer account)' : '')),
+            new Error('kv put HTTP ' + r.status + (detail ? ' ' + detail : '')
+              + (forbidden ? ' (this REST path is not the player save route; the real write runs in the dzmm host, see docs/benchmark.md 155)' : '')),
             { code: forbidden ? 'CLOUD_FORBIDDEN' : 'CLOUD_HTTP' });
         }
         if (!verifyWrites) return { ok: true };
