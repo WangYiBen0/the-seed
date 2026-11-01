@@ -1,19 +1,31 @@
-// ===== dzmm cloud-save backend (READ-ONLY until writing is authorised) ======
-// Measured contract (CI, signed-in session, run 41294623260):
+// ===== dzmm cloud-save backend ==============================================
+// READ contract — measured (CI, signed-in session, run 41294623260):
 //   GET /api/gamefy/<gameId>/kv        -> 200 {data:[], count:0}      key list
 //   GET /api/gamefy/<gameId>/kv/<key>  -> 200 {value:null, updated_at:null}
+// The second shape is EXACTLY what js/platform.js expects: storeLoad() reads
+// dz.kv.get(k) and requires {value, updated_at}.
 //
-// The second shape is EXACTLY what js/platform.js expects:
-//   storeLoad() reads dz.kv.get(k) and requires {value, updated_at}.
+// WRITE contract — NOT measured.  The SDK sends kv.put over postMessage and the
+// host's own HTTP request is invisible, so the body shape cannot be observed
+// from outside.  Therefore the body is configurable ({ writeBody }) and every
+// write is read back to prove it landed ({ verifyWrites }, on by default).
 //
-// The WRITE side has never been probed, because writing changes the player's
-// account and that needs their explicit go-ahead.  So put/delete REFUSE instead
-// of pretending to succeed -- a silent fake success would look like a working
-// cloud save and quietly lose data.
+// The rule that matters: a write that cannot be verified is reported as a FAILURE.
+// An unverified "ok" is the only outcome that silently loses saves.
 'use strict';
 (function () {
-  function make({ gameId, base }) {
+  function make(opts) {
+    const o = opts || {};
+    const gameId = o.gameId;
+    const base = o.base;
     const root = (base || '/api/gamefy/') + gameId + '/kv';
+    // The write body is NOT documented anywhere and cannot be observed through
+    // the SDK, so it must be configurable and must default to the most plausible
+    // shape.  { value } is what a per-key endpoint returns on read, so writing
+    // the same envelope is the natural guess; the read-back verification is what
+    // turns the guess into an answer.
+    const writeBody = o.writeBody || ((x) => ({ value: x.value }));
+    const verifyWrites = o.verifyWrites !== false;
     const j = (r) => r.json();
     const must = (r, what) => {
       if (!r.ok) throw Object.assign(new Error(what + ' HTTP ' + r.status), { code: 'CLOUD_HTTP' });
@@ -35,9 +47,38 @@
         // the endpoint returns rows; the SDK wants key strings
         return { keys: list.map((x) => (typeof x === 'string' ? x : (x && (x.key || x.name)) || '')).filter(Boolean) };
       }
-      // deliberately unimplemented: see the header.  Throwing makes the shim fall
-      // back to localStorage, which is visible and lossless.
-      throw Object.assign(new Error('cloud write not enabled: ' + kind + ' (write support needs authorisation)'), { code: 'CLOUD_WRITE_DISABLED' });
+      // ---- writes ------------------------------------------------------------
+      // The HTTP shape of a write was never observable from the SDK (kv.put goes
+      // over postMessage to the host, and the host's own request is invisible),
+      // so it is probed once at runtime instead of hardcoded: whoever mounts the
+      // host can pass { writeBody } to try a shape, and every write is verified by
+      // reading the key back.  A write that cannot be verified is reported as
+      // failed — a silent fake success is the one outcome that loses saves.
+      if (kind === 'put') {
+        if (!op.key) throw Object.assign(new Error('kvFetch put needs a key'), { code: 'BAD_OP' });
+        const url = root + '/' + encodeURIComponent(op.key);
+        const body = writeBody({ key: op.key, value: op.value });
+        const r = await fetch(url, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw Object.assign(new Error('kv put HTTP ' + r.status), { code: 'CLOUD_HTTP' });
+        if (!verifyWrites) return { ok: true };
+        // read-back: the only proof the value actually landed
+        const back = await kvFetch({ op: 'get', key: op.key });
+        const same = JSON.stringify(back && back.value) === JSON.stringify(op.value);
+        if (!same) throw Object.assign(new Error('kv put not visible on read-back'), { code: 'CLOUD_VERIFY_FAILED' });
+        return { ok: true, verified: true };
+      }
+      if (kind === 'delete') {
+        if (!op.key) throw Object.assign(new Error('kvFetch delete needs a key'), { code: 'BAD_OP' });
+        const r = await fetch(root + '/' + encodeURIComponent(op.key), { method: 'DELETE', credentials: 'include', headers: { accept: 'application/json' } });
+        if (!r.ok) throw Object.assign(new Error('kv delete HTTP ' + r.status), { code: 'CLOUD_HTTP' });
+        return { ok: true };
+      }
+      throw Object.assign(new Error('kvFetch: unknown op ' + kind), { code: 'BAD_OP' });
     };
   }
   window.DzmmCloud = { make, readOnly: true };

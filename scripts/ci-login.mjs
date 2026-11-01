@@ -193,6 +193,37 @@ async function main() {
             const ov = one && one.result && one.result.value;
             if (ov) kvProbe += ' | perKey=' + ov.status + ' ' + ov.body;
           } catch (e) { kvProbe += ' | perKey error'; }
+          // Write contract probe.  The SDK sends kv.put over postMessage and the
+          // host's request is invisible, so the body shape must be learned by
+          // trying.  This uses ONE dedicated throwaway key, verifies by read-back,
+          // and deletes it again -- it must never touch a real save key.
+          if (process.env.DZMM_KV_WRITE_PROBE === '1') {
+            try {
+              const wp = await s('Runtime.evaluate', {
+                expression: `(async () => {
+                  var K = '__mirror_probe_delete_me';
+                  var U = '/api/gamefy/${String(j.gameId)}/kv/' + K;
+                  var body = { value: { probe: 1, at: Date.now() } };
+                  var out = {};
+                  try {
+                    var w = await fetch(U, { method: 'PUT', credentials: 'include',
+                      headers: { 'content-type': 'application/json', accept: 'application/json' },
+                      body: JSON.stringify(body) });
+                    out.put = w.status;
+                    var r = await fetch(U, { credentials: 'include', headers: { accept: 'application/json' } });
+                    var t = await r.text();
+                    out.read = r.status + ' ' + t.slice(0, 120);
+                    var d = await fetch(U, { method: 'DELETE', credentials: 'include', headers: { accept: 'application/json' } });
+                    out.del = d.status;
+                  } catch (e) { out.err = String(e).slice(0, 120); }
+                  return JSON.stringify(out);
+                })()`,
+                awaitPromise: true, returnByValue: true,
+              });
+              const wv = wp && wp.result && wp.result.value;
+              if (wv) kvProbe += ' | writeProbe=' + wv;
+            } catch (e) { kvProbe += ' | writeProbe error'; }
+          }
         } catch (e) { kvProbe = 'probe error: ' + String(e).slice(0, 80); }
         const meta = {
           gameId: String(j.gameId),

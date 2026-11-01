@@ -78,6 +78,10 @@ jobs:
           # be hardcoded in scripts/ci-login.mjs, which meant every mirror of a
           # different character needed a source edit.
           DZMM_CHARACTER: ${{ vars.CHARA_ID }}
+          # one throwaway key, written, read back and deleted, to learn the write
+          # contract.  Set the repo variable KV_WRITE_PROBE=1 to enable it; it
+          # never touches a real save key.
+          DZMM_KV_WRITE_PROBE: ${{ vars.KV_WRITE_PROBE }}
         run: |
           set -euo pipefail
           if [ -z "${DZMM_SIGN_IN_CODE:-}" ]; then
