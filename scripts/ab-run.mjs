@@ -50,13 +50,17 @@ if (seeds.length < 2) { console.error('[ab] need at least 2 seeds'); process.exi
 
 rmSync(OUT, { force: true });
 
-function runOnce(seed, optJson) {
+function runOnce(seed, optJson, armExtra) {
   // Pass-through args.  Every benchmark kind has its own parameter names: fullrun
   // takes --game-seconds, but invade takes --wave and --seconds.  Without a
   // pass-through this runner silently used invade defaults (startWave 5,
   // seconds 12) and produced a batch that measured the wrong thing entirely —
   // rows showed startWave 5 / seconds 12 while the intent was wave 1 / 300 s.
-  const extra = String(args.extra || '').split(' ').filter(Boolean);
+  // Per-arm extra flags, so an A/B can vary more than a single autopilot option
+  // (e.g. give arm A a hail build and arm B a bloom build).  Falls back to the
+  // shared --extra.
+  const shared = String(args.extra || '').split(' ').filter(Boolean);
+  const extra = armExtra ? String(armExtra).split(' ').filter(Boolean) : shared;
   const r = spawnSync(process.execPath, ['scripts/headless-bench.mjs',
     '--kind', KIND, '--seed', String(seed), '--policy', 'rounded', '--goal-depth', '1',
     '--speed', '8', '--diff', DIFF, '--mods', MODS,
@@ -69,9 +73,9 @@ function runOnce(seed, optJson) {
   return rows.length ? rows[rows.length - 1] : null;
 }
 
-function runWithRetry(seed, optJson, label) {
+function runWithRetry(seed, optJson, label, armExtra) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const row = runOnce(seed, optJson);
+    const row = runOnce(seed, optJson, armExtra);
     if (row) return row;
     console.log('[ab] ' + label + ' seed ' + seed + ' produced no row (attempt ' + (attempt + 1) + ')');
   }
@@ -81,8 +85,8 @@ function runWithRetry(seed, optJson, label) {
 const pairs = [];
 for (const seed of seeds) {
   // interleave: A then B for the same seed, so drift affects both equally
-  const a = runWithRetry(seed, A, 'A');
-  const b = a ? runWithRetry(seed, B, 'B') : null;
+  const a = runWithRetry(seed, A, 'A', args['extra-a']);
+  const b = a ? runWithRetry(seed, B, 'B', args['extra-b']) : null;
   if (!a || !b) { console.log('[ab] seed ' + seed + ' INCOMPLETE — dropping the pair (never one arm alone)'); continue; }
   pairs.push({ seed, a, b });
 }
