@@ -727,6 +727,24 @@
       wlvAtEnd: (function () { try { return Object.assign({}, g.p && g.p.wlv); } catch (e) { return {}; } })(),
       forgeRoomsSeen: (window.__forgeSeen | 0),
       upgradesDone: (function () { try { const p = g.p; let n = 0; for (const k in (p && p.wlv) || {}) n += p.wlv[k]; return n; } catch (e) { return 0; } })(),
+      // SUSTAINED dps: the same weapon but including its magazine and reload cycle.
+      // dpsProxy (below) is "rate*dmg as if the trigger were held forever", which
+      // overstated nail by 34% (42 vs 27.7) because 12 rounds at rate 5 empties in
+      // 2.4 s and then reloads for 1 s.  Measured actual combat output was 13.1,
+      // i.e. 29% of the proxy — two separate losses that were being conflated.
+      dpsSustained: (function () {
+        try {
+          const p = g.p; if (!p || !p.weapons) return 0;
+          const i2 = p.wi | 0; const id = p.weapons[i2]; const w = WEAPONS[id];
+          if (!w) return 0;
+          const lv = (p.wlv && p.wlv[id]) | 0;
+          const rate = w.rate || 1, n = w.n || 1, mag = w.mag || 0, rl = w.reload || 0;
+          const dmg = (w.dmg || 0) * (1 + .25 * lv);
+          if (!mag || !rl) return +(dmg * rate * n).toFixed(1);   // no magazine: no reload
+          const burst = mag / rate, cycle = burst + rl;
+          return +((mag * dmg * n) / cycle).toFixed(1);
+        } catch (e) { return 0; }
+      })(),
       dpsProxy: (function () {
         try {
           const p = g.p; if (!p || !p.weapons) return 0;
