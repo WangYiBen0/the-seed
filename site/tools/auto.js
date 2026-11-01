@@ -60,6 +60,7 @@
       shardFit: TSW.settings.get('autoShardFit', true),                                        // explore: score shards by fit to the held weapon
       keyRoomFirst: TSW.settings.get('autoKeyRoomFirst', true),                                    // explore: clear the key room before anything else
       floorScaling: TSW.settings.get('autoFloorScaling', true),   // explore: widen the band on deeper floors (enemy hp/rate scale)
+      targetPriority: TSW.settings.get('autoTargetPriority', true), // explore: shoot gunners and spawners before melee
       mainHandBest: TSW.settings.get('autoMainHandBest', true),                                    // explore: hold the strongest weapon in the main hand
       arsenalByDps: TSW.settings.get('autoArsenalByDps', true),                                    // explore: pick the armoury weapon by measured dps
       shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
@@ -542,9 +543,34 @@
   // steering vector into NaN whenever a foe sat in the comfortable band.  Use a
   // weak per-object key instead.
   const _objKey = (o) => { try { return o.__tswKey || (o.__tswKey = ++A._keyN); } catch (e) { return 0; } };
+  // PRIORITY: what is worth killing first, per the user's read of the game.
+  //   support  — splitter (divides), warden (heavy anchor that keeps the room live)
+  //   fire     — gunner / sniper / mortar / turret: the ones that actually shoot you
+  //   rest     — contact melee
+  // The multiplier shrinks the EFFECTIVE distance of a dangerous foe, so a gunner
+  // 20 px further away outranks a crawler — but the cutoff is still real distance,
+  // so the bot never crosses the room to chase a mortar while melee is on top of it.
+  const FIRE_TYPES = ['gunner', 'sniper', 'mortar', 'turret', 'bomber', 'wisp', 'echo'];
+  const SUPPORT_TYPES = ['splitter', 'warden'];
+  const foePriority = (e) => {
+    // switchable so the ordering can be A/B'd; off = pure distance (old behaviour)
+    if (A.opts && A.opts.targetPriority === false) return 1;
+    const t = (e && (e.type || '')) + '';
+    if (SUPPORT_TYPES.includes(t)) return 1.35;
+    if (FIRE_TYPES.includes(t)) return 1.2;
+    return 1;
+  };
   function nearestEnemy(x, y, maxD, needLos) {
     let best = null, bd = maxD;
-    for (const e of __achroma.G.enemies) { if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.inv > 0) continue; const d = dist(x, y, e.x, e.y); if (d < bd && (!needLos || los(x, y, e.x, e.y))) { bd = d; best = e; } }
+    for (const e of __achroma.G.enemies) {
+      if (e.dead || e.spawnT > 0 || e.deathFightLeft > 0 || e.inv > 0) continue;
+      const d = dist(x, y, e.x, e.y);
+      if (d >= maxD) continue;                       // never invented reach
+      if (needLos && !los(x, y, e.x, e.y)) continue;
+      // rank by (real distance) / priority: same reach, danger-ordered target
+      const rank = d / foePriority(e);
+      if (rank < bd) { bd = rank; best = e; }
+    }
     return best;
   }
   // ---------- threat field ----------
