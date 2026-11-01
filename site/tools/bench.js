@@ -393,6 +393,31 @@
         wv.t = g.runT || 0;
         const k = g.kills | 0;
         if (k !== wv.lastK) { wv.lastK = k; wv.lastKillT = g.runT || 0; }
+        // THE EFFICIENCY METRIC.  actual dps is only 42% of the weapon's own
+        // sustained dps, and the interesting half of that gap is time with a live
+        // target where the trigger is NOT held.  Split every combat second into:
+        //   liveFiring  - enemies alive and the trigger held (productive)
+        //   liveIdle    - enemies alive but not firing   <- the fixable loss
+        //   noFoes      - nothing to shoot (not the bot's fault)
+        if (act) {
+          wv.combatT = (wv.combatT || 0) + dt3;
+          if (live > 0) {
+            // Input.down stays TRUE while reloading, so "trigger held" is not
+            // "bullets leaving".  Count a round actually being chambered instead:
+            // p.ammo[held].rl > 0 means reloading.  Without this split the metric
+            // reports ~86% firing while real output is 33% of sustained dps, which
+            // is nonsense on its face.
+            let reloading = false;
+            try {
+              const heldId = g.p.weapons[g.p.wi | 0];
+              const a2 = g.p.ammo && g.p.ammo[heldId];
+              reloading = !!(a2 && a2.rl > 0);
+            } catch (e) { }
+            if (Input && Input.down && !reloading) wv.liveFiring = (wv.liveFiring || 0) + dt3;
+            else if (reloading) wv.liveReload = (wv.liveReload || 0) + dt3;
+            else wv.liveIdle = (wv.liveIdle || 0) + dt3;
+          } else wv.noFoes = (wv.noFoes || 0) + dt3;
+        }
         if (act && live > 0 && (g.runT || 0) - (wv.lastKillT || 0) > 1.5) {
           wv.dryS += dt3;
           // is the trigger held during the dry stretch, or is the bot simply not
@@ -839,6 +864,20 @@
       dryS: +(function () { try { return window.__waves.dryS.toFixed(1); } catch (e) { return 0; } })(),
       dryFiring: +(function () { try { return (window.__waves.dryFiring || 0).toFixed(1); } catch (e) { return 0; } })(),
       dryNotFiring: +(function () { try { return (window.__waves.dryIdle || 0).toFixed(1); } catch (e) { return 0; } })(),
+      fire: (function () {
+        try {
+          const w = window.__waves || {};
+          const c = (w.combatT || 0) || 1;
+          return {
+            combatT: +(w.combatT || 0).toFixed(0),
+            firing: +(w.liveFiring || 0).toFixed(0),
+            idle: +(w.liveIdle || 0).toFixed(0),
+            reload: +(w.liveReload || 0).toFixed(0),
+            noFoes: +(w.noFoes || 0).toFixed(0),
+            firingPct: +(((w.liveFiring || 0) / c) * 100).toFixed(0),
+          };
+        } catch (e) { return null; }
+      })(),
       hitsTry: (window.__hits ? window.__hits.try : 0),
       hitsLand: (window.__hits ? window.__hits.land : 0),
       hitsRejDead: (window.__hits ? window.__hits.dead : 0),
