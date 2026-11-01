@@ -28,14 +28,20 @@ const cmd = ['node', 'scripts/headless-bench.mjs', '--kind', 'fullrun', '--seed'
   '--timeout', String(benchTimeout), '--game-seconds', String(gameSec),
   '--diff', 'despair', '--mods', 'rage,deathfight,bulwark,rot,cyst', '--out', out];
 
-appendFileSync('.tmp/runner.log', '[' + new Date().toISOString().slice(11, 19) + '] start seed=' + seed + ' gameSec=' + gameSec + ' outer=' + (outer / 1000) + 's\n');
+// A tag keeps concurrent batches from sharing runner.log / run-<seed>.log.
+// Without one, two batches wrote into the same file and each parsed the other's
+// rows as its own — the cause of several "impossible" results earlier.
+const tag = get('tag', '');
+const RUNNER_LOG = '.tmp/runner' + (tag ? '-' + tag : '') + '.log';
+const logPath = '.tmp/run-' + seed + (tag ? '-' + tag : '') + '.log';
+
+appendFileSync(RUNNER_LOG, '[' + new Date().toISOString().slice(11, 19) + '] start seed=' + seed + ' gameSec=' + gameSec + ' outer=' + (outer / 1000) + 's\n');
 // Stream the bench output into a log instead of discarding it: with
 // stdio:'ignore' a run that never emits TSW_RESULT is indistinguishable from one
 // that is still booting, and that ambiguity has cost several batches.
 // TRUNCATE, not append: the harvester reads the whole file, so an append-mode
  // log would re-harvest every earlier row for the same seed.  Measured: a run
  // asking for --game-seconds 400 harvested four rows from previous runs.
-const logPath = '.tmp/run-' + seed + '.log';
 const logFd = openSync(logPath, 'w');
 appendFileSync(logPath, '[' + new Date().toISOString().slice(11, 19) + '] ' + cmd.join(' ') + '\n');
 // headless-bench exits 3 when it captured no TSW_RESULT — a chromium boot
@@ -57,7 +63,7 @@ const child = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', logFd, logFd], det
 // one that does not exist: it invents failures on healthy runs.
 const outerTimer = setTimeout(() => {
   try { child.kill('SIGKILL'); } catch (e) { }
-  appendFileSync('.tmp/runner.log', 'killed by outer timeout\n');
+  appendFileSync(RUNNER_LOG, 'killed by outer timeout\n');
 }, outer);
 
 // Pull every TSW_RESULT row out of a streamed log and append it to --out.
@@ -98,20 +104,20 @@ function harvest(logFile, outFile, sizeBefore) {
 
 child.on('exit', (code) => {
   clearTimeout(outerTimer);
-  appendFileSync('.tmp/runner.log', 'exit=' + code + '\n');
+  appendFileSync(RUNNER_LOG, 'exit=' + code + '\n');
   // The bench prints every result to stdout; its --out writer has been
   // unreliable here (a run can log a complete TSW_RESULT and still leave no
   // file), so harvest the row from the log we already streamed.  That makes the
   // log the single source of truth and removes a silent-data-loss path.
   const got = harvest(logPath, out, outSizeBefore);
-  appendFileSync('.tmp/runner.log', 'harvested=' + got + '\n');
+  appendFileSync(RUNNER_LOG, 'harvested=' + got + '\n');
   // Retry whenever NO ROW was produced — regardless of the exit code.  The
   // bench can exit 0 having emitted nothing (measured: seed 1 exited 0 with an
   // empty log), and gating the retry on a non-zero code lost that seed silently.
   if (got === 0 && !retrying) {
-    appendFileSync('.tmp/runner.log', 'no result (exit ' + code + '); retrying once\n');
+    appendFileSync(RUNNER_LOG, 'no result (exit ' + code + '); retrying once\n');
     const again = spawn(process.execPath, [process.argv[1], ...args], { stdio: 'inherit', env: { ...process.env, RETRY: '1' } });
-    again.on('exit', (c2) => { appendFileSync('.tmp/runner.log', 'retry exit=' + c2 + '\n'); process.exit(0); });
+    again.on('exit', (c2) => { appendFileSync(RUNNER_LOG, 'retry exit=' + c2 + '\n'); process.exit(0); });
     return;
   }
   process.exit(0);
