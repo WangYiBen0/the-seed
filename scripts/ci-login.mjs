@@ -90,6 +90,10 @@ async function main() {
   const port = 9300 + Math.floor(Math.random() * 500);
   const child = spawn(chrome, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    // GitHub's runners (and every container) deny the namespace/unshare calls
+    // that Chromium's zygote needs; without these the process dies in
+    // ZygoteHostImpl::Init with a SIGTRAP stack dump and DevTools never opens.
+    '--no-sandbox', '--disable-setuid-sandbox', '--no-zygote', '--disable-dev-shm-usage',
     '--disable-features=Translate,MediaRouter', '--mute-audio',
     `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`,
     '--window-size=1280,900', 'about:blank',
@@ -99,6 +103,10 @@ async function main() {
   });
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += d.toString(); });
+  // Fail fast: a browser that dies (sandbox denial, snap confinement, missing
+  // libs) must not burn the whole timeout pretending DevTools might still open.
+  let exited = null;
+  child.on('exit', (code, sig) => { exited = { code, sig }; });
 
   const cleanup = () => { try { child.kill('SIGKILL'); } catch (e) { } };
   const fail = (code, msg) => {
@@ -111,6 +119,7 @@ async function main() {
   const deadline = Date.now() + TIMEOUT_MS;
   let wsUrl = null;
   while (Date.now() < deadline) {
+    if (exited) fail(3, `chromium exited before DevTools came up (code=${exited.code} signal=${exited.sig})`);
     try {
       const r = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (r.ok) { wsUrl = (await r.json()).webSocketDebuggerUrl; if (wsUrl) break; }
