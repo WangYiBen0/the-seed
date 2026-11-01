@@ -6237,3 +6237,66 @@ boss 只有 ~3200–3700 hp，nail 下约 150–200 s 打完。战斗在
 4. 目标自带张力写清楚：`bossFight.s` 奖励"不打死 boss"，过层率奖励"打死 boss"；
    任何候选必须同时报告两者。
 
+
+## 148. 结论 132：结果行把两臂记成了同一份 —— 一个静默失效的 A/B 仪器缺陷（已修）
+
+**先说结论**：`fullrun` 的结果行一直写着默认值，写的是哪一臂并不真实。凡是用
+`--autoOpts` 做过、只靠结果行区分两臂的 A/B，**都可能作废**。本节的护甲 A/B
+是发现并修复它之后重跑的。
+
+### 缺陷
+
+`site/tools/bench.js` 的 `runFullRun` 结尾顺序是：
+
+1. `for (const [k, v] of Object.entries(optSaved)) TSW.auto.opts[k] = v;` ← **先把原值还回去**
+2. 再构造结果行，其中 `autoOpts` 读的是 `TSW.auto.opts[k]` ← 读到的必然已是默认值
+
+所以无论调用方传 `{"armorRegenBand": false}` 还是 `true`，行里的 `autoOpts`
+都是默认的 `{"armorRegenBand": true}`。第一批 A/B 的 10 行**全部**显示 `band: true`，
+就是这个缺陷的直接证据。AGENTS.md §7 记的「看到 unknown autoOpts 就作废」防不住它：
+这里不是键名错，是**键名对、取值被覆盖**。
+
+### 修复
+
+- 在恢复原值**之前**捕获本局实际生效值 → `autoOpts`；
+- 同时记录调用方**请求值** `autoOptsRequested`，两者可对照；
+- 记录 `autoOptsUnknown`（被拒绝的键），非空即说明两侧跑的是同一份代码。
+
+### 回归测试
+
+`tests/bench-autopts.test.mjs`（2 项）断言「捕获在恢复之前」，以及三个字段都在行里。
+全量 `node --test` 48 项通过。
+
+### 护甲再生带 A/B（修复后重跑，5 种子 × 2 臂，同批交错）
+
+`--diff despair --mods rage,deathfight,bulwark,rot,cyst --timeout 200 --speed 8`
+（A=on 默认，B=`{"armorRegenBand":false}`）：
+
+| 种子 | on: gameT/清房/进boss/失甲 | off: gameT/清房/进boss/失甲 | ΔgameT |
+|---|---|---|---|
+| 1 | 549/5/1/38 | 602/4/1/46 | −53 |
+| 3 | 473/3/0/15 | 642/4/1/38 | −169 |
+| 5 | 235/2/0/28 | 662/4/1/43 | −427 |
+| 7 | 546/4/1/27 | 467/4/1/20 | +79 |
+| 11 | 786/2/0/17 | 623/4/1/51 | +163 |
+
+- `gameT` 配对差 −81.4 秒，95% CI ±233.4 → **不显著**（方差远大于效应）；
+- `arTaken` 配对差 −14.6，95% CI ±15.6 → 不显著；
+- **进 boss 房：on 2/5，off 5/5** → 方向明确地**更差**。
+
+### 判定
+
+「拉开等甲」在 boss 房**没有换来存活**，反而把整局从「进 boss 房」推回「卡在普通房」。
+一个可能的机制（未验证）：它只在 `p.armor <= 0 && p.lastHit < 3.2` 触发，于是每挨一下
+就重置计时、把 190–240 px 的宽走位反复重开，结果是**既没能连续无伤 3 秒，又停掉了输出**。
+与 §147 的记录一致：6 甲带来的是「不死」，不是「更久」；把走位拉宽同样不算耐久杠杆。
+
+### 下一步（有优先级）
+
+1. 已否决：`armorRegenBand` 加宽（本节）；§146 的「从 boss 身体强制保持间距」（7 对，
+   方向也是更差）。
+2. 还没测过的高杠杆假设：**护甲上限的自然可达性**。despair 下 `diffV('armor')=0`，
+   `maxArmor = 3 + S.armor`，只有 `plate` 卡能加。当前 fullrun 里 `arTaken` 常在 40–50，
+   而恢复被 `lastHit > 3` 锁死 —— 先量「一局能自然堆到几甲」，再决定是否值得围绕它设计。
+3. 任何新候选都要**同批交错**，并检查 `autoOptsUnknown` 为空、`autoOpts` 与
+   `autoOptsRequested` 一致。

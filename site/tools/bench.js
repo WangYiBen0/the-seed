@@ -201,9 +201,10 @@
     // run 1 died at gameT 422, run 2 "timed out" at gameT 9), so paired trials are
     // driven as separate interleaved processes instead.
     const optSaved = {};
+    const optUnknown = [];
     if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
       if (k in TSW.auto.opts) { optSaved[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
-      else TSW.err('fullrun: unknown autoOpts ignored → ' + k);
+      else { optUnknown.push(k); TSW.err('fullrun: unknown autoOpts ignored → ' + k); }
     }
     if (seed != null) TSW.rng.seed(seed);
     TSW.auto.setPolicy(policy);
@@ -534,6 +535,12 @@
     try { if (window.__bbHook) { window.__bbHook(); window.__bbHook = null; } } catch (e) { }
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
+    // Capture the flags THIS run actually ran with BEFORE restoring them.  The
+    // row used to read TSW.auto.opts after the restore below, so every row
+    // reported the defaults no matter which arm it belonged to: an A/B that set
+    // a flag to false was indistinguishable from the arm that left it true.
+    const appliedOpts = {};
+    try { for (const k of Object.keys(autoOpts || {})) appliedOpts[k] = TSW.auto.opts[k]; } catch (e) { }
     for (const [k, v] of Object.entries(optSaved)) TSW.auto.opts[k] = v;
     TSW.auto.setPolicy(wasPolicy);
     TSW.speed.set(wasSpeed, true);
@@ -542,9 +549,13 @@
     const g = G();
     return {
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
-      // the effective autopilot flags for THIS run (defaults + explicit overrides),
-      // so a row can never be attributed to the wrong arm
-      autoOpts: (function () { try { const o = {}; for (const k of Object.keys(autoOpts || {})) o[k] = TSW.auto.opts[k]; return o; } catch (e) { return {}; } })(),
+      // what THIS run actually ran with, and what the caller asked for.  Both are
+      // recorded because they can disagree (an unknown key is refused, not applied).
+      autoOpts: appliedOpts,
+      autoOptsRequested: (function () { try { return Object.assign({}, autoOpts || {}); } catch (e) { return {}; } })(),
+      // keys the caller asked for that autopilot does not declare: if this is
+      // non-empty the two arms ran the same code and the pair is worthless.
+      autoOptsUnknown: optUnknown.slice(),
       autoOptsDefault: { bossBodyDanger: TSW.auto.opts.bossBodyDanger, plateWeight: TSW.auto.opts.plateWeight, armorWaitT: TSW.auto.opts.armorWaitT },
       det: !!detMode, ticks: (TSW.det && TSW.det.ticks) || 0,
       modifiers: modsEarly,
