@@ -53,6 +53,7 @@
       deathfightHazard: TSW.settings.get('autoDeathfightHazard', true),                                // explore: treat death-fight corpses as hazard
       bossCriticalRetreat: TSW.settings.get('autoBossCriticalRetreat', true),
       bossBodyDanger: false,                                // explore: price the boss BODY as contact hazard (measured: no gain, off)
+      bossBulletRamp: false,                                // boss: scale the bullet falloff to the horizon (default off = old curve)
       plateWeight: 1.25,                                    // explore: card weight for plate/vital (armour = endurance currency)
       armorRegenBand: true,                                 // boss: widen the retreat band while the plates rebuild
       refitWeight: 1.6,                                     // explore: card weight for refit (armour on reload)
@@ -668,7 +669,16 @@
       const bt = Math.max(0, t);
       const miss = Math.hypot(x - (b.x + b.vx * bt), y - (b.y + b.vy * bt));
       const rr = (b.r || 3) + p.r + 3;
-      if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * (1.4 - Math.min(1.4, t));
+      // The old falloff `1.4 - min(1.4, t)` ignored the horizon, so the boss's
+      // extended 1.8 s lead admitted bullets only to weight them exactly ZERO:
+      // every boss shot with time-to-impact in [1.4, 1.8] was invisible, which is
+      // why §146 measured `bossBulletHorizon` as a no-op.  Scale the ramp to the
+      // horizon so the extra lead actually steers.  Gated on `bossBulletRamp` so
+      // the default arm stays byte-identical for a clean A/B.
+      const fall = (A.opts.bossBulletRamp !== false && horizon > 1.4)
+        ? 1.4 * Math.max(0, 1 - Math.min(t, horizon) / horizon)
+        : (1.4 - Math.min(1.4, t));
+      if (miss < rr) d += 2.4 * wMul * (1 - miss / rr) * fall;
     }
     for (const z of G.zones || []) if (dist(x, y, z.x, z.y) < (z.r || 18) + 3) d += 1.4;
     // ---- enemy CONTACT -----------------------------------------------------

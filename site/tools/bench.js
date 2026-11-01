@@ -776,6 +776,11 @@
       dashS = 0, invS = 0;
     installHurtLog();
     window.__hurtLog = [];
+    // Why did the measured window end?  Several "timeout" rows used to stop well
+    // short of the 240 s cap with the boss still alive and the player at full HP,
+    // which is impossible for a pure seconds budget.  Recording the exit branch
+    // (and reconciling death state after the loop) keeps `end` honest.
+    let why = 'running', runTAtEnd = tStart;
     const mon = setInterval(() => {
       const g = window.__achroma.G;
       if (!g || !g.p) return;
@@ -797,12 +802,24 @@
     await new Promise((res) => {
       const iv = setInterval(() => {
         const g = window.__achroma.G;
-        const done = !g || g.state === 'dead' || !g.boss || g.boss.dead || (g.runT || 0) - tStart > seconds;
+        runTAtEnd = g ? (g.runT || 0) : runTAtEnd;
+        if (!g) why = 'noGame';
+        else if (g.state === 'dead' || (g.p && g.p.alive === false)) why = 'stateDead';
+        else if (!g.boss) why = 'noBoss';
+        else if (g.boss.dead) why = 'bossDead';
+        else if ((g.runT || 0) - tStart > seconds) why = 'seconds';
+        const done = why !== 'running';
         if (done) { clearInterval(iv); res(); }
       }, 500);
     });
     clearInterval(mon);
     const g = window.__achroma.G;
+    // Reconcile after the loop: the 500 ms done-check can win the race against the
+    // 200 ms monitor, so a death seen by one and not the other was mislabelled
+    // 'timeout'.  Trust whichever terminal state is observable now.
+    if (g && (g.state === 'dead' || (g.p && g.p.alive === false))) playerDead = true;
+    if (g && g.boss && g.boss.dead) bossDead = true;
+    if (g && !g.boss && runTAtEnd > tStart + 1) bossDead = true;
     const fightS = Math.max(0, +((tEnd || 0) - tStart).toFixed(1));
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
@@ -815,6 +832,7 @@
       kind: 'boss', at: Date.now(), speed, seed, diff, floor, hp, armor, policy,
       autoOpts: Object.assign({}, autoOpts || {}), build: entry,
       spawned, end: playerDead ? 'death' : (bossDead ? 'kill' : 'timeout'),
+      why, runTAtEnd: +runTAtEnd.toFixed(1),
       fightS, arLost: Math.round(arLost), hpLost: Math.round(hpLost),
       arGained: Math.round(arGained), hpGained: Math.round(hpGained),
       zeroArmS: +zeroArmS.toFixed(1), dashS: +dashS.toFixed(1), invS: +invS.toFixed(1), hits,
