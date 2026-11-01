@@ -437,7 +437,11 @@
           // metric cannot answer on its own.
           const p2 = g.p || {};
           window.__bossEntry = {
-            roomsCleared: (function () { try { return (WORLD.rooms || []).filter((r) => r.cleared).length; } catch (e) { return -1; } })(),
+            // Reward rooms are BORN cleared (world.js:59: cleared = type !== 'combat'
+            // && type !== 'boss'), so counting every cleared room reports progress
+            // that never happened and made a healthy run look pinned at 1 room.
+            // Only combat and boss rooms are progress.
+            roomsCleared: (function () { try { return (WORLD.rooms || []).filter((r) => r.cleared && (r.type === 'combat' || r.type === 'boss')).length; } catch (e) { return -1; } })(),
             roomsTotal: (function () { try { return (WORLD.rooms || []).length; } catch (e) { return -1; } })(),
             ink: g.ink | 0,
             dps: (function () { try {
