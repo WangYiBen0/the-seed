@@ -2491,7 +2491,19 @@
             // normalised nudge is all that is needed this close to the point.
             const ox = tgt.pt[0] - p.x, oy = tgt.pt[1] - p.y;
             const ol = Math.hypot(ox, oy);
-            if (ol > 2) { mx = ox / ol; my = oy / ol; A.status.note = '到达目标：微调到交互点'; }
+            // A NORMALISED vector has length 1 and never closes the last pixels.
+            // The game only picks up a floor key when `d < 12` (game.js:365) and
+            // other interactables use similar radii, so "nudging at unit speed"
+            // could sit 2-11 px away forever while reporting "微调到交互点".
+            // Measured on seed 5: 44 s -> 101 s spent on one key with foes=0,
+            // never picking it up. Scale the step to cover the remaining gap, and
+            // treat the last couple of pixels as arrival so the tap branch runs.
+            if (ol > 2) {
+              const k = Math.min(1, ol / 6);          // full push when far enough
+              mx = (ox / ol) * k;
+              my = (oy / ol) * k;
+              A.status.note = '到达目标：微调到交互点';
+            }
             else { mx = 0; my = 0; A.status.note = '已到目标点'; }
           }
           // stuck on this objective? bench it for a while so the run keeps moving
