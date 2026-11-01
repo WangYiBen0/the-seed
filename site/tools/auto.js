@@ -1870,6 +1870,14 @@
         const anyFoe = nearestEnemy(p.x, p.y, 2000, false);
         if (anyFoe) {
           A._hunt = (A._hunt || 0) + 1;
+          // Arm the straggler aim IMMEDIATELY, not only after _hunt > 30.
+          // Measured live: active room, nearest foe 89 px, hunt=0, note empty —
+          // the bot stood there with a target in range and no command.  The prism
+          // branch below resets _hunt to 0 whenever a prism is on the floor, so
+          // _hunt could keep failing to reach the >30 arm threshold and _huntAim
+          // was never set.  The hunt can afford to start aiming at once; the
+          // "commit to chase" move below still waits for the 30-tick debounce.
+          if (anyFoe && !A._huntAim) A._huntAim = anyFoe;
           // Abort hunting if this floor still has an uncollected prism: serums are
           // the damage growth (measured 12 vs 2.9 for over-clearing runs), so a
           // pickup is worth more than chasing an unreachable straggler.
