@@ -99,6 +99,25 @@ for (const p of pairs) {
   console.log([p.seed, pick(p.a, 'roomsCleared'), pick(p.b, 'roomsCleared'), pick(p.a, 'kills'), pick(p.b, 'kills')].join('\t'));
 }
 console.log('\npairs used: ' + pairs.length + ' of ' + seeds.length);
+
+// A batch where only ONE arm can run is not an A/B.  Measured: a labSerum
+// comparison produced 14 rows, ALL from the on-arm, because the off-arm could
+// not produce a row at all; the mean would have looked like a clean result.
+// pairs.length counts only complete pairs, so that case already yields 0, but
+// guard it explicitly with an actionable message.
+let solo = 0;
+try {
+  const got = readFileSync(OUT, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (e) { return null; } })
+    .filter((x) => x && x.kind === KIND);
+  const onA = got.filter((r) => r.autoOpts && JSON.stringify(r.autoOpts) === JSON.stringify(A)).length;
+  const onB = got.filter((r) => r.autoOpts && JSON.stringify(r.autoOpts) === JSON.stringify(B)).length;
+  if (got.length >= 2 && (onA === 0 || onB === 0)) {
+    solo = 1;
+    console.log('[ab] ONE ARM PRODUCED NOTHING (' + onA + ' vs ' + onB + ' rows) — experiment is void, not a result');
+  }
+} catch (e) { }
+if (solo) process.exit(4);
+
 if (pairs.length < 2) { console.log('[ab] TOO FEW PAIRS — result is not usable'); process.exit(3); }
 const ar = pairs.map((p) => pick(p.a, 'roomsCleared')), br = pairs.map((p) => pick(p.b, 'roomsCleared'));
 console.log('A rooms mean ' + mean(ar).toFixed(2) + '   B rooms mean ' + mean(br).toFixed(2));
