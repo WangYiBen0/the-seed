@@ -29,6 +29,13 @@ test('rateBias is declared before it is read', () => {
   assert.ok(decl < use, 'declaration must precede use');
 });
 
+test('rateBias defaults OFF, because a balanced A/B found no benefit', () => {
+  // benchmark.md 172¾: 5-vs-5 over the same seeds gave 1.60 (on) vs 1.80 (off).
+  // The earlier "+33%" came from unbalanced arms (4 vs 3). Locking the default
+  // keeps a future reader from re-enabling it on the strength of that artifact.
+  assert.match(AUTO, /rateBias: false/, 'default must be off');
+});
+
 test('rows report damage actually removed, not damage claimed', () => {
   assert.match(BENCH, /dmgReal:/, 'dmgReal must be reported');
   assert.match(BENCH, /const lost = hpBefore - \(e\.hp \|\| 0\)/, 'it must be measured from hp deltas');

@@ -51,7 +51,11 @@
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
       // MUST be declared here or runAB marks the experiment void.
-      rateBias: true,                                        // prefer high fire-rate guns (benchmark.md 172)
+      // DEFAULT OFF: a balanced 5-vs-5 A/B measured 1.60 vs 1.80 rooms, i.e. no
+      // benefit (benchmark.md 172¾).  The mechanism in 172 (nova's slow rate
+      // converted fewer hits) is real, but the guns that actually drop are weak
+      // ones, so preferring rate cannot help when no fast gun is on offer.
+      rateBias: false,                                       // prefer high fire-rate guns (benchmark.md 172)
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
