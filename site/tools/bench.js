@@ -441,7 +441,16 @@
               // by (note, target) so the biggest contributor is visible.
               try {
                 const A2 = TSW.auto, st3 = (A2 && A2.status) || {};
-                const kb = (st3.note || '(no note)') + ' | ' + (st3.target || '(no target)');
+                // Include WHY the bot thinks it cannot act: the item it is parked
+                // on, and whether the pick-up handler would refuse it.
+                let extra = '';
+                try {
+                  const it = (g.inter || []).find((x) => !x.used && (x.kind === 'weapon' || x.kind === 'labvial') && Math.hypot(x.x - (g.p || {}).x, x.y - (g.p || {}).y) < 30);
+                  // wCap lives in site/js/shards2.js as a top-level const, so it is
+                  // NOT a window property and cannot be reached from here.
+                  if (it) extra = ' [' + it.kind + ':' + (it.id || '?') + ' slots=' + (g.p.weapons || []).length + ']';
+                } catch (e) { }
+                const kb = (st3.note || '(no note)') + ' | ' + (st3.target || '(no target)') + extra;
                 dc.idleBy = dc.idleBy || {};
                 dc.idleBy[kb] = (dc.idleBy[kb] || 0) + dt2;
               } catch (e) { }
