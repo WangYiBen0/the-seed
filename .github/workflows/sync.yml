@@ -90,6 +90,8 @@ jobs:
             if (!m.gameId || !m.publishedAt) throw new Error("metadata incomplete");
             console.log("gameId=" + m.gameId);
             console.log("publishedAt=" + m.publishedAt);
+            // read-only probe of the cloud-save endpoint from the signed-in page
+            console.log("kvProbe=" + (m.kvProbe || "(none)"));
             require("node:fs").appendFileSync(process.env.GITHUB_ENV,
               `DZMM_GAME_ID=${m.gameId}\nDZMM_PUBLISHED_AT=${m.publishedAt}\n`);
           '

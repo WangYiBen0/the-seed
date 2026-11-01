@@ -166,10 +166,32 @@ async function main() {
       let j = null;
       try { j = JSON.parse(v.body); } catch (e) { }
       if (j && j.gameId && j.publishedAt) {
+        // Read-only probe of the cloud-save endpoint from THIS signed-in page.
+        // The docs only recorded its anonymous answer (401 {"error":"请先登录"});
+        // whether a cookie session can use it was never checked.  GET only.
+        let kvProbe = 'unavailable';
+        try {
+          const kv = await s('Runtime.evaluate', {
+            expression: `fetch('/api/gamefy/${String(j.gameId)}/kv', {credentials:'include', headers:{accept:'application/json'}})
+              .then(r => r.text().then(t => ({status:r.status, body:t.slice(0,180)})))
+              .catch(e => ({status:0, body:'fetch failed: '+String(e)}))`,
+            awaitPromise: true, returnByValue: true,
+          });
+          const kvv = kv && kv.result && kv.result.value;
+          if (kvv) kvProbe = 'status=' + kvv.status + ' body=' + kvv.body;
+        } catch (e) { kvProbe = 'probe error: ' + String(e).slice(0, 80); }
         const meta = {
           gameId: String(j.gameId),
           publishedAt: Number(j.publishedAt),
+          kvProbe,
           characterId: CHARACTER_ID,
+          // Read-only probe of the cloud-save endpoint from this signed-in
+          // session.  The docs only ever recorded its ANONYMOUS answer (401
+          // {"error":"请先登录"}); whether a cookie session can actually use it
+          // was never checked.  This does not write anything: it is a GET, and
+          // it reports the status plus a short body slice so the shape is known
+          // before the iframe host is wired to it.
+
         };
         const txt = JSON.stringify(meta, null, 2);
         console.log(txt);
