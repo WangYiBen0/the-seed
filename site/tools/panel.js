@@ -167,7 +167,7 @@
   // ---------------- 存档交换 / 排行 · CLOUD ----------------
   const sCl = section('存档交换 / 排行 · CLOUD');
   const clHelp = el('div', 'color:#8d867a');
-  clHelp.textContent = '离线镜像无法连 dzmm.ai（无 CORS、cookie 为 SameSite=Lax），\n这里用可复制/可下载的存档串替代云存档，并记录本地排行榜。';
+  clHelp.textContent = '存档串用于在镜像页与官网页之间搬运存档（可复制/下载）。\n官方的云存档写入由 dzmm 宿主执行，只有把工具注入官方页（inject.js）时才能用。';
   sCl.appendChild(clHelp);
   const clR1 = row(sCl);
   const bClExp = btn('导出存档');
@@ -177,6 +177,49 @@
   const clBox = el('textarea', 'width:100%;height:52px;background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;font:10px monospace');
   clBox.placeholder = '存档串（导出后复制到这里，或粘贴别人的）';
   sCl.appendChild(clBox);
+  // ---- real cloud sync: only meaningful inside the official page ----
+  const clHost = row(sCl);
+  const bClPull = btn('读取官方云存档');
+  const bClPush = btn('写回官方云存档');
+  clHost.append(bClPull, bClPush);
+  const clHostNote = el('div', 'color:#57534c');
+  clHostNote.textContent = '';
+  sCl.appendChild(clHostNote);
+  const hostState = () => (TSW.cloudHost ? TSW.cloudHost.detect() : { ok: false, why: 'cloudhost 未加载' });
+  const refreshHostNote = () => {
+    const d = hostState();
+    clHostNote.style.color = d.ok ? '#8ed872' : '#57534c';
+    clHostNote.textContent = d.ok ? '已连接官方宿主（写入由 dzmm Host 执行）'
+      : '未连接官方宿主：' + d.why + ' —— 请在官网页用 inject.js 注入';
+    bClPull.disabled = !d.ok; bClPush.disabled = !d.ok;
+  };
+  // a slow poll is enough: the host cannot appear or vanish mid-panel life
+  refreshHostNote();
+  setInterval(refreshHostNote, 4000);
+  bClPull.onclick = async () => {
+    try {
+      const r = await TSW.cloudHost.load();
+      clBox.value = TSW.cloudHost.toCode ? await TSW.cloudHost.toCode() : '';
+      clOut.textContent = '已从官方云端读取 ' + r.count + ' 个键：\n' + Object.keys(r.keys).join('\n');
+      note('官方云存档已读取（' + r.count + ' 键）');
+    } catch (e) { note('读取失败：' + (e && e.message || e)); }
+  };
+  bClPush.onclick = async () => {
+    let payload;
+    try {
+      const txt = clBox.value.trim();
+      if (!txt) return note('先把存档串填进输入框（或先点“导出存档”）');
+      payload = JSON.parse(decodeURIComponent(escape(atob(txt))));
+    } catch (e) { return note('存档串无法解析'); }
+    if (!payload || !payload.keys) return note('存档串里没有 keys');
+    if (!confirm('这会覆盖你在 dzmm 的官方云存档（8 个存档键）。继续？')) return;
+    try {
+      const r = await TSW.cloudHost.save({ keys: payload.keys });
+      clOut.textContent = '写入 ' + r.written.length + ' 键，回读校验 ' + r.verified.length + '\n' +
+        (r.failed.length ? '失败：' + r.failed.join(',') : '全部通过');
+      note(r.ok ? '官方云存档已写回并校验通过' : '写入不完整，看下方明细');
+    } catch (e) { note('写入失败：' + (e && e.message || e)); }
+  };
   const clR2 = row(sCl);
   const bClRank = btn('查看排行');
   const bClLink = btn('生成本局分享链接');

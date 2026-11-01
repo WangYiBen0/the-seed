@@ -15,7 +15,9 @@
   // Keep this in sync with site/index.html.  evolve and cloud were missing, so
   // the injected page had no TSW.evolve (the EVOLVE section could not start) and
   // no TSW.cloud (no save export / import / share link).
-  const FILES = ['core', 'macro', 'auto', 'hud', 'bench', 'explore', 'cheats', 'panel', 'evolve', 'cloud'];
+  // cloudhost talks to the REAL dzmm host through dzmm.kv, which only exists in
+  // the injected page — that is the one place a cloud write can actually happen.
+  const FILES = ['core', 'macro', 'auto', 'hud', 'bench', 'explore', 'cheats', 'panel', 'evolve', 'cloud', 'cloudhost'];
   if (window.__TSW) return console.warn('[TSW] 已注入 —— F8 工坊 / F9 HUD / F10 指令台');
   (async () => {
     const failed = [];
