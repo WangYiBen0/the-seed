@@ -76,6 +76,19 @@ test('a rejected PUT raises instead of reporting success', async () => {
   await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /HTTP 403/);
 });
 
+test('a 403 says WHY: cloud writes need a VIP1 developer account', async () => {
+  // Measured on a real session (2026-11-01): PUT -> 403 FORBIDDEN {没有访问权限},
+  // and /api/gamefy/mine -> developer.eligible=false, reason=VIP_REQUIRED.
+  globalThis.fetch = async (url, init) => {
+    if (init && init.method === 'PUT') {
+      return { ok: false, status: 403, text: async () => '{"code":"FORBIDDEN","message":"没有访问权限"}' };
+    }
+    return { ok: true, status: 200, json: async () => ({ value: null, updated_at: null }) };
+  };
+  const kv = load().make({ gameId: 'g1' });
+  await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /VIP1 developer/);
+});
+
 test('the write body is configurable, because the real shape is unmeasured', () => {
   assert.match(SRC, /const writeBody = o\.writeBody \|\|/, 'the body must be injectable');
   assert.match(SRC, /const verifyWrites = o\.verifyWrites !== false/, 'verification must default on');

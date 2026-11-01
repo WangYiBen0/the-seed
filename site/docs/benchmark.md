@@ -6570,3 +6570,106 @@ KVOUT   {"value":{"fromServer":true},"updated_at":"2026-11-01T00:00:00Z"}
 但**写入会改动用户账号**，不应由自动任务随意触发。
 
 下一步前提：**用户确认可以写其云存档**，然后在 CI 或其本机跑一次真实验证。
+
+## 154. 结论 137：官方 kv 端点**拒绝写入**（403 FORBIDDEN），云存档只能读不能写
+
+上一节确认读可用（200）。本节把写也探清楚了，结论是**写不可行**，而且服务端明确说明了原因。
+
+### 实测（CI，真实登录会话，run 41303273360）
+
+探测方式：一个**一次性 key**（`__mirror_probe_delete_me`），PUT → 回读 → DELETE，
+由仓库变量 `KV_WRITE_PROBE=1` 显式开启，绝不碰真实存档键。
+
+```
+kvProbe=status=200 body={"data":[],"count":0}
+       | perKey=200 {"value":null,"updated_at":null}
+       | writeProbe={"put":403,
+                     "putBody":"{\"success\":false,\"code\":\"FORBIDDEN\",\"message\":\"没有访问权限\"}",
+                     "post":406,
+                     "read":"200 {\"value\":null,\"updated_at\":null}",
+                     "del":200}
+```
+
+### 判读
+
+| 方法 | 结果 | 含义 |
+|---|---|---|
+| GET /kv | 200 | 键列表可读 |
+| GET /kv/<key> | 200 | 单值可读 |
+| **PUT** | **403 FORBIDDEN /「没有访问权限」** | **服务端拒绝写，不是格式问题** |
+| POST | 406 | 不支持该方法 |
+| DELETE | 200 | 被接受（值本就不存在） |
+
+关键是 `putBody` 里的**服务端原文**：`code=FORBIDDEN, message=没有访问权限`。
+如果是 body 形状不对，会返回 400/422 一类；403 是**授权层**的拒绝。
+所以换任何 body 格式都没用 —— 这不是我们没猜对格式，而是这条路本身被关着。
+
+### 因此云存档的真实状态
+
+- **读**：可用，已实现（`site/dzmm-cloud.js` 的 `kvFetch` get/list）。
+- **写**：**官方 HTTP 端点拒绝**，机制上做不到。
+- 官方云存档的写入口只存在于**宿主页自己的实现**里（dzmm.ai 的网页代码），
+  它可能有额外的 header 或内部路由；但没有符号和文档，无法从外部复现。
+
+### 怎么办（可选路径，按代价排序）
+
+1. **只读云存档**：能把官网存档拉下来、在镜像里载入、导出成 base64。已经是可用功能。
+2. **本地存档为主**（现状）：`dzmm-shim` 用 localStorage，跨设备靠导出/导入存档串。
+3. **抓宿主页的真实写请求**：需要一次在 dzmm.ai 网页里手动存档，同时用 DevTools 记录
+   请求头。这需要人工操作，不适合自动化。
+
+### 提醒
+
+`site/dzmm-cloud.js` 的写路径已经实现，**但在这个端点上必然失败**（403）。它保留是因为：
+如果将来找到带正确凭据的宿主路由，`writeBody` 可注入、`verifyWrites` 会回读验证，
+代码不需要重写。但**不要对外宣称云存档能写**。
+
+## 155. 结论 138：kv 写入 403 的真因是「需要 VIP1 开发者权限」，与格式/登录无关
+
+上一节记录了 PUT 返回 `403 {"code":"FORBIDDEN","message":"没有访问权限"}`。
+本轮用**用户本人的真实会话**（本地 chromium + sign-in code）把六个变量逐一排除，结论如下。
+
+### 已排除的变量（全部有实测）
+
+| 变量 | 实测 | 结论 |
+|---|---|---|
+| body 形状 | `{value}` / `{key,value}` / 裸 JSON / 带 `updated_at` | `INVALID_REQUEST: [value] value 不能缺失` 说明**字段名是对的**，形状不是问题 |
+| 方法 | POST → 406 | 只接受 PUT |
+| 登录状态 | 见下 | **登录是成功的** |
+| 会话 cookie | 521 字节，`sign-in-code/exchange` + `auth/token` 都命中 | 会话已建立 |
+| Bearer token | `access_token` JWT，`authorization: Bearer …` | **仍然 403** |
+| Origin/Referer | 显式同源 | 仍然 403 |
+| CSRF 头 | `x-csrf-token` / `x-requested-with` | 仍然 403 |
+| gameId | `90e4b323-…`（与 asset base 一致） | kvList 返回 200，ID 正确 |
+
+### 真正的原因
+
+`GET /api/gamefy/mine` 在**同一会话**里返回：
+
+```
+{"developer":{"eligible":false,"reason":"VIP_REQUIRED",
+  "message":"需要 VIP1 及以上会员才能开发游戏"},"games":[]}
+```
+
+kv **写入**属于开发者能力，而该账号不满足 `VIP_REQUIRED`。
+所以：
+
+- **读**（GET kv）对玩家开放 → 200，已实现；
+- **写**（PUT kv）只对作品开发者开放 → 403，**不是我们能绕过的**；
+- 之前记录的 `401 请先登录` / `403 没有访问权限` 是**两种不同失败**，混在一起会让下一代误以为“登录就能写”。
+
+### 这对云存档意味着什么
+
+在**当前账号**上，官方云存档**只能读、不能写**。这不是实现缺陷，是平台权限模型。
+
+因此正确的产品形态是：
+
+1. **读云端存档并导入镜像**（可用）；
+2. **写只能是本地的**：导出/导入存档串（`site/tools/cloud.js` 已有），或用 GitHub Pages 之外的载体；
+3. 若账号升级到 VIP1，`site/dzmm-cloud.js` 的写路径**无需改代码**即可生效（body 可注入、写后有回读校验）。
+
+### 别再浪费时间的点
+
+- 不要再试 PUT 的各种 body 形状（已证明字段名正确）；
+- 不要以为缺 Bearer/CSRF/Origin；
+- 不要以为 gameId 错（list 返回 200）。

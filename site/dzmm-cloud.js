@@ -64,7 +64,20 @@
           headers: { 'content-type': 'application/json', accept: 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!r.ok) throw Object.assign(new Error('kv put HTTP ' + r.status), { code: 'CLOUD_HTTP' });
+        if (!r.ok) {
+          // The measured reason is a PERMISSION wall, not a shape problem:
+          //   403 FORBIDDEN {"message":"没有访问权限"}
+          // and /api/gamefy/mine reports developer.eligible=false,
+          // reason=VIP_REQUIRED.  kv writes are a developer capability.  Surface
+          // that instead of a bare status so the caller knows upgrading is the
+          // only way through.
+          let detail = '';
+          try { detail = (await r.text()).slice(0, 120); } catch (e2) { }
+          const forbidden = r.status === 403;
+          throw Object.assign(
+            new Error('kv put HTTP ' + r.status + (detail ? ' ' + detail : '') + (forbidden ? ' (cloud writes need a VIP1 developer account)' : '')),
+            { code: forbidden ? 'CLOUD_FORBIDDEN' : 'CLOUD_HTTP' });
+        }
         if (!verifyWrites) return { ok: true };
         // read-back: the only proof the value actually landed
         const back = await kvFetch({ op: 'get', key: op.key });
