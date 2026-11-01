@@ -709,6 +709,23 @@
       // fight mode and the boss's attack in play) so a death can be explained
       // after the fact without touching the game's own code.
       blackBox: (function () { try { return (window.__bb && window.__bb.ring) ? window.__bb.ring.slice(-45) : []; } catch (e) { return []; } })(),
+      // Longest stretch the player spent parked in place with no foes nearby.
+      // A run that does this dies of the clock, not of damage, so every
+      // damage/gold/kill metric reads healthy while nothing happens. Two such
+      // loops were found by hand (40 s and 44 s, x-span exactly 0 px); this
+      // makes the check a number in the row instead of an archaeological dig.
+      frozenS: (function () {
+        try {
+          const ring = (window.__bb && window.__bb.ring) || [];
+          let best = 0, start = 0;
+          for (let i = 1; i < ring.length; i++) {
+            const d = Math.hypot(ring[i].x - ring[start].x, ring[i].y - ring[start].y);
+            if (d <= 8 && ring[i].foes === 0) best = Math.max(best, ring[i].t - ring[start].t);
+            else start = i;
+          }
+          return +best.toFixed(1);
+        } catch (e) { return 0; }
+      })(),
       // Was the run's final death injected by the harness watchdog (dmg 999 pierce
       // mech) instead of earned?  Several recorded "deaths" in earlier datasets
       // are this injection, so an unqualified death overstates fragility.

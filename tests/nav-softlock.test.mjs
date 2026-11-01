@@ -26,6 +26,11 @@ test('a goal inside the 12 px dead zone still gets a movement command', () => {
     'the dead zone must call pickDir toward the waypoint');
 });
 
+test('the row reports how long the player was frozen', () => {
+  assert.match(SRC, /frozenS: \(function \(\) \{/, 'the freeze metric must be in the result row');
+  assert.match(SRC, /ring\.slice\(-45\)/, 'the metric needs the ring long enough to see a 40 s freeze');
+});
+
 test('a benched room is not immediately re-picked', () => {
   const auto = readFileSync(join(ROOT, 'site', 'tools', 'auto.js'), 'utf8');
   assert.match(auto, /A\._skipRoom\[tgt\.room\.id\] && G\.time < A\._skipRoom\[tgt\.room\.id\]/,
