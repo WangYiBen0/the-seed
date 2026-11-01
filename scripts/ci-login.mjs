@@ -209,7 +209,17 @@ async function main() {
                     var w = await fetch(U, { method: 'PUT', credentials: 'include',
                       headers: { 'content-type': 'application/json', accept: 'application/json' },
                       body: JSON.stringify(body) });
+                    // report WHY, not just the code: a 403 from a body-shape
+                    // mismatch reads the same as a 403 from a policy block.
                     out.put = w.status;
+                    try { out.putBody = (await w.text()).slice(0, 120); } catch (e) {}
+                    // some APIs write with POST instead of PUT; try it once
+                    try {
+                      var q = await fetch(U, { method: 'POST', credentials: 'include',
+                        headers: { 'content-type': 'application/json', accept: 'application/json' },
+                        body: JSON.stringify(body) });
+                      out.post = q.status;
+                    } catch (e) { out.post = 'err'; }
                     var r = await fetch(U, { credentials: 'include', headers: { accept: 'application/json' } });
                     var t = await r.text();
                     out.read = r.status + ' ' + t.slice(0, 120);
