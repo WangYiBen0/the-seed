@@ -295,9 +295,19 @@
             else if (e.spawnT > 0) H.spawn++;
             else if (e.deathFightLeft > 0) H.dfight++;
             else if (e.inv > 0) H.inv++;
+            // MEASURE THE DAMAGE THAT ACTUALLY LANDED, not the damage requested.
+            // hitEnemy can return true while the enemy absorbs it (shield), and a
+            // 5.4x stronger weapon changed neither the real output nor the room
+            // count (benchmark.md 171), so the missing piece is here: what the
+            // enemy's hp actually lost per call.
+            const hpBefore = e.hp;
             const r = origHit.apply(this, arguments);
             if (r === 'block') H.shield++;
-            else if (r) H.land++;
+            else if (r) {
+              H.land++;
+              const lost = hpBefore - (e.hp || 0);
+              if (lost > 0) { H.dmgReal = (H.dmgReal || 0) + lost; H.landReal = (H.landReal || 0) + 1; }
+            }
             return r;
           } catch (err) { return origHit.apply(this, arguments); }
         };
@@ -879,6 +889,8 @@
         } catch (e) { return null; }
       })(),
       hitsTry: (window.__hits ? window.__hits.try : 0),
+      dmgReal: (window.__hits ? (window.__hits.dmgReal || 0) : 0),
+      landReal: (window.__hits ? (window.__hits.landReal || 0) : 0),
       hitsLand: (window.__hits ? window.__hits.land : 0),
       hitsRejDead: (window.__hits ? window.__hits.dead : 0),
       hitsRejSpawn: (window.__hits ? window.__hits.spawn : 0),

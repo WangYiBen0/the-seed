@@ -50,6 +50,8 @@
       mate: TSW.settings.get('autoMate', true),            // recruit survivors at camp fires
       dashHazards: TSW.settings.get('autoDashHazards', true), // refuse dashes into hazards/void
       weaponDps: false,                                      // explore: fold real DPS into weapon scoring
+      // MUST be declared here or runAB marks the experiment void.
+      rateBias: true,                                        // prefer high fire-rate guns (benchmark.md 172)
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
@@ -254,6 +256,17 @@
         if (ww && ww.dmg) {
           const per = (Array.isArray(ww.dmg) ? ww.dmg[0] : ww.dmg) * (ww.n || 1);
           v += Math.min(3, per / 12);                    // burst-ish bonus
+          // FIRE RATE BEATS PER-SHOT DAMAGE, measured.  nova has 5.4x nail's
+          // theoretical sustained dps (99.9 vs 27.7) yet produced HALF the real
+          // hits and damage, and 0.5 rooms vs 1.5 (benchmark.md 172): a shot only
+          // converts while the enemy is in view and in range, so the number of
+          // converted hits scales with rate, not with damage per shot.
+          // Weighted gently (max +2.5) so it biases ties rather than overriding
+          // the policy table.  Switchable for A/B.
+          if (A.opts.rateBias !== false) {
+            const rt = (ww.rate || 0);
+            if (rt > 0) v += Math.min(2.5, rt / 6);
+          }
           if ((ww.pierce | 0) >= 1) v += 1.2;            // piercing is worth a slot
           // Late-game scaling: every upgrade multiplies the BASE damage, so
           // a heavy single-shot weapon outgrows a fast peashooter.  Only bias
