@@ -179,6 +179,20 @@ async function main() {
           });
           const kvv = kv && kv.result && kv.result.value;
           if (kvv) kvProbe = 'status=' + kvv.status + ' body=' + kvv.body;
+          // The list endpoint answered {"data":[],"count":0}: a KEY LIST, not the
+          // values.  The game reads its 8 STORE_KEYS by key (platform.js:64 uses
+          // kv.batchGet), so the contract that matters is the per-key read.  Probe
+          // one known key, still GET-only, to learn its shape.
+          try {
+            const one = await s('Runtime.evaluate', {
+              expression: `fetch('/api/gamefy/${String(j.gameId)}/kv/achroma_set', {credentials:'include', headers:{accept:'application/json'}})
+                .then(r => r.text().then(t => ({status:r.status, body:t.slice(0,160)})))
+                .catch(e => ({status:0, body:'fetch failed: '+String(e)}))`,
+              awaitPromise: true, returnByValue: true,
+            });
+            const ov = one && one.result && one.result.value;
+            if (ov) kvProbe += ' | perKey=' + ov.status + ' ' + ov.body;
+          } catch (e) { kvProbe += ' | perKey error'; }
         } catch (e) { kvProbe = 'probe error: ' + String(e).slice(0, 80); }
         const meta = {
           gameId: String(j.gameId),
