@@ -1,364 +1,158 @@
-# AGENTS.md
+# AGENTS.md — 操作规范
 
-给在本仓库工作的 AI agent（以及未来的我）的操作手册。**先读这页再动手。**
+给在本仓库工作的 AI agent（以及未来的我）。**开工前读完这页。**
+这里只放**规则**；背景、实测数字、踩坑战史在其它文件，按下面的表去查。
 
-> **开工前读 `ROADMAP.md` 和 `TASKS.md`。**
->
-> | 文件 | 管什么 |
-> |---|---|
-> | `ROADMAP.md` | **长期**：三档训练、终极目标、已否决方向、方向性判断 |
-> | `TASKS.md` | **当前**待办，做完勾掉 |
-> | `todo` 工具 | **本轮**即时步骤，DSH 每次 `turn/start` 置 `null`（不可持久）|
->
-> goal 每推进一轮就是新一轮，所以 **todo 无法跨轮存活**——长期目标不要写 todo。
+| 想知道 | 去哪读 |
+|---|---|
+| 长期目标、当前状态、已否决方向 | `ROADMAP.md` |
+| 当前待办 | `TASKS.md` |
+| 实测结论、被数据否掉的假设 | `site/docs/benchmark.md` |
+| 踩过的坑与排查顺序 | `site/docs/pitfalls.md` |
+| 挂机内部结构（模态/寻路/威胁场/选项） | `site/docs/auto-internals.md` |
+| 武器数据 | `site/docs/weapons.md` |
+| 进化、无尽 | `site/docs/evolution.md`、`site/docs/endless-guide.md` |
 
----
-
-## 0. 这个仓库是什么
-
-`[TheSeed]` 的**非官方离线镜像**：把 dzmm.ai 上的网页游戏原封不动搬下来，加一个
-平台 shim 让它离线跑，再挂一套工具（挂机 / 宏 / HUD / 基准 / 指令台）。
-
-- 游戏著作权归原作者所有；本仓库只是镜像 + 工具，**与官方无关**。
-- 官方页面：<https://www.dzmm.ai/character/3738712>
-- 线上地址：<https://wangyiben0.github.io/the-seed/>（gh-pages 分支）
-- 仓库：`WangYiBen0/the-seed`
+> 会话里的 `todo` 工具是**本轮**计划，每次 `turn/start` 会被清空
+> （`todo/tool-todo` 在 `turn/start` 置 `null`），而 goal 每推进一轮就是新一轮。
+> 所以**跨轮的东西不能写 todo**：长期写 `ROADMAP.md`，短期写 `TASKS.md`。
 
 ---
 
-## 1. 铁律（违反 = 返工）
+## 1. 铁律
 
-1. **绝不修改上游代码**：
-   - `site/js/**` —— 游戏脚本，**字节级**同步自浏览器保存，改一个字符都算破坏（会挡住后续 sync）。
-   - `[TheSeed]/**` —— 原始保存页 + 76 个带哈希的上游脚本，是镜像的**来源证据**，必须进 git、不可编辑、**不要 ignore**（见 §7）。
-2. **不改上游行为来迁就工具**：所有适配写在 `site/tools/**`、`site/dzmm-shim.js`。
-3. **不许编造验证结果**。说「跑通了 / 部署了 / 测试过了」之前必须有一次**真实**的成功输出支撑；
-   以前发生过凭想象报告「24/24 通过 + 已部署」，用户当场抓出，代价很大。
+1. **绝不修改上游代码**：`site/js/**` 与 `[TheSeed]/**` 字节级不可动，改一个字符都算破坏。
+   所有适配写在 `site/tools/**`、`site/dzmm-shim.js`。
+2. **不许编造验证结果**。说「跑通/部署/测试过」之前，必须有一次真实成功输出支撑。
    没验证就直说「未验证」。
-4. **保持声明**：README 与页面页脚的「非官方镜像 / 非本人创作 / 官网链接」不能删。
-5. 每次工具调用都要带 `description`（用户明确批评过缺失）；长脚本先 write 到 `.tmp/` 再执行。
+3. **保持声明**：README 与页面页脚的「非官方镜像 / 非本人创作 / 官网链接」不能删。
+4. **每个工具调用都要带 `description`**；长脚本先 `write` 到 `.tmp/` 再执行。
+5. **用户提的要求先写进 `TASKS.md` 再动手。**
 
 ---
 
-## 2. 目录地图
+## 2. 目录
 
-| 路径 | 作用 | 可改？ |
+| 路径 | 作用 | 可改 |
 |---|---|---|
-| `site/js/**` | 上游游戏脚本（76 个，GAME_V `mvkp5c7g`） | ❌ 只由 `sync` 覆盖 |
-| `[TheSeed]/**` | 浏览器保存的原版页 + 76 脚本（来源） | ❌ 只增不删 |
-| `site/dzmm-shim.js` | dzmm SDK 的 localStorage 实现 + AI 桥 | ✅ |
-| `site/tools/core.js` | rAF 时间扭曲、倍速、种子 RNG、设置、调试镜像、错误环 | ✅ |
-| `site/tools/auto.js` | **挂机核心**（最大最复杂） | ✅ |
-| `site/tools/hud.js` | 可视化 HUD + 指标装饰 | ✅ |
-| `site/tools/bench.js` | 基准：throughput/macro/fullrun/probe/dodge | ✅ |
-| `site/tools/explore.js` | 无尽流派矩阵 | ✅ |
-| `site/tools/cheats.js` | 无敌/锁血/指令台 `TSW.cmd` | ✅ |
-| `site/tools/macro.js` | 操作宏录制/回放 | ✅ |
-| `site/tools/panel.js` | 工坊面板（F8）+ autotest 协议 | ✅ |
+| `site/js/**` | 上游游戏脚本 | ❌ 只由 sync 覆盖 |
+| `[TheSeed]/**` | 原版页 + 上游脚本（来源证据，必须进 git） | ❌ 只增不删 |
+| `site/dzmm-shim.js` | dzmm SDK 的 localStorage 实现 | ✅ |
+| `site/tools/**` | 工具（core / auto / hud / bench / panel / …） | ✅ |
 | `site/inject.js` | 粘到官网页控制台的一键注入 | ✅ |
-| `scripts/*.mjs` | 服务/同步/抓资源/无头基准/格式化/语法闸门 | ✅ |
-| `tests/*.test.mjs` | 单元测试（42 个） | ✅ |
+| `scripts/*.mjs` | 服务 / 同步 / 抓资源 / 无头基准 / 闸门 | ✅ |
+| `tests/*.test.mjs` | 单元测试 | ✅ |
 | `site/docs/**` | 文档 + `docs/data/*.jsonl` 原始数据 | ✅ |
-| `flake.nix` | devShell / apps / checks / git-hooks | ✅ |
+
+三个入口各司其职，**不要混淆**：
+
+| URL | 内容 | 给谁 |
+|---|---|---|
+| `/` | 宿主页（iframe + 注入按钮） | 玩家 |
+| `/game.html` | 纯游戏，零工具 | iframe 挂载 |
+| `/auto.html` | 游戏 + 工具预载 | 只给无头 bench |
 
 ---
 
 ## 3. 常用命令
 
 ```bash
-nix develop                 # node + chromium + gh + jq + seed-* 助手；并安装 pre-commit 钩子
-nix run .#serve             # 起静态服（默认 8000）
-# 若报 "opening lock file ~/.cache/nix/... Read-only file system"（沙箱/只读 HOME），
-# 仓库本身没问题，只是 nix 想写缓存。两种解法：
-#   1) XDG_CACHE_HOME=$PWD/.tmp/nix-cache nix run .#serve
-#   2) 完全绕开 nix：node scripts/serve.mjs --port 8000
-# 打开 http://127.0.0.1:8000/ 看到的是**宿主页**（iframe + 注入按钮）。
-# 直接玩原版游戏（无工具）是 /game.html
-nix run .#sync              # 从 [TheSeed]/ 重新同步 site/js/（会校验 GAME_SCRIPTS 完整性）
-nix run .#source            # 补抓游戏请求过但仓库里没有的资源（写 asset-manifest.json）
+nix develop                 # node + chromium + gh + jq + seed-* 助手
+node scripts/serve.mjs --port 8000    # 起静态服（绕开 nix 缓存问题）
+nix run .#serve             # 同上，若报 nix 缓存只读则加 XDG_CACHE_HOME=$PWD/.tmp/nix-cache
+nix run .#sync              # 从 [TheSeed]/ 重同步 site/js/
+nix run .#source            # 补抓缺失资源
+nix run .#test              # 单元测试（数量以实际输出为准）
 nix run .#bench -- --kind fullrun --seed 7 --policy rounded --goal-depth 1 --speed 8
-nix run .#test              # 42 个单元测试
 nix build                   # 静态站产物 → result/
-nix flake check             # 含 pre-commit 检查
 ```
 
-**没有 `nix develop` 时**：node 不在 PATH，用
-`export PATH="/nix/store/bfqsxlviikq7vlp36kasy5hhamlxlkd2-nodejs-slim-24.19.0/bin:$PATH"`
-（store 路径会随 GC 变化，用 `ls -d /nix/store/*nodejs*/bin | head -1` 重新找）。
+没有 `nix develop` 时 node 不在 PATH，用
+`ls -d /nix/store/*nodejs*/bin | head -1` 找到后加进 PATH。
 
 ---
 
-## 3½. 自动同步（`.github/workflows/sync.yml`，每 6 小时 + 手动）
+## 4. 提交规范
 
-CI 会自己把镜像追到最新，本地手工同步只是**备份路径**。步骤与两种失败模式：
-
-```
-sign-in-code 登录 chromium ── 读 gameId / publishedAt   （必须真登录，匿名是 401）
-      ↓
-fetch-source.mjs          ── 抓 public static/ 资源，写 asset-manifest.json
-      ↓
-sync-scripts.mjs          ── 重写 site/js/（77/77 字节一致，实测）
-      ↓  --check 再跑一遍   ── 闸门：写完仍漂移就红
-syntax gate + node --test ── 46 项
-      ↓
-有变化才提交（updatedAt 不参与比较）
-```
-
-**验证过的坑（别再踩）**：
-
-- runner 的 chromium 起不来 → `ZygoteHostImpl::Init` SIGTRAP。原因：容器不给 zygote 的
-  命名空间权限。`ci-login.mjs` 已带 `--no-sandbox --no-zygote --disable-dev-shm-usage`，
-  且浏览器提前退出会**立即失败**，不再干等到 120 s 超时；
-- `git add -A -- . ':(exclude).tmp'` 会**整条失败**（gitignore 过的路径不能写进 pathspec），
-  `.tmp/` 本来就在 .gitignore 里，直接 `git add -A`；
-- `asset-manifest.json` 每次跑都刷新 `updatedAt`（且**过程末尾还有第二次写入**），会让
-  "有变化才提交"每 6 小时提交一次时间戳。现在只有 base/assets 真变才改时间，
-  url 也跟随当前 base（否则版本轮转后每条都指向已退役的 `__v<publishedAt>/`）。
-
-**"有变化才提交"的两条分支都实测过**：无变化 → `changed=false`、不 push；
-有变化 → 生成规范提交、`.tmp` 不泄漏（模拟脚本见提交 body 里的 sha）。
-
----
-
-## 4. 上游更新流程（用户说「上游更新了」）
-
-```bash
-# 1) 用户重新「另存为」覆盖 [TheSeed]/ 后：
-nix run .#sync                 # 输出 synced: N new/changed, M unchanged; 校验脚本完整性
-grep -oaE "GAME_V = '[^']+'" site/js/platform.js   # 记下新版本号
-
-# 2) 资源 base 会轮转。把版本信息喂给抓取脚本（两个变量都必填）：
-DZMM_GAME_ID=90e4b323-9859-482f-9eb0-7cba6f44a51b \
-DZMM_PUBLISHED_AT=1792749394892 \
-  nix run .#source             # 拼出 static/<gameId>/__v<publishedAt>/ 后重抓（通常仍是 57/57）
-
-# 这两个值来自 https://www.dzmm.ai/api/gamefy/<characterId> 的 JSON
-#   {"gameId": "...", "publishedAt": 1792749394892, ...}
-# 注意：该端点**需要登录**（匿名请求返回 {"error":"请先登录"}），
-# 在浏览器已登录会话里打开即可看到；拼出来的 static/ 目录本身是**公开**的。
-
-# 关于游客登录（POST /api/auth/anonymous-sign-in）——**自动不了**：
-#   请求体 {"fp": {"data": {...11 组信号...}, "hash": "<32 位 hex>"}}
-#   浏览器指纹由页面自己算（audio/canvas/fonts/hardware/locales/permissions/
-#   plugins/screen/system/webgl/math），换环境就会变；
-#   但即便指纹合法，服务端仍返回 {"code":"human_check_required"}，
-#   即必须过一遍人机验证。所以**不要试图伪造或复用指纹**，
-#   需要登录态时请在浏览器里手动登录一次，再把 Cookie 拿来用。
-# 2) 审计新增脚本（新 API / 新资源族 / 新交互物 kind）
-# 3) 冒烟 + 跑一局，再提交部署
-```
-
-**审计要点**：新脚本是否调用未实现的 `dzmm.*`；是否引用新资源目录；是否新增 `G.inter` 的
-`kind`（决定挂机要不要处理）；`STORE_KEYS` 是否新增存档键。
-
----
-
-## 5. 挂机（auto.js）结构速查
-
-- **入口**：`TSW.hooks.beforeTick(drive)`，每 tick 一次；`A.status.note` 是当前动作，调试先看它。
-- **模态必须驱动**，否则整局冻结（软锁）：`G.hintQ`、`NAMEED.open`、`OVL.open`（picker，
-  如军械库）、`G.state === 'labq'`（实验血清）、`G.state === 'dialysis'`（透析机）、
-  `cards` / `curse`。新增交互物/弹窗时**先确认游戏用哪个 state 冻结**。
-- **输入**：游戏用按下沿 `pressed(k)=keys[k]&&!prev[k]`，所以一切按键走边沿安全的
-  `tap()`（`A._tapGap` 强制中间有释放 tick），否则按住不放只会触发一次。
-- **移动**：`pickDir()` = 24 方向 × 3 半径 + `laneClear()` 最大最小余量；
-  `moveKeys()` 会**反向补偿** tremor（`hp<=3` 时的 ±27° 旋转）与 reverse 机制。
-- **寻路**：直线畅通就直奔目标（避弹更自然），被挡才用 `gridPath` BFS + `nextWaypoint` 64px 前瞻；
-  绕圈用**路标推进**判定（`travel.adv`），不是到目标的直线距离（绕墙时距离会变大，曾经的错）。
-- **威胁场** `spotDanger()`：预警圈 `inMech`、子弹最近接近、地刺（含预警期）、虚空格、
-  沟、陷阱（刀臂按 0.45s 预判、火柱按状态机、毒池）、**敌方动态 hazard `G.foeFx`**
-  （`acidPool`/`gasCloud`/抛物落点）与 `G.zones`。
-- **性能铁律**：`hazardAt` 每 tick 被调几十次，**不要在里面遍历大数组还逐采样调用**——
-  曾经把完整 `hazardAt` 塞进 `dashSafe` 的每采样点，结果 fullrun **静默卡死**（无报错）。
-  现在 `dashSafe` 只查弧线地块 + **落点**一次；动态危险用 `hazDyn()` 每 tick 缓存一次。
-- **选项**都在 `A.opts`（持久化到 `theseed.tools.settings`）：`dash` `skill` `reload`
-  `partner` `weaponSwap` `mate` `chest` `fount` `labSerum` `dialysis` `arsenal`
-  `weaponPick` `chipPick` `pickups` `manual` `dashHazards` `noFire`；
-  探索侧另有 `goalGiveUp` `wallMargin` `specialsFirst` `powerupFirst` `forgeFirst`
-  `meleeBlock` `fullHpGate` `weaponLateBias` `openSeals` `usePortals` `pickupOrder`。
-- **换弹空窗**：主武器换弹中且副武器就绪 → `KeyX` 切过去，装好再切回（评分更高时）。
-  **任一槽位是近战就完全不换枪**（近战无弹匣，换掉会连带丢失格挡能力）。
-- **武器策略**：见 `site/docs/weapons.md`（37 把武器的 baseDPS / 单发 / 穿透 / 走位）。
-  要点：穿墙武器（`saw`/`crescent` = pierce 999，`shuriken`/`longshot` = 1）
-  要**横向对齐敌群纵列**而不是盲目绕圈；近战贴身并主动挥击**格挡弹幕**
-  （`deflectBullets` 销毁子弹 + 35% 反弹 8×dmg）。
-- **boss 激光扫射**：`G.lasers` 是「从 `r0`(多为46) 到 `len`(420~460) 的线段」，
-  `a` 随 `va` 旋转；**`r0` 以内无伤害**。`laserPush()` 给逆向扫射的切向力 +
-  就近内缩/外撤。
-- **α 血清期**（`G.exp.id==='a' && left>0`）：受伤扣**血量上限**，不可逆。
-  该期间前瞻 1.35s、权重 ×1.9、交战带放大 1.5 倍。
-- **实验血清**：优先级最高（早于 powerup/seal/reward）。副作用是「接下来 3 场战斗」，
-  只在**真正打过有敌人的房间**时递减（`expBattle` 挂在 `unlockRoom`），
-  所以不许带着副作用下一层。
-- **满血过层门槛**：治疗泉只回 **2 点血且一次性**，所以只在
-  `p.hp+2 >= p.maxHp` 时才去；每层给 45 秒窗口，超时放弃。
-- **基因组**：`GENE_DEF`（12 个可调参数）经 `gene(k)` 读取，
-  未提供 `A.opts.genome` 时取默认值（= 手工调参）。进化循环见 `docs/evolution.md`。
-- **搭档技能**：`G.ptn.cd<=0` 时 `KeyF`（`usePartner`）。
-- **流派**：`POLICY_W` / `WEAPON_W` 的键 = 游戏自身 12 个入侵偏好
-  （rounded/brawler/crazy/ranger/mage/chunky/old/lucky/engineer/doctor/mutant/loud）。
-- **最终稳定状态**（面板 goal.*）：`goal.weapon` / `goal.skill` / `goal.radio` / `goal.mate`
-  + `serumExclude`，命中即加权（`GOAL_W`）。
-
----
-
-## 6. 测试与基准
-
-```bash
-nix run .#test                                   # 42 个：决策纯函数 + bench 记账
-# 单局
-nix run .#bench -- --kind fullrun --seed 7 --policy rounded --goal-depth 1 --speed 8 --timeout 200
-# 绝境五锁（修饰符直接进存档，游戏自己校验）
-nix run .#bench -- --kind probe --diff despair --mods rage,deathfight,bulwark,rot,cyst \
-                    --depth 5 --seconds 20 --speed 8 --timeout 330
-# 躲弹幕专项（禁火压力局，v2 单引擎）
-nix run .#bench -- --kind dodge --seconds 45 --depth 6 --seed 11 --speed 8
-# 多种子：--out 累积后自动多打一行 {"kind":"summary"}（均值/标准差）
-```
-
-**读数字的纪律**：
-
-- 单局方差极大（实测 5 种子：`gameT 267±81`、`kills 41±14`，CV 30~35%）。
-  **改动的优劣必须多种子看均值**，别用单局下结论（我自己被单局误导过多次）。
-- 结果行里 `stall` / `replan` 是绕圈计数器；`hits` 是受击；`dodge` 行用 tick 归一化并带
-  `valid` 门槛（`ticks<600` 判无效重试，防止「没进战斗 = 0 受击」的假完美）。
-- bench 的硬超时是 `--timeout + 60` 秒；probe/dodge 需要 `seconds*1000/min(4,speed)+几秒`。
-
----
-
-## 7. Git / 提交 / 部署
-
-**gitignore 的坑**（已修，别改回去）：曾经写过一行 `[TheSeed]/`，那是 gitignore 的
-**字符类**语法（匹配单个 `T/h/e/S/d` 字符后接 `eed/`），**从未匹配到字面目录**，
-造成「以为忽略了、其实没有」，进而让原版页一度没进 git。
-现在**故意不忽略** `[TheSeed]/`，`.gitignore` 里有注释说明原因。
-
-**提交**：走 `git-hooks.nix` 的 pre-commit（`nix develop` 里自动装好）：
-
-- `seed-fmt`：行尾空白 / CRLF / 连续空行 / 末尾换行，格式化后自动重新暂存；
-- `seed-syntax`：`node --check`；
-- `excludes` 明确排除 `site/js/`、`[TheSeed]/`、资源与 data；
-- 需要可写缓存：devShell 已设 `PRE_COMMIT_HOME=$PWD/.tmp/pre-commit`（沙箱 `~/.cache` 只读），
-  **所以要在 `nix develop` 里提交**。
-
-**部署**（gh-pages 分支根 = `site/` 的内容）：
-
-```bash
-# main
-git push origin main            # 若 TLS 抖动/凭据助手挂起，用 token 直连：
-GH_TOKEN=$(gh auth token)
-git -c credential.helper= push "https://x-access-token:$GH_TOKEN@github.com/WangYiBen0/the-seed.git" HEAD:refs/heads/main
-
-# gh-pages 用「基于现有分支的增量提交」，整树 force-push 会被网络掐断
-rm -rf .tmp/ghp3 && mkdir -p .tmp/ghp3 && cd .tmp/ghp3
-git init -q -b gh-pages . && git remote add origin "https://x-access-token:$GH_TOKEN@github.com/WangYiBen0/the-seed.git"
-git -c credential.helper= fetch -q --depth 2 origin gh-pages && git checkout -q -B gh-pages FETCH_HEAD
-rsync -a --delete --exclude='.git' ../../site/ ./
-git add -A && git commit -m "pages: …" && git -c credential.helper= push origin gh-pages
-```
-
-**改完代码后、跑实验之前（血的教训，见 `docs/benchmark.md` §53）**：
-
-```bash
-grep -c "<新符号>" site/tools/auto.js     # 必须 > 0，否则补丁根本没落盘
-```
-
-曾经用 python 打补丁时断言在**写盘前**失败，但因为 fmt 钩子照常通过、测试也照常通过，
-我误以为改动已生效，于是拿一个**不存在的选项**做了 8 局实验，得到「0/8 vs 基线 4/8」
-这种看起来合理的假差异，还写进了文档 —— 实际两侧跑的是同一份代码。
-
-两道防线：
-
-1. **补丁后必须 grep 新符号**（补丁脚本失败时不会留下痕迹）；
-2. `runAB` 现在会检查 `autoOpts` 的每个键是否存在于 `TSW.auto.opts`，
-   不存在就打印红色 `AB: unknown autoOpts ignored → <keys>`。
-   **看到这行就说明实验无效，立刻作废。**
-
-同理：**A/B 必须同批次交错**。批次之间基线会漂移（同一默认配置实测得到
-2/8、3/8、4/8、0/8），跨批次比较得出的“改善”基本是假的。
-
-**提交信息必须是 Conventional Commits**（用户明确要求，违反要重写历史）：
+**Conventional Commits**，用户明确要求：
 
 ```
 <type>(<scope>): <subject>
 
-[optional body]
-
-[optional footer(s)]
+[body]
 ```
 
-- `type` 只允许：`feat` `fix` `perf` `refactor` `docs` `test` `build` `ci` `chore` `revert`；
-- `scope` 建议：`auto` `bench` `panel` `hud` `core` `invade` `explore` `deploy` `sync` `flake`；
-- `subject` 用**祈使句、小写开头、不加句号**，一句话说清「改了什么」，不要写实验过程；
-- **不要把测量数据塞进 subject**。结论、对照、种子数、CI 区间写进 `body` 或
-  `site/docs/benchmark.md`；
-- 琐碎/同类的改动**合并成一个提交**，不要一改动一提交刷屏。
+- `type`：`feat` `fix` `perf` `refactor` `docs` `test` `build` `ci` `chore` `revert`
+- `scope`：`auto` `bench` `panel` `hud` `core` `invade` `explore` `deploy` `sync` `serve` `flake`
+- `subject`：**祈使句、小写开头、不加句号**，一句话说清改了什么
+- **不要把测量数据写进 subject**，结论与数字写 body 或 `benchmark.md`
+- 同类小改动**合并成一个提交**
 
-坏例子（以前真实写过，禁止重复）：
-
-```
-docs: the real bottleneck is rooms cleared — all three over-clearing seeds cleared 7
-rooms while failures cleared 4 or 0; refines the serum correlation into the causal
-chain rooms->prisms->serums->damage, and flags the 0-clear runs (seed 31: 9 kills, 158s)
-```
-
-好例子：
-
-```
-fix(explore): abandon objectives that never complete
-
-Forge rooms were re-selected every tick and pinned whole runs. Add a give-up
-timer and a general safety net for any objective.
-
-Measured: pass-floor 3/12 -> 5/12 on 12 fixed seeds.
-```
-
-**验证部署（缺一不可）**：
+本机提交需要绕开 pre-commit 的缓存目录：
 
 ```bash
-gh api repos/WangYiBen0/the-seed/pages/builds/latest --jq '.status + " " + .commit[0:7]'  # built <你的 commit>
-curl -s "https://wangyiben0.github.io/.../tools/auto.js?cb=$RANDOM" -o /tmp/x.js
-python3 -c "print(open('/tmp/x.js','rb').read()==open('/home/.../site/tools/auto.js','rb').read())"
+PRE_COMMIT_ALLOW_NO_CONFIG=1 PRE_COMMIT_HOME=$PWD/.tmp/pre-commit git commit ...
 ```
 
-> github.io 有 `max-age=600`，CDN 会滞后；**`curl | grep '中文串'` 偶发查不到**，
-> 以**字节比对**或带随机参数的读回为准，不要据此宣称失败或成功。
+推送（TLS 常抖动，**必须循环重试到远端 SHA 对上才算成功**）：
+
+```bash
+export GH_TOKEN=$(gh auth token)
+git -c credential.helper= push "https://x-access-token:$GH_TOKEN@github.com/WangYiBen0/the-seed.git" HEAD:refs/heads/main
+gh api repos/WangYiBen0/the-seed/commits/main --jq '.sha[0:7]'
+```
 
 ---
 
-## 8. 已知陷阱清单（都是真踩过的）
+## 5. 验证要求
 
-| 症状 | 真因 |
-|---|---|
-| 全自动挂机黑屏（HUD 正常、画面全黑） | `Input.mx = clampM(v, window.W)` → `window.W` 是 undefined → NaN 进相机。用 `GW()/GH()` + NaN 防护 |
-| 挂机完全不动 | `A._pickTries` 未初始化却在 drive 里访问 → 每帧抛错 |
-| 面板后半截功能全失效（AI 设置/指令台消失） | `bench.js` 语法错误（重复形参）→ 整个文件不加载 → `TSW.bench` undefined → `panel.js` 中途抛错 |
-| 面板按钮全点不动 | 事件拦截写在 **capture** 阶段；必须用冒泡 |
-| 首局机制提示弹窗不消失、模拟冻结 | 每帧 `tap('Enter')` → 沿用 `pressed` 只触发一次；用边沿安全 tap |
-| fullrun 静默卡死、无任何报错 | `dashSafe` 里逐采样点调完整 `hazardAt`（含 `G.foeFx`/`G.zones` 遍历）→ 每帧计算量爆炸 |
-| 原地转圈 | 只靠「到目标直线距离」判进度（绕墙时距离变大 → 误判）；要用路标推进 |
-| 冲刺撞刀臂/踩毒液/冲进虚空 | `dashSafe` 只看 PIT；敌方毒液在 `G.foeFx` 而非 `WORLD.pools` |
-| `?v=` 版本参数 | 用户明确要求删除，接受 10 分钟 CDN 缓存 |
-| 想忽略 `[TheSeed]` | 见 §7，字符类语法坑，且不该忽略 |
-| 单局跑分忽好忽坏 | 真方差，不是回归；多种子看均值 |
+改完代码、跑实验之前，**必须确认改动真的落盘**：
 
----
+```bash
+grep -c "<新符号>" site/tools/auto.js     # 必须 > 0
+```
 
-## 9. 与用户打交道的要点
+否则补丁脚本可能在写盘前就失败了，而 fmt 与测试照常通过——你会拿一个不存在的
+选项做实验。`runAB` 会额外检查 `autoOpts` 的键，打印
+`AB: unknown autoOpts ignored` 时**实验作废**。
 
-- 中文交流；结论先行，**数字必须有出处**（哪次跑、什么种子、多少局）。
-- 用户会抓胡编：**没跑就说没跑**，被质疑时先自己验（`git ls-remote`、sha256、build 状态），
-  别嘴硬。
-- 失败要留痕：试过但更差的方案写进文档（例：`docs/benchmark.md` 里「被数据否掉的方差假设」）。
-- 用户偏好：面板/HUD 默认隐藏（F8/F9/F10 唤出）；去掉了所有 `?v=`；
-  误伤机制（锁血 vs 无敌）必须区分；没视线不开火；不冲沟不撞陷阱；
-  流派=游戏自己的 12 个偏好名；躲弹幕只留 v2。
+**部署必须验证字节**（github.io 有 CDN 滞后）：
+
+```bash
+gh api repos/WangYiBen0/the-seed/pages/builds/latest --jq '.status + " " + .commit[0:7]'
+curl -s "https://wangyiben0.github.io/the-seed/index.html?cb=$RANDOM" -o /tmp/x.html
+python3 -c "print(open('/tmp/x.html','rb').read()==open('site/index.html','rb').read())"
+```
+
+`curl | grep '中文串'` 偶发查不到，**不要据此断言成功或失败**。
 
 ---
 
-## 10. 终极目标
+## 6. UI 与运行时约定
 
-**不在这里重复**——唯一权威是 `ROADMAP.md`（长期目标 + 当前状态 + 已否决方向）。
-写两份必然分叉；要改目标就改 `ROADMAP.md`。
+- 面板 / HUD 默认隐藏，F8 工坊 / F9 HUD / F10 指令台。
+- **工坊区块默认全部折叠**；指令台是**独立浮层**，不在工坊里。
+- 选项必须持久化到 `theseed.tools.settings`，且默认值按副作用分组（有副作用的默认关）。
+- 无 `?v=` 缓存参数。
+- 锁血 ≠ 无敌，二者必须区分。
+- 没视线不开火（除非显式开启）；不冲沟、不撞陷阱、不进虚空。
+- 流派名用游戏自己的 12 个偏好名。
 
-数据与实测结论见 `site/docs/benchmark.md`、`site/docs/endless-guide.md`。
+---
+
+## 7. 测量纪律
+
+- **多种子看均值**。单局方差很大（CV 30–35%），单局结论基本无效。
+- **A/B 必须同批次交错**。跨批次基线会漂移，跨批比较得出的「改善」多半是假的。
+- **先用一批稳定产出数据，再谈优化**。历史上多数「数据作废」根因在测量链路
+  （日志互写、静默丢结果、墙钟误杀、遗留作业），不在分析本身。
+- 结果行必须能区分**超时 / 中止 / 死亡**，不要把中止读成超时。
+
+---
+
+## 8. 与用户打交道
+
+- 中文；**结论先行**；每个数字都要能追到出处（哪次跑、什么种子、多少局）。
+- 用户会抓胡编。被质疑时先自己验（`git ls-remote`、sha256、build 状态），别嘴硬。
+- 试过但更差的方案写进 `benchmark.md`，留下否决理由。
+- 失败要留痕，不要粉饰。
