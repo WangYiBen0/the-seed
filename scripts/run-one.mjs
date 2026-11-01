@@ -65,6 +65,12 @@ const outerTimer = setTimeout(() => {
 // Pull every TSW_RESULT row out of a streamed log and append it to --out.
 // Returns how many rows were written.
 function harvest(logFile, outFile) {
+  // The bench's own --out writer works sometimes.  If it already appended rows
+  // for this run, harvesting again duplicates them (measured: two identical
+  // rows for one run).  Record the size before the run starts and only harvest
+  // what is NEW.
+  let already = 0;
+  try { already = statSync(outFile).size; } catch (e) { already = 0; }
   let text = '';
   try { text = readFileSync(logFile, 'utf8'); } catch (e) { return 0; }
   const rows = [];
@@ -78,6 +84,10 @@ function harvest(logFile, outFile) {
     } catch (e) { }
   }
   if (!rows.length) return 0;
+  // assume the bench's own writer produced nothing new unless the file grew
+  let grew = 0;
+  try { grew = statSync(outFile).size - already; } catch (e) { grew = 0; }
+  if (grew > 0) return 0;                       // already written by the bench
   try {
     const dir = outFile.replace(/[^/]*$/, '');
     if (dir) mkdirSync(dir, { recursive: true });
