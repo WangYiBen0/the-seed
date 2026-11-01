@@ -650,32 +650,6 @@
     note('目标已清空（刷新面板生效）');
   };
 
-  const sAcc = section('工具注入 · INJECT');
-  const accRow = row(sAcc);
-  const bInject = btn('复制工具注入代码');
-  const bAccNote = el('div', 'color:#8d867a');
-  bAccNote.textContent = '官网页（dzmm.ai）是纯静态页面之外的另一套登录态，镜像读不到它；\n想在官方页里用这套工具：点上面按钮复制代码，到官网页面按 F12 打开控制台粘贴回车，\n然后 F8 工坊 / F9 HUD / F10 指令台。源码见 inject.js。';
-  accRow.append(bInject);
-  sAcc.appendChild(bAccNote);
-  // 注入代码只有一份（site/inject.js），按钮直接把它取过来复制，避免两处不同步
-  const INJECT_FALLBACK = "(()=>{const B='https://wangyiben0.github.io/the-seed/tools/',F=['core','macro','auto','hud','bench','explore','cheats','panel'];if(window.__TSW)return console.warn('[TSW] already injected');(async()=>{const bad=[];for(const n of F){await new Promise(r=>{const s=document.createElement('script');s.src=B+n+'.js?v='+Date.now();s.onload=r;s.onerror=()=>{bad.push(n);r()};document.head.appendChild(s)})}console.log(bad.length?'[TSW] failed: '+bad:'[TSW] injected')})()})();";
-  const copyInject = async () => {
-    let code = INJECT_FALLBACK;
-    try {
-      const url = new URL('../inject.js', document.baseURI);
-      const res = await fetch(url.href, { cache: 'no-store' });
-      if (res.ok) { const t = await res.text(); if (t && t.length > 80) code = t; }
-    } catch (e) { /* 取不到就退回内置一行版 */ }
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(code); note('已复制注入代码 → 到官网页面 F12 粘贴回车'); return; }
-    } catch (e) { }
-    // 剪贴板不可用（无 https / 被拒）时给一个可选中的文本框
-    const ta = document.createElement('textarea');
-    ta.value = code; ta.style.cssText = 'width:100%;height:70px;margin-top:4px;background:#151310;color:#e8e1d3;border:1px solid #3c3732;font:10px monospace';
-    sAcc.appendChild(ta); ta.focus(); ta.select();
-    note('剪贴板被拒：已选中文本，请手动 Ctrl+C');
-  };
-  bInject.onclick = copyInject;
 
   // ---------------- 存档 ----------------
   const sSave = section('存档 · SAVE (localStorage)', { open: false });
