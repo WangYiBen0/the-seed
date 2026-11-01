@@ -72,6 +72,38 @@ nix flake check             # 含 pre-commit 检查
 
 ---
 
+## 3½. 自动同步（`.github/workflows/sync.yml`，每 6 小时 + 手动）
+
+CI 会自己把镜像追到最新，本地手工同步只是**备份路径**。步骤与两种失败模式：
+
+```
+sign-in-code 登录 chromium ── 读 gameId / publishedAt   （必须真登录，匿名是 401）
+      ↓
+fetch-source.mjs          ── 抓 public static/ 资源，写 asset-manifest.json
+      ↓
+sync-scripts.mjs          ── 重写 site/js/（77/77 字节一致，实测）
+      ↓  --check 再跑一遍   ── 闸门：写完仍漂移就红
+syntax gate + node --test ── 46 项
+      ↓
+有变化才提交（updatedAt 不参与比较）
+```
+
+**验证过的坑（别再踩）**：
+
+- runner 的 chromium 起不来 → `ZygoteHostImpl::Init` SIGTRAP。原因：容器不给 zygote 的
+  命名空间权限。`ci-login.mjs` 已带 `--no-sandbox --no-zygote --disable-dev-shm-usage`，
+  且浏览器提前退出会**立即失败**，不再干等到 120 s 超时；
+- `git add -A -- . ':(exclude).tmp'` 会**整条失败**（gitignore 过的路径不能写进 pathspec），
+  `.tmp/` 本来就在 .gitignore 里，直接 `git add -A`；
+- `asset-manifest.json` 每次跑都刷新 `updatedAt`（且**过程末尾还有第二次写入**），会让
+  "有变化才提交"每 6 小时提交一次时间戳。现在只有 base/assets 真变才改时间，
+  url 也跟随当前 base（否则版本轮转后每条都指向已退役的 `__v<publishedAt>/`）。
+
+**"有变化才提交"的两条分支都实测过**：无变化 → `changed=false`、不 push；
+有变化 → 生成规范提交、`.tmp` 不泄漏（模拟脚本见提交 body 里的 sha）。
+
+---
+
 ## 4. 上游更新流程（用户说「上游更新了」）
 
 ```bash
