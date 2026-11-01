@@ -1148,7 +1148,20 @@
     return {
       kind: 'invade', at: Date.now(), seed, diff, role, startWave: wave, seconds, speed,
       end: g.state === 'dead' ? 'death' : 'alive',
-      gameS: +gameS.toFixed(1), waveReached: peakWave || (iv.wave | 0), wavePhase: iv.phase || '',
+      gameS: +gameS.toFixed(1),
+      // peakWave is the highest wave number seen. `wave` is one LESS than the
+      // wave played: ivStartWave() does `iv.wave++` on entry (invade.js:76), so a
+      // run that reached wave 6 stores wave=5. Record both, plus the number of
+      // waves actually cleared, so a start-wave can never be mistaken for
+      // progress. (Earlier rows were read as "stuck at wave 6" purely because
+      // the start wave leaked into this field.)
+      waveReached: peakWave || (iv.wave | 0),
+      waveIndex: iv.wave | 0,
+      wavesPlayed: Math.max(0, (peakWave || (iv.wave | 0)) - wave),
+      // a run that is still alive when the budget expires has NOT found a
+      // ceiling: it was cut off. Distinguish that from a real death.
+      cutOff: g.state !== 'dead' && g.state !== 'win',
+      wavePhase: iv.phase || '',
       survived: +gameS.toFixed(1),
       kills: (g.kills | 0) - k0, hits: g.hits | 0,
       dmg: Math.round(TSW.metrics.dmgTotal - d0),
