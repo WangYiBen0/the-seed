@@ -12,10 +12,15 @@
 - [ ] **三档训练基线**：五锁 / 入侵波 6–9 / 无尽终局。
       阻塞：本机 chromium 启动不稳定（实测 seed 7 连续两次 `exit null`）。
       兜底已就位（无产出自动重试、单次 400 s 上限、`--tag` 日志隔离）。见 `ROADMAP.md`。
-- [ ] **部署 gh-pages**：`index.html`/`game.html`/`auto.html` 是新结构，线上仍是旧版单页。
+
 - [ ] **真实云存档写入验证**：需用户授权（会覆盖官方存档）。
 
 ## 已完成
+
+- [x] **部署 gh-pages（新结构）**：commit `d0f2e93`，Pages build `built`。
+      实测线上三个入口与本地**字节一致**：`index.html 7161B`、`game.html 1652B`、`auto.html 2273B`。
+      真实浏览器实测行为：`frames:1, cta:true, barHidden:true, innerTsw:"undefined"`（注入前无工具）→
+      点注入后 `ctaGone:true, barOn:true, inner:{tsw:"object", auto:true, panel:true}`。
 
 - [x] `:8000` 根路径 404 —— `serve.mjs` 从不把 `/` 映射到 `index.html`
       （`join(ROOT,'/')` 是目录，`stat` 判「非文件」）。实测修后 `/ 200`、`/nope 404`。
