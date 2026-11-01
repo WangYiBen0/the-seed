@@ -17,7 +17,12 @@ test('the tile BFS dequeues in O(1)', () => {
   assert.match(AUTO, /let qh = 0;/, 'an index cursor replaces shift()');
 });
 
-test('hazard lookups inside the BFS are memoised', () => {
-  assert.match(AUTO, /const hazardFreeCached = /, 'the per-cell hazard probe must be cached');
-  assert.match(AUTO, /hazardFreeCached\(gx, gy\)/, 'okT must use the cached probe');
+test('the BFS kees the direct hazard probe: a per-search Map was measured SLOWER', () => {
+  // A per-search hazard cache was tried and reverted.  Measured in the same
+  // conditions (seed 7, speed 8, 120 s wall): direct probe 3.00x realtime, cached
+  // 1.98x.  The search revisits too few cells for the Map to pay for itself, so
+  // this asserts we did NOT reintroduce it.
+  assert.ok(!/const hazardFreeCached/.test(AUTO), 'the cache was measured slower and must stay out');
+  assert.match(AUTO, /const okT = \(gx, gy\) => walkable\(gx, gy\) && \(A\._plainPath === true \|\| hazardFree\(gx, gy\)\)/,
+    'the direct probe must remain');
 });

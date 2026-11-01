@@ -171,11 +171,22 @@
     loud: { hail: 6, storm: 6, flamer: 5.5, whirl: 5, saw: 4.5, twin: 5, splinter: 4.5, hammer: 4.5 },
   };
   // ---- 最终稳定状态（面板 goal.*）：目标武器/技能/搭档，命中即加权 ----------
-  const goal = (k) => {
-    try { const st = TSW && TSW.settings; return (st && typeof st.get === 'function' ? st.get('goal.' + k, '') : '') || ''; }
-    catch (e) { return ''; }
+  // A goal may be a single id (legacy) or a LIST of ids (the panel now offers
+  // multi-select dropdowns).  goalList() normalises both; goalHit(id,k) is the
+  // predicate every call site should use instead of comparing to a bare string.
+  const goalList = (k) => {
+    try {
+      const st = TSW && TSW.settings;
+      const v = st && typeof st.get === 'function' ? st.get('goal.' + k, '') : '';
+      if (Array.isArray(v)) return v.filter(Boolean);
+      if (typeof v === 'string') return v.split(',').map((x) => x.trim()).filter(Boolean);
+      return [];
+    } catch (e) { return []; }
   };
+  const goalHit = (id, k) => { const l = goalList(k); return !l.length || l.includes(id); };
+  const goal = (k) => { const l = goalList(k); return l[0] || ''; };
   A.goal = { weapon: () => goal('weapon'), skill: () => goal('skill'), radio: () => goal('radio'), mate: () => goal('mate') };
+  A.goalList = goalList; A.goalHit = goalHit;
   const GOAL_W = 1.9;                                  // how strongly a match pulls
   // Real DPS of an explore weapon = damage x shots-per-second x projectiles.
   // The table below was previously the ONLY input, so the bot could hold a
@@ -222,8 +233,9 @@
   const wScore = (id) => {
     try {
       let v = (WEAPON_W[A.policy] && WEAPON_W[A.policy][id]) || 2.5;
-      const g = A.goal && A.goal.weapon ? A.goal.weapon() : '';
-      if (id && g && id === g) v += GOAL_W;             // target weapon wins ties
+      // multi-select: any listed weapon gets the pull (an unset list means "any")
+      const gl = A.goalList ? A.goalList('weapon') : [];
+      if (id && gl.length && gl.includes(id)) v += GOAL_W;   // target weapon wins ties
       // optional DPS term (A/B: A.opts.weaponDps)
       // Per-shot damage matters MORE than raw dps, because every upgrade level
       // multiplies the base: a 26/shot hammer outgrows a 7/shot nail quickly.
@@ -383,14 +395,12 @@
     // once per visited cell — the same hazard test repeated for every search.
     // Memoise per search and cap the lookup count so a pathological floor cannot
     // turn the autopilot into the frame cost that "x8 倍速还是会卡顿" reported.
-    const hazCache = new Map();
-    const hazardFreeCached = (gx, gy) => {
-      const k = gy * Wd + gx;
-      let v = hazCache.get(k);
-      if (v === undefined) { v = hazardFree(gx, gy); hazCache.set(k, v); }
-      return v;
-    };
-    const okT = (gx, gy) => walkable(gx, gy) && (A._plainPath === true || hazardFreeCached(gx, gy));
+    // A per-search cache was tried here and made the simulation SLOWER (3.00x ->
+    // 1.98x of realtime at speed 8): building and probing a Map per BFS costs more
+    // than the hazardAt calls it saves, because the search touches few cells that
+    // are actually revisited.  Keep the direct probe, and rely on the caller's
+    // 1.4 s throttle in nextWaypoint() instead.
+    const okT = (gx, gy) => walkable(gx, gy) && (A._plainPath === true || hazardFree(gx, gy));
     const sx = Math.floor(p.x / 16), sy = Math.floor(p.y / 16);
     const gx2 = Math.floor(tx / 16), gy2 = Math.floor(ty / 16);
     // A blocked START or GOAL used to abort the whole search.  That is fatal: when
@@ -1636,7 +1646,7 @@
         }
         if (it.kind === 'ink' && A.opts.pickups) { A.status.note = '捡墨水'; break; }   // walk over
         if (it.kind === 'survivor' && A.opts.mate && !it.used) {
-          const wantMate = !A.goal.mate() || it.id === A.goal.mate() || it.id === A.goal.radio();
+          const wantMate = !A.goalList('mate').length || A.goalHit(it.id, 'mate') || A.goalHit(it.id, 'radio');
           if (wantMate) { A.status.note = '招募搭档 ' + it.id; tap('KeyE'); break; }
           continue;
         }
@@ -1645,7 +1655,7 @@
         if (it.kind === 'dialysis' && A.opts.dialysis && !it.used && (G.curses || []).length && ((p.maxArmor | 0) >= 1)) { A.status.note = '透析机：清诅咒'; tap('KeyE'); break; }
         if (it.kind === 'key' || it.kind === 'prism') break; // walk over
         if (it.kind === 'chip') {
-          const wantSkill = !p.skill || it.id !== 'teleport' || it.id === A.goal.skill();
+          const wantSkill = !p.skill || it.id !== 'teleport' || A.goalHit(it.id, 'skill');
           if (A.opts.chipPick && wantSkill) { tap('KeyE'); break; }
           continue;
         }
@@ -2374,9 +2384,14 @@
           // prompt that needs both proximity AND a key tap.  Nudge onto the point
           // so the 24 px interaction branch can actually see it.
           else if (dl <= 12 && clear) {
+            // Do NOT call pickDir here: it evaluates 24 directions x 3 radii with
+            // spotDanger each time, and this branch runs every tick while the bot
+            // sits on an objective.  Doing so cut the simulation rate from 3.6-4.7x
+            // realtime to 1.14x (measured: gameT 138 in wall 120.6).  A straight
+            // normalised nudge is all that is needed this close to the point.
             const ox = tgt.pt[0] - p.x, oy = tgt.pt[1] - p.y;
             const ol = Math.hypot(ox, oy);
-            if (ol > 2) { [mx, my] = pickDir(p, ox, oy); A.status.note = '到达目标：微调到交互点'; }
+            if (ol > 2) { mx = ox / ol; my = oy / ol; A.status.note = '到达目标：微调到交互点'; }
             else { mx = 0; my = 0; A.status.note = '已到目标点'; }
           }
           // stuck on this objective? bench it for a while so the run keeps moving
@@ -2668,8 +2683,8 @@
       if (it.kind !== 'weapon' && it.kind !== 'chip') continue;
       if (unreachable(it) || unreachable(roomAt(it.x, it.y))) continue;
       const want = it.kind === 'chip'
-        ? (!p.skill || it.id !== 'teleport' || it.id === A.goal.skill())
-        : (p.weapons.length < wCap() || it.id === A.goal.weapon() || wScore(it.id) > wScore(p.weapons[p.wi]) + .5);
+        ? (!p.skill || it.id !== 'teleport' || A.goalHit(it.id, 'skill'))
+        : (p.weapons.length < wCap() || A.goalHit(it.id, 'weapon') || wScore(it.id) > wScore(p.weapons[p.wi]) + .5);
       if (!want) continue;
       const d = dist(p.x, p.y, it.x, it.y); if (d < bwd) { bwd = d; bw = it; }
     }

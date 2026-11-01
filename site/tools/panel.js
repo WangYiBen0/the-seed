@@ -74,6 +74,35 @@
   const btn = (label, style) => { const b = el('button', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 8px;cursor:pointer;font:11px ui-monospace,monospace;margin:1px;' + (style || '')); b.onmouseenter = () => b.style.borderColor = '#efb94a'; b.onmouseleave = () => b.style.borderColor = '#3c3732'; b.textContent = label; return b; };
   const sel = (opts) => { const s = el('select', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px;font:11px ui-monospace,monospace;width:100%'); opts.forEach(([v, l]) => { const o = document.createElement('option'); o.value = v; o.textContent = l; s.appendChild(o); }); return s; };
   const check = (label, get, set) => { const l = el('label', 'display:flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = get(); c.onchange = () => set(c.checked); c.style.accentColor = '#efb94a'; l.appendChild(c); l.appendChild(document.createTextNode(label)); return l; };
+  // ---- multi-select dropdown ------------------------------------------------
+  // The user asked for every option group to be ONE dropdown with checkboxes
+  // inside, instead of a wall of loose checkboxes.  <select multiple> would hide
+  // the state (a selected row is only highlighted), so this is a button that
+  // opens a panel of real checkboxes; the button's own label carries the count.
+  const multiDrop = (parent, label, build) => {
+    const wrap = el('label', 'display:flex;align-items:center;gap:5px;margin:2px 0');
+    const b = el('button', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 8px;font:11px ui-monospace,monospace;cursor:pointer;min-width:150px;text-align:left');
+    b.textContent = label + ' ▾';
+    const panelBox = el('div', 'display:none;position:absolute;z-index:30;background:#100e0c;border:1px solid #3c3732;border-radius:5px;padding:6px 8px;max-height:260px;overflow:auto;box-shadow:0 6px 18px #000a');
+    wrap.style.position = 'relative';
+    wrap.append(b);
+    wrap.appendChild(panelBox);
+    const refresh = () => {
+      const lines = build(panelBox);
+      const stat = (lines && lines.count !== undefined) ? lines.count : '';
+      b.textContent = label + (stat ? '（' + stat + '）' : '') + ' ▾';
+    };
+    b.onclick = (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      const open = panelBox.style.display === 'none';
+      panelBox.style.display = open ? 'block' : 'none';
+      if (open) refresh();
+    };
+    document.addEventListener('click', (ev) => { if (!wrap.contains(ev.target)) panelBox.style.display = 'none'; });
+    parent.appendChild(wrap);
+    refresh();
+    return wrap;
+  };
   const row = (s) => el('div', 'display:flex;gap:4px;flex-wrap:wrap;align-items:center', s);
   const status = el('div', 'padding:4px 8px;color:#8ed872;min-height:15px;border-bottom:1px solid #221f1c');
 
@@ -290,16 +319,43 @@
     mainOpt('优先无尽传送门', 'preferEndless', 'preferEndless'),
     mainOpt('购物/锻造', 'shop', 'autoShop'));
   // ---- 细项：逐项决定挂机要不要碰它们 ----
-  const setOpt = (k, sk) => check(k, () => ao[k], (v) => { ao[k] = v; TSW.settings.set(sk, v); });
-  row(sAuto).append(setOpt('自动开箱', 'autoChest'), setOpt('治疗泉', 'autoFount'));
-  row(sAuto).append(setOpt('实验血清（α/β/Ω）', 'autoLabSerum'), setOpt('军械库', 'autoArsenal'));
-  row(sAuto).append(setOpt('捡武器', 'autoWeaponPick'), setOpt('捡芯片', 'autoChipPick'));
-  row(sAuto).append(setOpt('棱镜/钥匙', 'autoPickups'), setOpt('玩家可手动接管', 'autoManual'));
-  row(sAuto).append(setOpt('透析机（花 1 护甲上限清诅咒）', 'autoDialysis'));
-  row(sAuto).append(setOpt('技能芯片（E）', 'autoSkill'), setOpt('主动换弹（R）', 'autoReload'));
-  row(sAuto).append(setOpt('搭档技能（F）', 'autoPartner'), setOpt('换弹切副武器（X）', 'autoWeaponSwap'));
-  row(sAuto).append(setOpt('招募伙伴（篝火）', 'autoMate'), setOpt('冲刺避开陷阱/虚空', 'autoDashHazards'));
-  row(sAuto).append(setOpt('启用冲刺', 'autoDash'));
+  // setOpt(label, optsKey, settingsKey).  The first argument used to double as the
+  // opts key, but callers passed a Chinese LABEL, so every one of these checkboxes
+  // read ao['自动开箱'] (undefined), wrote that same bogus key, and never touched
+  // opts.chest: the tick stuck, but nothing it controlled ever changed and nothing
+  // survived a reload — exactly the reported "复选框细则没有记忆".
+  const setOpt = (label, key, sk) => check(label, () => ao[key], (v) => { ao[key] = v; TSW.settings.set(sk, v); });
+  // Every 细项 in one dropdown, each row a real checkbox bound to opts.<key> and
+  // persisted under its own settings key.  The second argument is the opts key
+  // (NOT the label): passing the label was the bug that made all of these
+  // non-functional and non-persistent.
+  const autoItems = [
+    ['自动开箱', 'chest', 'autoChest'],
+    ['治疗泉', 'fount', 'autoFount'],
+    ['实验血清（α/β/Ω，有副作用）', 'labSerum', 'autoLabSerum'],
+    ['军械库', 'arsenal', 'autoArsenal'],
+    ['捡武器', 'weaponPick', 'autoWeaponPick'],
+    ['捡芯片', 'chipPick', 'autoChipPick'],
+    ['棱镜/钥匙', 'pickups', 'autoPickups'],
+    ['玩家可手动接管', 'manual', 'autoManual'],
+    ['透析机（花 1 护甲上限清诅咒）', 'dialysis', 'autoDialysis'],
+    ['技能芯片（E）', 'skill', 'autoSkill'],
+    ['主动换弹（R）', 'reload', 'autoReload'],
+    ['搭档技能（F）', 'partner', 'autoPartner'],
+    ['换弹切副武器（X）', 'weaponSwap', 'autoWeaponSwap'],
+    ['招募伙伴（篝火）', 'mate', 'autoMate'],
+    ['冲刺避开陷阱/虚空', 'dashHazards', 'autoDashHazards'],
+    ['启用冲刺', 'dash', 'autoDash'],
+  ];
+  multiDrop(sAuto, '挂机细项', (box) => {
+    box.textContent = '';
+    let on = 0;
+    for (const [label, key, sk] of autoItems) {
+      if (ao[key]) on++;
+      box.appendChild(check(label, () => ao[key], (v) => { ao[key] = v; TSW.settings.set(sk, v); }));
+    }
+    return { count: on + '/' + autoItems.length };
+  });
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------
@@ -414,27 +470,51 @@
   goalHelp.textContent = '挂机会把这套配置当目标终局；没选的项＝不限。（名字与描述取自游戏数据表）';
   sGoal.appendChild(goalHelp);
 
-  const L1 = (v) => { if (!v) return ''; if (Array.isArray(v)) return v[1] || v[0] || ''; return String(v); };
+  // The game's localisation helper N4() returns {en,zh,ja,zhs} (combat.js:14), so
+  // String(nm) prints "[object Object]" — that is where the goal dropdowns got
+  // their "[object Object]" prefix from (one branch called String(k.nm||id)
+  // instead of going through L1).  Resolve localised strings the same way
+  // everywhere: object -> zh/zhs, array -> [zh, en].
+  const L1 = (v) => {
+    if (!v) return '';
+    if (Array.isArray(v)) return v[1] || v[0] || '';
+    if (typeof v === 'object') return v.zhs || v.zh || v.en || v.ja || '';
+    return String(v);
+  };
   const goalStore = (k, d) => TSW.settings.get('goal.' + k, d);
   const goalSet = (k, v) => { TSW.settings.set('goal.' + k, v); note('目标已保存：' + k); };
 
+  // Goal pickers are multi-select dropdowns too (a run can aim at any of several
+  // weapons/skills/partners).  Selection is stored as a LIST under goal.<key>,
+  // and the label shows "本地化名 · id" everywhere — never the raw key and never
+  // String(nm), which prints [object Object] for the game's N4() objects.
   const goalSelects = [];
   const goalSel = (label, items, key) => {
     const r = row(sGoal);
     const lb = el('span', 'color:#8d867a;min-width:80px', r); lb.textContent = label;
-    const s2 = sel(items);
-    s2.value = goalStore(key, '');
-    r.append(s2);
-    goalSelects.push({ sel: s2, key, label, items });
-    const dd = el('div', 'color:#57534c;margin:0 0 3px 0;padding-left:4px');
-    sGoal.appendChild(dd);
-    const up = () => {
-      const hit = items.find((it) => it[0] === s2.value);
-      dd.textContent = hit && hit[2] ? hit[2] : '';
+    const cur = () => {
+      const v = goalStore(key, []);
+      if (Array.isArray(v)) return v.filter(Boolean);
+      return typeof v === 'string' && v ? v.split(',').map((x) => x.trim()).filter(Boolean) : [];
     };
-    s2.onchange = () => { goalSet(key, s2.value); up(); };
-    up();
-    return s2;
+    const holder = { items, key, label, cur };
+    goalSelects.push(holder);
+    multiDrop(r, label, (box) => {
+      box.textContent = '';
+      const chosen = cur();
+      for (const [v, l] of items) {
+        if (!v) continue;
+        box.appendChild(check(l, () => chosen.includes(v), (on) => {
+          const next = cur();
+          const i = next.indexOf(v);
+          if (on && i < 0) next.push(v);
+          else if (!on && i >= 0) next.splice(i, 1);
+          TSW.settings.set('goal.' + key, next);
+        }));
+      }
+      return { count: chosen.length ? chosen.join(',') : '不限' };
+    });
+    return r;
   };
 
   // The panel is built synchronously at load time, when the game's data tables
@@ -461,21 +541,16 @@
     } catch (e) { console.error('[panel] goal weapons', e); }
     try {
       fill(kItems, (typeof SKILL_IDS !== 'undefined') ? SKILL_IDS : Object.keys(SKILLS || {}),
-        (id) => { const k = SKILLS[id]; return k ? [id, String(k.nm || id), L1(k.d)] : null; });
+        (id) => { const k = SKILLS[id]; return k ? [id, (L1(k.nm) || id) + ' · ' + id, L1(k.d)] : null; });
     } catch (e) { console.error('[panel] goal skills', e); }
     try {
       fill(svItems, (typeof SURV_IDS !== 'undefined') ? SURV_IDS : Object.keys(SURV || {}),
         (id) => { const m = SURV[id]; return m ? [id, L1(m.nm) + ' · ' + id, L1(m.file || '')] : null; });
     } catch (e) { console.error('[panel] goal squad', e); }
-    for (const g of goalSelects) {
-      const keep = g.sel.value || goalStore(g.key, '');
-      while (g.sel.options.length > 1) g.sel.remove(1);
-      for (const [v, l] of g.items) {
-        if (!v) continue;
-        const o = document.createElement('option'); o.value = v; o.textContent = l; g.sel.appendChild(o);
-      }
-      g.sel.value = keep && g.sel.querySelector('option[value="' + CSS.escape(keep) + '"]') ? keep : '';
-    }
+    // the dropdowns are built from these arrays, so filling them and re-opening
+    // the panel is all that is needed (no <select> options to rewrite any more)
+    for (const g of goalSelects) { try { g.items.length; } catch (e) { } }
+    TSW.bus.emit('settings', TSW.settings.all());
   });
 
   const exLabel = el('div', 'color:#8d867a;margin-top:3px');
