@@ -133,7 +133,9 @@
       //   tank  waves 6,7,7,5  (mean 6.25)
       // three pairs improved by +3/+2/+1, one tied, none regressed.
       // See benchmark.md 178.
-      invadeLvStyle: 'tank',                                  // invade: 'dps' | 'tank' | 'growth' upgrade order
+      // Persisted, not hardcoded: the panel exposes this now, and a hardcoded
+      // literal meant the UI selection was silently discarded on reload.
+      invadeLvStyle: TSW.settings.get('invadeLvStyle', 'tank'),   // 'tank' | 'dps' | 'growth'
       invadeShopStyle: 'weapon',                             // invade: 'weapon' | 'dps' (weapon-only measured better, CI-confirmed)
       invadeSell: TSW.settings.get('autoInvadeSell', true),   // invade: sell the weakest weapon when slots are full
       invadeSets: true,                                      // invade: prefer weapons that complete a set

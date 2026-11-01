@@ -428,6 +428,21 @@
     }
     return { count: on + '/' + autoItems.length };
   });
+  // Invade upgrade order.  `tank` is the measured best (benchmark.md 178:
+  // waves 4.75 -> 6.25 across four pairs); growth and dps were both worse.
+  // Exposed here because until now the winning strategy was only reachable
+  // through a hand-typed --autoOpts flag.
+  const iRow = row(sAuto);
+  const iLab = el('span', 'color:#8d867a', iRow);
+  iLab.textContent = '入侵升级策略';
+  const iSel = sel([['tank', '生存优先（已验证最佳）'], ['dps', '伤害优先'], ['growth', '成长优先']]);
+  iSel.style.width = 'auto';
+  const iCur = TSW.settings.get('invadeLvStyle', 'tank');
+  iSel.value = ['tank', 'dps', 'growth'].includes(iCur) ? iCur : 'tank';
+  iSel.onchange = () => { const v = iSel.value; TSW.auto.opts.invadeLvStyle = v; TSW.settings.set('invadeLvStyle', v); note('入侵升级策略 → ' + v); };
+  iRow.appendChild(iSel);
+  const iNote = el('div', 'color:#57534c', sAuto);
+  iNote.textContent = 'tank 为实测最优（4 对 A/B，波数 4.75 → 6.25）；dps 与 growth 均更差。';
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------
