@@ -189,7 +189,7 @@
     } catch (e) { }
   }
 
-  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null, autoOpts = null } = {}) {
+  async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null, autoOpts = null, gameSeconds = 0 } = {}) {
     const detMode = !!(TSW.det && TSW.det.on);
     const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
     // log every hurtPlayer call (dmg, pierce, mechHit) so death causes are visible
@@ -524,13 +524,24 @@
       } catch (e) { }
     }, 250);
     const tickBudget = detMode ? Math.round((ticks || 18000)) : 0;   // 18000 ticks = 300 game-s
+    // --timeout is expressed in WALL seconds, but the browser only reaches ~4x
+    // realtime even at speed 8 (measured gameT/wall = 3.29-4.68 over 11 runs).
+    // A full despair five-lock run needs 2500+ game-seconds, so the documented
+    // --timeout 200 silently cut the second half off: runs that were 11 s short
+    // of killing the boss (2.8 percent left) were recorded as "timeout" and read
+    // as failures.  --game-seconds makes the budget meaningful; --timeout still
+    // works as a hard wall ceiling for a hung browser.
+    const gameBudget = +(gameSeconds || 0);
     const res = await new Promise((resolve) => {
       const iv = setInterval(() => {
         const g = G(), wall = (performance.now() - t0) / 1000;
         const ticksDone = (TSW.det && TSW.det.on && TSW.det.ticks) ? (TSW.det.ticks - detT0) : 0;
         const done = (g.state === 'dead') || (g.endless >= goalDepth) || (g.state === 'win')
           || (detMode && ticksDone >= tickBudget);
-        if (done || wall > timeoutS) {
+        const ranOut = (gameBudget > 0)
+          ? ((g.runT || 0) >= gameBudget || wall > gameBudget * 6 + 60)
+          : wall > timeoutS;
+        if (done || ranOut) {
           clearInterval(iv);
           resolve({ end: g.state === 'dead' ? 'death' : g.state === 'win' ? 'ascend' : g.endless >= goalDepth ? 'goal' : 'timeout', wall });
         }
@@ -561,6 +572,8 @@
       // keys the caller asked for that autopilot does not declare: if this is
       // non-empty the two arms ran the same code and the pair is worthless.
       autoOptsUnknown: optUnknown.slice(),
+      // 0 = unbounded by game time (the wall ceiling still applies)
+      gameSeconds,
       autoOptsDefault: { bossBodyDanger: TSW.auto.opts.bossBodyDanger, plateWeight: TSW.auto.opts.plateWeight, armorWaitT: TSW.auto.opts.armorWaitT },
       det: !!detMode, ticks: (TSW.det && TSW.det.ticks) || 0,
       modifiers: modsEarly,
@@ -1223,7 +1236,7 @@
       let r;
       try {
         if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 9) }, o));
-        else r = await runFullRun(Object.assign({ speed, seed, policy: 'rounded', goalDepth, timeoutS, diff, mods }, o));
+        else r = await runFullRun(Object.assign({ speed, seed, policy: 'rounded', goalDepth, timeoutS, diff, mods, gameSeconds }, o));
       } finally { for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v; }
       // Diagnostics: an inner run that ends in a few game-seconds means the
       // repeated same-session start is broken, not that the arms are equal.
