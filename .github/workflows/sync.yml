@@ -29,9 +29,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/sync.yml"
-      - "scripts/ci-login.mjs"
-      - "scripts/fetch-source.mjs"
-      - "scripts/sync-scripts.mjs"
+      - "scripts/**"
+      # the gates below run over our own code and the tests, so a change there
+      # must re-run them.  Without these two, every edit to site/tools/** or
+      # tests/** was pushed without any CI verification at all.
+      - "site/tools/**"
+      - "tests/**"
 
 permissions:
   contents: write
