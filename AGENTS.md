@@ -2,9 +2,15 @@
 
 给在本仓库工作的 AI agent（以及未来的我）的操作手册。**先读这页再动手。**
 
-> **开工前也读 `TASKS.md`。** 会话里的 `todo` 工具是「本轮工作计划」，DSH 每次
-> **新一轮开始就清空**（`todo/tool-todo` 在 `turn/start` 时置 `null`），而 goal 每推进一轮
-> 就是新一轮 —— 所以要跨轮跟踪，只能落盘到 `TASKS.md`：开工读它、做完勾掉并提交。
+> **开工前读 `ROADMAP.md` 和 `TASKS.md`。**
+>
+> | 文件 | 管什么 |
+> |---|---|
+> | `ROADMAP.md` | **长期**：三档训练、终极目标、已否决方向、方向性判断 |
+> | `TASKS.md` | **当前**待办，做完勾掉 |
+> | `todo` 工具 | **本轮**即时步骤，DSH 每次 `turn/start` 置 `null`（不可持久）|
+>
+> goal 每推进一轮就是新一轮，所以 **todo 无法跨轮存活**——长期目标不要写 todo。
 
 ---
 
@@ -350,11 +356,9 @@ python3 -c "print(open('/tmp/x.js','rb').read()==open('/home/.../site/tools/auto
 
 ---
 
-## 10. 终极目标（训练三档）
+## 10. 终极目标
 
-1. 突入探索 · 绝境 · **五锁**（5 个修饰符全开）通关；
-2. 入侵抵抗 · 绝境 · **全偏好**通关；
-3. 两种模式的无尽 **坚持最久**。
+**不在这里重复**——唯一权威是 `ROADMAP.md`（长期目标 + 当前状态 + 已否决方向）。
+写两份必然分叉；要改目标就改 `ROADMAP.md`。
 
-所有工具、选项、寻路、躲弹幕、搭档、武器逻辑都为这三档服务。
-当前状态与数据见 `site/docs/benchmark.md`、`site/docs/endless-guide.md`。
+数据与实测结论见 `site/docs/benchmark.md`、`site/docs/endless-guide.md`。
