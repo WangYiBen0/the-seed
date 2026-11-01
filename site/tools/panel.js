@@ -85,7 +85,10 @@
     head.append(caret, title);
     const body = el('div', 'padding:2px 9px 9px 9px');
     wrap.append(head, body);
-    let open = o.open !== false;
+    // Default COLLAPSED for every section (user request): the workshop should open
+    // as a short list of headers, not a wall of controls.  A section opts back in
+    // with { open: true }.
+    let open = o.open === true;
     const apply = () => {
       body.style.display = open ? '' : 'none';
       caret.style.transform = open ? 'rotate(90deg)' : '';
@@ -661,21 +664,42 @@
   bSr.onclick = () => { if (confirm('清空本镜像的全部存档？（不影响上游 dzmm.ai 的存档）')) { window.__dzmmMirror.reset(); note('已清空，刷新页面生效'); } };
 
   // ---------------- 指令 · 测试 ----------------
-  const sCmd = section('指令 · 测试（改游戏状态，测评数据作废）');
-  const cmdIn = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace');
+  // ---------------- command console: its OWN window (F10) -------------------
+  // It used to be a section inside the workshop, so F10 had to open the whole
+  // panel just to reach one input. It is now a separate overlay with its own
+  // toggle, leaving the workshop for configuration only.
+  const cmdWin = el('div', 'position:fixed;left:50%;top:12%;transform:translateX(-50%);width:min(680px,92vw);background:#0f0d0bbe;border:1px solid #3c3732;border-radius:8px;padding:10px 12px;z-index:40;display:none;box-shadow:0 10px 30px #000b;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)');
+  document.body.appendChild(cmdWin);
+  const cmdTitle = el('div', 'display:flex;align-items:center;gap:8px;color:#efb94a;margin-bottom:6px');
+  const cmdTxt = el('span', 'flex:1');
+  cmdTxt.textContent = '指令台 · COMMAND';
+  const cmdClose = el('button', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:1px 8px;cursor:pointer');
+  cmdClose.textContent = '\u00d7';
+  cmdTitle.append(cmdTxt, cmdClose);
+  cmdWin.appendChild(cmdTitle);
+  const cmdIn = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:4px 6px;width:100%;font:12px monospace;box-sizing:border-box');
   cmdIn.placeholder = 'help / god / lockhp 5 / ink 500 / kill / next / endless / weapon rail ...';
-  sCmd.append(cmdIn);
-  const rC = row(sCmd);
-  const bCmd = btn('执行'); rC.append(bCmd);
-  const cmdOut = el('div', 'white-space:pre;overflow:auto;max-height:90px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px;min-height:14px');
-  sCmd.appendChild(cmdOut);
+  cmdWin.appendChild(cmdIn);
+  const cmdOut = el('div', 'white-space:pre-wrap;overflow:auto;max-height:240px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:6px;padding-top:5px;font:11px ui-monospace,monospace');
+  cmdWin.appendChild(cmdOut);
   const runCmd = () => { if (!cmdIn.value.trim()) { cmdOut.textContent = TSW.cmd('help'); return; } cmdOut.textContent = TSW.cmd(cmdIn.value); cmdIn.select(); };
-  bCmd.onclick = runCmd;
-  cmdIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); runCmd(); } });
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'F10') { e.preventDefault(); if (!TSW.panel.open) TSW.panel.toggle(); setTimeout(() => cmdIn.focus(), 60); }
+  cmdIn.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); runCmd(); }
+    if (e.key === 'Escape') { e.preventDefault(); cmdWin.style.display = 'none'; }
   });
-  cmdOut.textContent = 'F10 唤出 · help 查看指令';
+  cmdClose.onclick = () => { cmdWin.style.display = 'none'; };
+  TSW.cmdWin = {
+    get open() { return cmdWin.style.display !== 'none'; },
+    toggle() {
+      if (cmdWin.style.display === 'none') { cmdWin.style.display = 'block'; cmdOut.textContent = 'help 查看指令 \u00b7 Esc 关闭'; setTimeout(() => cmdIn.focus(), 40); }
+      else cmdWin.style.display = 'none';
+    },
+    close() { cmdWin.style.display = 'none'; },
+  };
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'F10') { e.preventDefault(); e.stopPropagation(); TSW.cmdWin.toggle(); }
+  }, true);
 
   // ---------------- AI 设置（可选：OpenAI 兼容接口） ----------------
   const sAI = section('AI 设置 · 小队/少女聊天（可选）', { open: false });

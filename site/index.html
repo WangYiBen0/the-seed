@@ -121,7 +121,7 @@
   }
   document.getElementById('tPanel').onclick = function () { callIn(function (t, w) { if (t.panel && t.panel.toggle) t.panel.toggle(); }); };
   document.getElementById('tHud').onclick = function () { callIn(function (t) { if (t.hud && t.hud.toggle) t.hud.toggle(); }); };
-  document.getElementById('tCmd').onclick = function () { callIn(function (t) { if (t.cmd && t.cmd.open) t.cmd.open(); }); };
+  document.getElementById('tCmd').onclick = function () { callIn(function (t) { if (t.cmdWin) t.cmdWin.toggle(); }); };
   document.getElementById('tAuto').onclick = function () {
     callIn(function (t, w) {
       var m = t.auto.mode === 'full' ? 'off' : 'full';

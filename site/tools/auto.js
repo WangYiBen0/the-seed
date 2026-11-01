@@ -2657,6 +2657,13 @@
     if (A.opts.powerupFirst !== false) {
       const stops = [];
       for (const it of (G.inter || [])) {
+        // ALREADY-TAKEN EXPLOITABLES MUST BE SKIPPED.  A weapon that was picked up
+        // (or a chest that was opened) keeps its entry in G.inter with used=true,
+        // and without this check the objective was re-selected every tick: the bot
+        // walked to it, the KeyE did nothing, it re-planned and walked back —
+        // reported as "dashes toward a weapon / an opened safe / a lab bench and
+        // then walks back", and sometimes as spinning in place with no note.
+        if (it.used) continue;
         if (it.kind === 'weapon' && A.opts.weaponPick) {
           // only chase a floor gun when it can actually be taken: capacity free,
           // or the gun is stronger than what we hold
@@ -2862,7 +2869,24 @@
     // fights to burn it off.
     {
       const debuff = labDebuffLeft();
-      const portalReady = (G.inter || []).some((it) => it.kind === 'portal' && G.time - (it.born || 0) > .6);
+      // A portal must not outrank loot.  After a boss dies the floor is covered in
+      // drops, and the old check skipped every candidate the moment a portal
+      // existed, so the run left with the boss reward on the floor — reported as
+      // "打完 boss 不拿掉落物直接进传送门".
+      // The portal is only taken when nothing worth walking to is left within
+      // LOOT_R, so a stray prism across the map cannot hold the floor forever.
+      const LOOT_R = 260;
+      const worthLoot = (it) => {
+        if (!it || it.used) return false;
+        const d = Math.hypot(it.x - p.x, it.y - p.y);
+        if (d > LOOT_R) return false;
+        if (it.kind === 'prism' || it.kind === 'ink') return !!(A.opts.pickups || A.opts.pickups === undefined);
+        if (it.kind === 'weapon') return !!A.opts.weaponPick;
+        if (it.kind === 'chip') return !!A.opts.chipPick && !p.skill;
+        return false;
+      };
+      const lootPending = (G.inter || []).some(worthLoot);
+      const portalReady = !lootPending && (G.inter || []).some((it) => it.kind === 'portal' && G.time - (it.born || 0) > .6);
       if (portalReady && !floorNeedsClear() ) { /* fall through to portal branch */ }
       else {
         // candidate rooms, weighted by roomWeight (lower = more urgent)

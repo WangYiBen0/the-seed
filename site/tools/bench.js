@@ -1025,7 +1025,10 @@
   // near-perfect rate that meant nothing.  The invade arena is a single open
   // rectangle with no rooms and no doors (ivArena), so that escape cannot happen.
   async function runDodgeOne({ depth = 6, seconds = 45, speed = 8, policy = 'survival', seed = 11,
-    arena = true, keep = 9, spawnEvery = 2.2, spawnN = 4, hp = 14,
+    // keep/spawnEvery raised: the arena was technically spawning, but with 9 kept
+    // and a 2.2 s cadence the floor often showed only 1-2 foes, which reads as
+    // "it doesn't spawn anything". A dodge test wants a visible barrage.
+    arena = true, keep = 16, spawnEvery = 0.9, spawnN = 5, hp = 14,
     types = ['gunner', 'sniper', 'turret', 'mortar'], diff = 'classic' } = {}) {
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
     const wasNoFire = TSW.auto.opts.noFire;
@@ -1077,7 +1080,13 @@
     // keep the arena populated with ranged enemies so the barrage never dries up
     let spawnAcc = 0, spawned = 0;
     const off = TSW.hooks.beforeTick(() => {
-      const g = window.__achroma.G; if (!g || !g.p || g.state !== 'play') return;
+      const g = window.__achroma.G; if (!g || !g.p) return;
+      // Diagnose why the arena stays empty: record what the hook actually sees.
+      const dbg = (window.__dodgeDbg = window.__dodgeDbg || { ticks: 0, states: {}, sawPlay: 0 });
+      dbg.ticks += 1;
+      dbg.states[g.state] = (dbg.states[g.state] || 0) + 1;
+      if (g.state !== 'play') return;
+      dbg.sawPlay += 1;
       const foes = g.enemies.filter((e) => !e.dead && e.spawnT <= 0);
       const ranged = foes.filter((e) => e.ranged || e.shot || ['gunner', 'sniper', 'turret', 'mortar', 'echo'].includes(e.type)).length;
       spawnAcc += 1;
