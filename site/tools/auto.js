@@ -65,7 +65,12 @@
       weaponLateBias: TSW.settings.get('autoWeaponLateBias', 90),                                    // explore: ink level at which per-shot damage starts to weigh more
       shardFit: TSW.settings.get('autoShardFit', true),                                        // explore: score shards by fit to the held weapon
       keyRoomFirst: TSW.settings.get('autoKeyRoomFirst', true),                                    // explore: clear the key room before anything else
-      floorScaling: TSW.settings.get('autoFloorScaling', true),   // explore: widen the band on deeper floors (enemy hp/rate scale)
+      // UNVERIFIED: a balanced 6-pair A/B measured combat rooms 1.67 vs 1.67
+      // (untested-vs-tested tie), i.e. no demonstrated benefit; kills were LOWER
+      // with it on (57.2 vs 89.0).  Kept on because it was explicitly requested
+      // ("widen the band as enemies scale with depth"), and it does not hurt the
+      // main metric.  Do not cite it as an improvement.  See benchmark.md 174.
+      floorScaling: TSW.settings.get('autoFloorScaling', true),
       // Threat level at which explore mode dashes away from a bullet.  Must live in
       // this table: runAB rejects unknown autoOpts keys and marks the experiment
       // void, which is exactly what happened before this line existed.
@@ -73,7 +78,10 @@
       // dash as WORSE: 31.9 vs 30.6 hits/min while dashing 8.7 vs 2.7 times.
       // Dashing more did not mean dodging better.  See benchmark.md 157.
       dodgeDashAt: TSW.settings.get('autoDodgeDashAt', 99),
-      targetPriority: TSW.settings.get('autoTargetPriority', true), // explore: shoot gunners and spawners before melee
+      // UNVERIFIED: balanced 6-pair A/B gave 1.33 vs 1.50 rooms with 3/6 pairs
+      // identical and a 0.17 gap inside noise (benchmark.md 173).  Requested
+      // behaviour ("shoot gunners and spawners first"), no demonstrated gain.
+      targetPriority: TSW.settings.get('autoTargetPriority', true),
       mainHandBest: TSW.settings.get('autoMainHandBest', true),                                    // explore: hold the strongest weapon in the main hand
       arsenalByDps: TSW.settings.get('autoArsenalByDps', true),                                    // explore: pick the armoury weapon by measured dps
       shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
