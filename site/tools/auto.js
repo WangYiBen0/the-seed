@@ -59,6 +59,7 @@
       weaponLateBias: TSW.settings.get('autoWeaponLateBias', 90),                                    // explore: ink level at which per-shot damage starts to weigh more
       shardFit: TSW.settings.get('autoShardFit', true),                                        // explore: score shards by fit to the held weapon
       keyRoomFirst: TSW.settings.get('autoKeyRoomFirst', true),                                    // explore: clear the key room before anything else
+      floorScaling: TSW.settings.get('autoFloorScaling', true),   // explore: widen the band on deeper floors (enemy hp/rate scale)
       mainHandBest: TSW.settings.get('autoMainHandBest', true),                                    // explore: hold the strongest weapon in the main hand
       arsenalByDps: TSW.settings.get('autoArsenalByDps', true),                                    // explore: pick the armoury weapon by measured dps
       shopByDps: TSW.settings.get('autoShopByDps', true),                                       // explore: rank shop weapons by measured dps
@@ -1863,7 +1864,13 @@
           retreat = (p.armor <= 0 && p.lastHit < 3.6) || (p.hp <= 2 && p.armor <= 0);
           focus = false;
         } else { retreat = st === 'RETREAT'; focus = st === 'FOCUS'; }
-        const bs = hard() ? 1.2 : 1;                    // harder difficulties keep more distance
+        // Floor scaling: enemy hp is 1 + fi*0.55 + fi^2*0.12 and attack rate rises
+        // 12% per floor (enemies.js:50,108), but the spacing band was the SAME on
+        // every floor — the autopilot had no floor-aware behaviour at all, which is
+        // the mechanism behind "第一层基本稳定，第二层很吃力".  Off by default so
+        // it can be A/B'd; when on, deeper floors get a wider band.
+        const floorK = (A.opts.floorScaling !== false) ? 1 + Math.min(3, G && G.floor ? (G.floor | 0) : 0) * .08 : 1;
+        const bs = (hard() ? 1.2 : 1) * floorK;          // harder difficulties keep more distance
         // ---- per-weapon-kind spacing ------------------------------------
         // Only the PIERCING case is differentiated: those guns want standoff so a
         // single shot threads a whole column (see docs/weapons.md).  Melee keeps
