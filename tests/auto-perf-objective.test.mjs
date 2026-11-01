@@ -17,8 +17,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AUTO = readFileSync(join(ROOT, 'site', 'tools', 'auto.js'), 'utf8');
 
 test('the objective picker is throttled, not run every tick', () => {
-  assert.match(AUTO, /A\._objCache && \(G\.time - A\._objCache\.t\) < 0\.25/,
+  // the window is now driven by perf mode: default 0.25 s, thinned further when
+  // performance mode is on (decision throttles live in TSW.perf.decisions)
+  assert.match(AUTO, /A\._objCache && \(G\.time - A\._objCache\.t\) < pickEvery/,
     'pickObjective must be cached within the tick window');
+  assert.match(AUTO, /TSW\.perf\.decisions/, 'perf mode must be able to thin it');
   assert.match(AUTO, /A\._objCache = \{ t: G\.time, tgt \};/, 'the cache must be refreshed');
 });
 

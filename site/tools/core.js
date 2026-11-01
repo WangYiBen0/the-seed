@@ -151,12 +151,19 @@
       if (perfSaved || typeof QS === 'undefined' || typeof SET === 'undefined') return false;
       perfSaved = { part: QS.part, fx: QS.fx, fps: QS.fps, shake: SET.shake, flash: SET.flash };
       QS.part = .15; QS.fx = false; QS.fps = 240; SET.shake = 0; SET.flash = 0;
+      // VISUALS ALONE DO NOTHING.  Measured with the engine's own throughput rig:
+      // autopilot off = 7.5x realtime, autopilot on = 1.2-3.0x.  The frame cost is
+      // the per-tick decision work, not particles or shake, which is why "turn on
+      // performance mode" was reported to change nothing.
+      // So perf mode also thins the DECISION rate: these knobs are read by the
+      // autopilot, which then re-plans at a fraction of the tick rate.
+      TSW.perf.decisions = { navEvery: 4, pickEvery: 8, dangerEvery: 2 };
       TSW.bus.emit('perf', true); return true;
     },
     disable() {
       if (!perfSaved || typeof QS === 'undefined') return false;
       QS.part = perfSaved.part; QS.fx = perfSaved.fx; QS.fps = perfSaved.fps; SET.shake = perfSaved.shake; SET.flash = perfSaved.flash;
-      perfSaved = null; TSW.bus.emit('perf', false); return true;
+      perfSaved = null; TSW.perf.decisions = null; TSW.bus.emit('perf', false); return true;
     },
   };
 

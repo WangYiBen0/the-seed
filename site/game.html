@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>[TheSeed] · game</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23050506'/%3E%3Cellipse cx='8' cy='9' rx='4.2' ry='5' fill='%238a1820'/%3E%3Cellipse cx='8' cy='9' rx='2.4' ry='3.4' fill='%23e0483e'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="description" content="[TheSeed] 非官方离线镜像 — game frame. Game © its author on dzmm.ai; not affiliated.">
+<style>
+  html,body{margin:0;height:100%;background:#050506;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center;touch-action:none;overscroll-behavior:none}
+  canvas{image-rendering:pixelated;display:block}
+</style>
+</head>
+<body>
+<canvas id="c" width="1440" height="810"></canvas>
+
+<!-- 1) our dzmm platform shim (window.dzmm + localStorage persistence) -->
+<script src="dzmm-shim.js"></script>
+<!-- 2) tool core: speed warp, seeded RNG, perf mode — must run before the game boots -->
+<script src="tools/core.js"></script>
+<!-- 3) upstream platform layer, byte-for-byte -->
+<script src="js/platform.js"></script>
+<!-- 4) the workshop (attaches once the game has booted) -->
+<script src="tools/macro.js"></script>
+<script src="tools/auto.js"></script>
+<script src="tools/hud.js"></script>
+<script src="tools/bench.js"></script>
+<script src="tools/explore.js"></script>
+<script src="tools/evolve.js"></script>
+<script src="tools/cloud.js"></script>
+<script src="tools/cloudhost.js"></script>
+<script src="tools/cheats.js"></script>
+<script src="tools/panel.js"></script>
+</body>
+</html>

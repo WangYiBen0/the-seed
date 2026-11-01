@@ -70,7 +70,33 @@
 
   // ---------------- widgets ----------------
   const el = (tag, style, parent) => { const n = document.createElement(tag); if (style) n.style.cssText = style; (parent || body).appendChild(n); return n; };
-  const section = (name) => { const s = el('div', 'padding:6px 8px;border-bottom:1px solid #221f1c'); const h = el('div', 'color:#8e877b;margin-bottom:3px;letter-spacing:.08em', s); h.textContent = name; return s; };
+  // Collapsible section.  13 sections used to be expanded at once, which is why
+  // the workshop read as an undifferentiated wall of controls.  Each section is
+  // now a header you click; the common ones start open, the rest closed.
+  // Callers keep appending to the returned node, so no call site changes.
+  const section = (name, opts) => {
+    const o = opts || {};
+    const wrap = el('div', 'border-bottom:1px solid #221f1c');
+    const head = el('div', 'display:flex;align-items:center;gap:6px;padding:7px 9px;cursor:pointer;color:#c9c1b2;letter-spacing:.04em;user-select:none');
+    const caret = el('span', 'color:#6b6257;display:inline-block;transition:transform .15s');
+    caret.textContent = '\u25b8';
+    const title = el('span', 'flex:1');
+    title.textContent = name;
+    head.append(caret, title);
+    const body = el('div', 'padding:2px 9px 9px 9px');
+    wrap.append(head, body);
+    let open = o.open !== false;
+    const apply = () => {
+      body.style.display = open ? '' : 'none';
+      caret.style.transform = open ? 'rotate(90deg)' : '';
+      head.style.color = open ? '#e8e1d3' : '#a8a196';
+    };
+    head.onclick = () => { open = !open; apply(); };
+    apply();
+    body.sectionWrap = wrap; body.sectionHead = head;
+    body.isOpen = () => open; body.setOpen = (v) => { open = !!v; apply(); };
+    return body;
+  };
   const btn = (label, style) => { const b = el('button', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 8px;cursor:pointer;font:11px ui-monospace,monospace;margin:1px;' + (style || '')); b.onmouseenter = () => b.style.borderColor = '#efb94a'; b.onmouseleave = () => b.style.borderColor = '#3c3732'; b.textContent = label; return b; };
   const sel = (opts) => { const s = el('select', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px;font:11px ui-monospace,monospace;width:100%'); opts.forEach(([v, l]) => { const o = document.createElement('option'); o.value = v; o.textContent = l; s.appendChild(o); }); return s; };
   const check = (label, get, set) => { const l = el('label', 'display:flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = get(); c.onchange = () => set(c.checked); c.style.accentColor = '#efb94a'; l.appendChild(c); l.appendChild(document.createTextNode(label)); return l; };
@@ -249,7 +275,7 @@
   bClClr.onclick = () => { if (TSW.cloud) { TSW.cloud.clear(); clOut.textContent = '排行已清空。'; } };
 
   // ---------------- 自我进化 · EVOLVE ----------------
-  const sEv = section('自我进化 · EVOLVE');
+  const sEv = section('自我进化 · EVOLVE', { open: false });
   const evHelp = el('div', 'color:#8d867a');
   evHelp.textContent = '在浏览器内直接跑遗传算法：每个个体把一组参数注入挂机，跑固定种子后按得分排序，\n保留最优、交叉变异下一代。不占终端、不用 nodejs。';
   sEv.appendChild(evHelp);
@@ -310,7 +336,7 @@
   evStop.onclick = () => { if (TSW.evolve && TSW.evolve.stop) { TSW.evolve.stop(); note('已请求停止'); } };
 
   // ---------------- 宏 ----------------
-  const sMacro = section('操作宏 · MACRO');
+  const sMacro = section('操作宏 · MACRO', { open: false });
   const rM1 = row(sMacro);
   const bRec = btn('● 录制'); const bStop = btn('■ 停止'); const bSave = btn('保存…'); const bDemo = btn('演示宏(站桩30s)');
   rM1.append(bRec, bStop, bSave); row(sMacro).append(bDemo);
@@ -402,7 +428,7 @@
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------
-  const sExp = section('无尽流派测评 · EXPLORE');
+  const sExp = section('无尽流派测评 · EXPLORE', { open: false });
   const expCfg = row(sExp);
   const expPolicy = sel([['rounded', '均衡适应'], ['brawler', '近身搏击'], ['crazy', '精准猛攻'], ['ranger', '远距火力'], ['mage', '元素反应'], ['chunky', '厚重生存'], ['old', '稳守缓进'], ['lucky', '幸运搜集'], ['engineer', '工程布防'], ['doctor', '医疗续航'], ['mutant', '快速蜕变'], ['loud', '喧嚣引敌']]);
   const expDepth = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:44px;font:11px monospace');
@@ -461,7 +487,7 @@
   bBmd.onclick = () => navigator.clipboard && navigator.clipboard.writeText(TSW.bench.markdown()).then(() => note('已复制'), () => { });
   bBclr.onclick = () => { TSW.bench.clear(); renderBench(); };
   // ---------------- 躲弹幕测评 (pure-evasion stress test) ----------------
-  const sDodge = section('躲弹幕测评 · DODGE BENCH');
+  const sDodge = section('躲弹幕测评 · DODGE BENCH', { open: false });
   const dHelp = el('div', 'color:#8d867a');
   dHelp.textContent = '禁止开火 + 持续补充远程敌人：敌人不会减少，弹幕只会更密。\n' +
     '指标：受击/游戏分钟（越低越好）、危险值均值、暴露率、弹幕余量、冲刺频率。';
@@ -508,7 +534,7 @@
   // ---------------- 最终稳定状态 · GOAL BUILD ----------------
   // 挂机把这套配置当“目标终局”：选卡/选枪/招募/技能都朝它靠。
   // 每一项显示游戏内真实名字与描述（取自 WEAPONS / SKILLS / SURV 表）。
-  const sGoal = section('最终稳定状态 · GOAL BUILD');
+  const sGoal = section('最终稳定状态 · GOAL BUILD', { open: false });
   const goalHelp = el('div', 'color:#8d867a');
   goalHelp.textContent = '挂机会把这套配置当目标终局；没选的项＝不限。（名字与描述取自游戏数据表）';
   sGoal.appendChild(goalHelp);
@@ -652,7 +678,7 @@
   bInject.onclick = copyInject;
 
   // ---------------- 存档 ----------------
-  const sSave = section('存档 · SAVE (localStorage)');
+  const sSave = section('存档 · SAVE (localStorage)', { open: false });
   const rS1 = row(sSave);
   const bSe = btn('导出存档'); const bSi = btn('导入存档'); const bSr = btn('清空存档');
   rS1.append(bSe, bSi); row(sSave).append(bSr);
@@ -678,7 +704,7 @@
   cmdOut.textContent = 'F10 唤出 · help 查看指令';
 
   // ---------------- AI 设置（可选：OpenAI 兼容接口） ----------------
-  const sAI = section('AI 设置 · 小队/少女聊天（可选）');
+  const sAI = section('AI 设置 · 小队/少女聊天（可选）', { open: false });
   const aiE = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:3px 5px;width:100%;font:11px monospace;margin:1px 0');
   aiE.placeholder = 'OpenAI 兼容接口，如 https://api.openai.com/v1';
   const aiK = el('input', aiE.style.cssText); aiK.type = 'password'; aiK.placeholder = 'API Key（留空则不带鉴权头）';

@@ -35,7 +35,11 @@ function serve() {
     const srv = createServer(async (req, rsp) => {
       try {
         const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-        let file = join(SITE, path === '/' ? 'index.html' : path);
+        // '/' serves the GAME frame, not the host page: the bench reads the
+        // game's own console (TSW_RESULT) and its globals, which live inside
+        // game.html now that index.html is a host that mounts the game in an
+        // iframe (same structure as the official site).
+        let file = join(SITE, path === '/' ? 'game.html' : path);
         if (!existsSync(file)) {
           rsp.writeHead(404); rsp.end('nope');
           appendFile(join(ROOT, '.tmp', 'missing.log'), JSON.stringify({ path, at: Date.now() }) + '\n').catch(() => { });
