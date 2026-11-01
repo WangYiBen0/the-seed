@@ -1545,6 +1545,12 @@
     }
     const w = WEAPONS[p.weapons[p.wi]], melee = isMelee(w.id);
     const active = WORLD.rooms.find((r) => r.active);
+    // the door-funnel give-up timer is per room: a fresh fight must get a fresh
+    // funnel, otherwise one stuck room disables the tactic for the whole run
+    {
+      const aid = active ? active.id : -1;
+      if (A._funnelRoom !== aid) { A._funnelRoom = aid; A._funnelT = 0; }
+    }
     const foes = G.enemies.filter((e) => !e.dead && e.spawnT <= 0);
     const near = nearestEnemy(p.x, p.y, 900, false);
     A.status.note = '';
@@ -1954,9 +1960,18 @@
           const px = pair[0] * 16 + 8, py = pair[1] * 16 + 8, dd = dist(p.x, p.y, px, py);
           if (dd < bdd) { bdd = dd; bd = [px, py]; }
         }
-        if (bd && bdd > 26 && bdd < 220) {
+        // A constant 0.9 pull with nothing to break the tie forms a stable limit
+        // cycle: the funnel drags us to the doorway, the band pushes back off the
+        // enemy, and the two balance.  Measured on a single stuck foe: 45 s with
+        // 27 direction reversals inside an 81 px span, the nearest enemy frozen
+        // at 149 px the whole time, and 149 noRoute failures in one run.  Once
+        // that happens the funnel has stopped helping — drop it and let the fight
+        // logic close the distance, otherwise the last foe is never reached.
+        const funnelStuck = (A._funnelT || 0) > 0 && G.time - A._funnelT > 12;
+        if (bd && bdd > 26 && bdd < 220 && !funnelStuck) {
           mx += (bd[0] - p.x) / bdd * .9; my += (bd[1] - p.y) / bdd * .9;
           A.status.note = 'doorfunnel';
+          if (!A._funnelT) A._funnelT = G.time;
         }
       }
       if (A._bossDodge) A._bossDodge = null;   // stale lane data must not steer us
@@ -2224,7 +2239,11 @@
       if (tgt && deadPoint(tgt.pt)) {
         if (tgt.room) { A._skipRoom = A._skipRoom || {}; A._skipRoom[tgt.room.id] = G.time + 120; }
         tgt = pickObjective(G, p);
-        if (tgt && deadPoint(tgt.pt)) tgt = null;
+        // Re-picking can land on the SAME objective: the key-room branch inside
+        // pickObjective outranks everything and returns a room the dead list just
+        // benched, so the pair retried the same unreachable point until its
+        // five-minute entry expired (measured: 40-44 s parked in place).
+        if (tgt && (deadPoint(tgt.pt) || (tgt.room && A._skipRoom && A._skipRoom[tgt.room.id] && G.time < A._skipRoom[tgt.room.id]))) tgt = null;
       }
       // Count how often the objective changes.  Walking 78 percent of a run without
       // arriving smells like目标 thrash: every re-plan restarts the route.
@@ -2299,6 +2318,16 @@
           if (tgt.label === 'fight' && p.armor < p.maxArmor - 1 && p.lastHit > armorWait && dl < 90) {
             mx = 0; my = 0; A.status.note = '等甲恢复 ' + p.armor + '/' + p.maxArmor;
           } else if (dl > 12) { [mx, my] = pickDir(p, dx, dy); }
+          // A goal within 12 px that is nonetheless walled off used to stop here
+          // with mx=my=0: the player jittered in place for minutes while the run
+          // clock advanced (measured 40.0 s and 44.0 s, x-span 0 px, no foes, and
+          // navFail noRoute targets that never changed).  When we are that close
+          // but the straight line is blocked, route to the waypoint instead of
+          // standing still.
+          else if (dl <= 12 && !clear && wp) {
+            const wl = Math.hypot(wp[0] - p.x, wp[1] - p.y);
+            if (wl > 8) { [mx, my] = pickDir(p, wp[0] - p.x, wp[1] - p.y); A.status.note = '目标贴墙：改走路标'; }
+          }
           // stuck on this objective? bench it for a while so the run keeps moving
           if (navProg.tgt === tgt.room && G.time - navProg.t > 6 && Math.hypot(p.x - navProg.x, p.y - navProg.y) < 40) { benchFor(tgt.room || tgt.pt, 30); navProg.t = G.time; }
           else if (navProg.tgt !== tgt.room) { navProg.tgt = tgt.room; navProg.x = p.x; navProg.y = p.y; navProg.t = G.time; }

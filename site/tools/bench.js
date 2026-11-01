@@ -324,6 +324,11 @@
           foes: foes.length, minFoe: Math.round(minFoe),
           mode: (window.__TSW && TSW.auto && TSW.auto._fightState) || '',
           note: (window.__TSW && TSW.auto && TSW.auto.status && TSW.auto.status.note) || '',
+          // what autopilot was actually walking at.  Without this a frozen
+          // player is unattributable: the note is empty whenever no special
+          // objective owns the tick, which is exactly the soft-lock case
+          // (measured: 40-44 s parked in place with no foes and no note).
+          tgt: (window.__TSW && TSW.auto && TSW.auto.status && TSW.auto.status.target) || null,
           dash: +(p.dashT || 0) > 0 ? 1 : 0,
           boss: b ? { hp: Math.round(b.hp), atk: b.atk || '', ph: b.phase || 0 } : null,
         });
