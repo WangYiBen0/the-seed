@@ -43,12 +43,42 @@ test('list maps rows to key strings', async () => {
   assert.deepEqual(r.keys, ['achroma_run', 'achroma_set']);
 });
 
-test('a write refuses rather than silently faking success', async () => {
-  globalThis.fetch = async () => { throw new Error('must not be called'); };
+test('a write is verified by read-back and reports ok only when it landed', async () => {
+  const store = { k: null };
+  globalThis.fetch = async (url, init) => {
+    if (init && init.method === 'PUT') {
+      store.k = JSON.parse(init.body).value;
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    return { ok: true, status: 200, json: async () => ({ value: store.k, updated_at: null }) };
+  };
   const kv = load().make({ gameId: 'g1' });
-  await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /not enabled/);
-  assert.ok(!/return \{ ok: true \}/.test(SRC.split('// deliberately unimplemented')[1] || ''),
-    'the write path must not return a fake success');
+  const r = await kv({ op: 'put', key: 'k', value: { a: 1 } });
+  assert.deepEqual(r, { ok: true, verified: true });
+});
+
+test('an unverified write is a failure, not a fake success', async () => {
+  // the server accepts the PUT but the value never becomes readable
+  globalThis.fetch = async (url, init) => {
+    if (init && init.method === 'PUT') return { ok: true, status: 200, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ value: null, updated_at: null }) };
+  };
+  const kv = load().make({ gameId: 'g1' });
+  await assert.rejects(() => kv({ op: 'put', key: 'k', value: { a: 1 } }), /not visible on read-back/);
+});
+
+test('a rejected PUT raises instead of reporting success', async () => {
+  globalThis.fetch = async (url, init) => {
+    if (init && init.method === 'PUT') return { ok: false, status: 403, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ value: null, updated_at: null }) };
+  };
+  const kv = load().make({ gameId: 'g1' });
+  await assert.rejects(() => kv({ op: 'put', key: 'k', value: 1 }), /HTTP 403/);
+});
+
+test('the write body is configurable, because the real shape is unmeasured', () => {
+  assert.match(SRC, /const writeBody = o\.writeBody \|\|/, 'the body must be injectable');
+  assert.match(SRC, /const verifyWrites = o\.verifyWrites !== false/, 'verification must default on');
 });
 
 test('a non-ok status raises instead of returning empty data', async () => {
