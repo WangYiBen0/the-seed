@@ -131,8 +131,12 @@
       // which is exactly how otherwise-identical runs drifted apart.  Setting
       // virt = tickN * VIRT_DT makes the clock a pure function of the tick ordinal,
       // so tick N always reports the same timestamp regardless of history.
+      // Do NOT assign virt here: fireTick already derives it as
+      // (tickN - detBase) * VIRT_DT, and an absolute assignment without detBase
+      // reintroduced the very offset that normalisation removed. This line was
+      // left behind from an earlier edit and silently overwrote the correct value.
       const steps = Math.max(1, Math.round(Math.max(1, speed)));
-      for (let i = 0; i < steps; i++) { virt = (tickN + 1) * VIRT_DT; fireTick(); }
+      for (let i = 0; i < steps; i++) fireTick();
       return;
     }
     if (speed === 1) { virt += dt; fireTick(); return; }
