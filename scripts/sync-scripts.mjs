@@ -63,12 +63,15 @@ async function main() {
   const root = resolve(opt('root', process.cwd()));
   const site = join(root, opt('site', 'site'));
   const jsDir = join(site, 'js');
-  const manifestPath = join(site, 'asset-manifest.json');
+  // The manifest is the sync script's own local state (upstream base + asset URLs).
+  // It lives OUTSIDE the served root so it is never published, and so a stale
+  // snapshot cannot be mistaken for a build artifact.
+  const manifestPath = join(root, opt('state', 'state'), 'asset-manifest.json');
 
   const base = opt('base', process.env.UPSTREAM_BASE)
     || (existsSync(manifestPath) ? JSON.parse(await readFile(manifestPath, 'utf8')).base : null);
   if (!base) {
-    console.error('[sync-scripts] no base: pass --base, set UPSTREAM_BASE, or keep site/asset-manifest.json');
+    console.error('[sync-scripts] no base: pass --base, set UPSTREAM_BASE, or keep state/asset-manifest.json');
     process.exit(2);
   }
   const baseUrl = base.endsWith('/') ? base : base + '/';

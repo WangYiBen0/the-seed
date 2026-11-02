@@ -40,7 +40,7 @@
             "^site/js/"
             "^\\[TheSeed\\]/"
             "^site/assets/"
-            "^site/docs/data/"
+            "^docs/data/"
             "^\\.tmp/"
             "^result/"
             "\\.(png|webp|jpg|gif|ico|jsonl)$"

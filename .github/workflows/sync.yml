@@ -101,14 +101,14 @@ jobs:
           '
 
       # the static/ base itself is public — this needs no session, only the two
-      # values above.  It writes site/asset-manifest.json (and its new base) plus
+      # values above.  It writes state/manifest.json (version + relative paths) plus
       # any missing assets, which is what the script sync below reads.
       - name: fetch missing assets
         run: |
           set -euo pipefail
           node scripts/fetch-source.mjs
-          echo "--- manifest tail ---"
-          node -e 'const m=require("./site/asset-manifest.json"); console.log("base:", m.base); console.log("assets:", Object.keys(m.assets).length);'
+          echo "--- manifest summary ---"
+          node -e 'const m=require("./state/manifest.json"); console.log("version:", m.version); console.log("assets:", Object.keys(m.assets).length); console.log("missing:", Object.values(m.assets).filter(a=>!a.present).length);'
 
       # site/js/ must stay byte-identical to upstream (AGENTS.md rule 1).  The
       # public base serves the same files, so this needs no session either — and
@@ -158,7 +158,7 @@ jobs:
             exit 0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          BASE="$(node -e 'console.log(require("./site/asset-manifest.json").base)')"
+          BASE="$(node -e 'const m=require("./state/manifest.json"); console.log("https://www.dzmm.ai/api/gamefy/static/"+process.env.DZMM_GAME_ID+"/__v"+m.version+"/")')"
           git commit -F - <<MSG
           chore(sync): pull upstream assets
 
