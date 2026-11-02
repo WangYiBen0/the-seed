@@ -35,10 +35,10 @@
         pkgs:
         git-hooks.lib.${pkgs.stdenv.hostPlatform.system}.run {
           src = ./.;
-          # 原版代码（site/js/** 逐字节同步、[TheSeed]/** 浏览器存档）一律不碰
+          # 原版代码一律不碰：site/js/** 逐字节同步、site/upstream/index.html 是原版页
           excludes = [
             "^site/js/"
-            "^\\[TheSeed\\]/"
+            "^site/upstream/"
             "^site/assets/"
             "^docs/data/"
             "^\\.tmp/"
