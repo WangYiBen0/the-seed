@@ -1461,12 +1461,24 @@
     // ceiling (measured death: wave 5 / 127s), so they had no resolution for
     // anything that only pays off later.
     {
-      const budget = Math.max(6000, seconds * 1000 / Math.min(4, speed) + 3000);
+      // DETERMINISTIC STOP.  This loop used to run until a WALL-CLOCK budget expired
+      // (seconds*1000/4 + 3000), so how far the run got depended on the machine's
+      // frame rate: three identical invocations produced 177.5 s/5 waves twice and
+      // 303.5 s/8 waves once.  With the det clock the game advances a fixed number
+      // of ticks per frame, so a game-time bound (and a tick bound as a backstop)
+      // is what makes the sample length constant.
       const t1 = performance.now();
-      while (performance.now() - t1 < budget) {
+      const tickBudgetIv = detMode ? Math.round((seconds || 120) * 60) : 0;
+      const tickT0 = detMode ? (TSW.det.ticks || 0) : 0;
+      const wallCap = Math.max(6000, seconds * 1000 / Math.min(4, speed) + 3000);
+      while (performance.now() - t1 < wallCap) {
         const gg = window.__achroma.G;
         if (!gg) break;
         if (gg.state === 'dead' || gg.state === 'win') break;
+        if (detMode) {
+          // constant sample length: stop on the tick ordinal, never on wall time
+          if ((TSW.det.ticks || 0) - tickT0 >= tickBudgetIv) break;
+        } else if ((gg.runT || 0) >= (seconds || 120)) break;
         await new Promise((r) => setTimeout(r, 300));
       }
     }
