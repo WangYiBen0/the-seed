@@ -199,7 +199,12 @@
   }
 
   async function runFullRun({ speed = 8, seed = null, policy = 'bloom', goalDepth = 1, timeoutS = 900, diff = 'classic', mods = null, ticks = null, boost = null, autoOpts = null, gameSeconds = 0, abortOn = null } = {}) {
-    const detMode = !!(TSW.det && TSW.det.on);
+    // Enable the deterministic clock; it used to be merely READ here, so fullrun
+    // ran on real frame time.  Measured: the same seed twice gave rooms 1 vs 2 and
+    // kills 234 vs 142, which is the entire five-lock history being unreproducible.
+    const detWas = !!(TSW.det && TSW.det.on);
+    const detMode = !(autoOpts && autoOpts.det === false);
+    if (detMode) TSW.det.enable();
     const detT0 = detMode ? (TSW.det.ticks || 0) : 0;   // per-run baseline
     // log every hurtPlayer call (dmg, pierce, mechHit) so death causes are visible
     installHurtLog();
@@ -648,6 +653,25 @@
     // works as a hard wall ceiling for a hung browser.
     const gameBudget = +(gameSeconds || 0);
     const res = await new Promise((resolve) => {
+      // TICK-BASED STOP.  This used to be a 500 ms setInterval polling the tick
+      // count, so a run always overshot its budget by however many ticks fit in
+      // the next half second — and that amount depends on the machine's frame
+      // rate.  Measured: two identical seeds produced 18109 and 18030 ticks, which
+      // is why five-lock runs diverged (rooms 2 vs 0) even with the det clock on.
+      // Checking inside beforeTick makes the cut exact.
+      let stopHook = null, settled = false;
+      const finish = (aborted) => {
+        if (settled) return; settled = true;
+        try { if (stopHook) { stopHook(); stopHook = null; } } catch (e) { }
+        clearInterval(iv);
+        const g0 = G();
+        // The abort rule must stay explicit here: an aborted run is NOT a timeout.
+        resolve({ end: aborted ? 'aborted' : (g0.state === 'dead' ? 'death' : g0.state === 'win' ? 'ascend' : (detMode && (TSW.det.ticks - detT0) >= tickBudget ? 'goal' : 'timeout')), wall: (performance.now() - t0) / 1000, aborted });
+      };
+      // exact cut: evaluated once per simulated tick, not once per 500 ms of wall
+      if (detMode && tickBudget > 0) {
+        stopHook = TSW.hooks.beforeTick(() => { if ((TSW.det.ticks - detT0) >= tickBudget) finish(false); });
+      }
       const iv = setInterval(() => {
         const g = G(), wall = (performance.now() - t0) / 1000;
         const ticksDone = (TSW.det && TSW.det.on && TSW.det.ticks) ? (TSW.det.ticks - detT0) : 0;
@@ -684,8 +708,8 @@
           ? ((g.runT || 0) >= gameBudget || wall > gameBudget * 4 + 300)
           : wall > timeoutS;
         if (done || ranOut) {
-          clearInterval(iv);
-          resolve({ end: aborted ? 'aborted' : (g.state === 'dead' ? 'death' : g.state === 'win' ? 'ascend' : g.endless >= goalDepth ? 'goal' : 'timeout'), wall, aborted });
+          finish(aborted);
+          return;
         }
       }, 500);
     });
@@ -704,6 +728,7 @@
     TSW.speed.set(wasSpeed, true);
     SET.diff = wasDiff; saveSettings();
     TSW.rng.clear();
+    if (!detWas) TSW.det.disable();            // leave the clock as we found it
     const g = G();
     return {
       kind: 'fullrun', at: Date.now(), speed, seed, policy, goalDepth, diff,
