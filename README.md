@@ -105,7 +105,7 @@ nix run .#test          # 或 node --test "tests/*.test.mjs"
 
 ```bash
 nix run .#serve      # 平时用它起服务：404 会被记录到 .tmp/missing.log
-nix run .#source     # 按 404 清单从上游拉取 → site/<原路径>，并写 asset-manifest.json
+nix run .#source     # 按 404 清单从上游拉取 → site/<原路径>，并写 state/manifest.json
 nix run .#source img/cg/xxx.png   # 也可以手动指定路径
 ```
 
