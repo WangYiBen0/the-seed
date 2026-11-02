@@ -73,6 +73,7 @@ bench 已为此拆出可审计的独立指标：`hpLostTotal`（0=无伤）、`p
 | `targetPriority` | 1.33 vs 1.50（噪声内） | 保持，无据 |
 | `floorScaling` | 1.67 vs 1.67（持平） | 保持，无据 |
 | `dodgeDashAt` | 受击率 +4%（更差） | 默认关闭 |
+| `labSerum` | 0.75 → 1.25 房（+0.5，3 对可比：2 好 1 坏 1 平） | 未定，样本待补 |
 
 ### 阻塞
 
