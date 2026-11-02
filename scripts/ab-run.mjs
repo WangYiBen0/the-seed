@@ -109,8 +109,16 @@ let solo = 0;
 try {
   const got = readFileSync(OUT, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (e) { return null; } })
     .filter((x) => x && x.kind === KIND);
-  const onA = got.filter((r) => r.autoOpts && JSON.stringify(r.autoOpts) === JSON.stringify(A)).length;
-  const onB = got.filter((r) => r.autoOpts && JSON.stringify(r.autoOpts) === JSON.stringify(B)).length;
+  // Compare on the REQUESTED option set, not on the applied object: rows also
+  // carry the forced growth defaults, so an exact-string match against the
+  // requested JSON reports 0 vs 0 for a perfectly balanced batch.
+  const reqA = Object.entries(JSON.parse(A || '{}'));
+  const reqB = Object.entries(JSON.parse(B || '{}'));
+  const matches = (r, req) => req.length
+    ? req.every(([k, v]) => r.autoOptsRequested && JSON.stringify(r.autoOptsRequested[k]) === JSON.stringify(v))
+    : true;
+  const onA = got.filter((r) => matches(r, reqA)).length;
+  const onB = got.filter((r) => matches(r, reqB)).length;
   if (got.length >= 2 && (onA === 0 || onB === 0)) {
     solo = 1;
     console.log('[ab] ONE ARM PRODUCED NOTHING (' + onA + ' vs ' + onB + ' rows) — experiment is void, not a result');
