@@ -1579,7 +1579,13 @@
       if (unknown.length) TSW.err('AB: unknown autoOpts ignored → ' + unknown.join(', '));
       let r;
       try {
-        if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 9) }, o));
+        // START WAVE MUST BE EXPLICIT.  This defaulted to 9, so an A/B measuring
+        // "does the build reach wave N" was really measuring "does it survive one
+        // or two waves from wave 9" — and any reach threshold below 10 passed
+        // trivially.  Measured: reach 3/5/7/10 all returned 1/1 while the inner
+        // runs only lasted 9-16 game-seconds.  Default is now wave 1, i.e. the
+        // same question the target asks, and it can be overridden via base.wave.
+        if (K === 'invade') r = await runInvade(Object.assign({ seconds, speed, seed, diff, timeoutS, role: base.role || 'rounded', wave: (base.wave != null ? base.wave : 1) }, o));
         else r = await runFullRun(Object.assign({ speed, seed, policy: 'rounded', goalDepth, timeoutS, diff, mods, gameSeconds }, o));
       } finally { for (const [k, v] of Object.entries(saved)) TSW.auto.opts[k] = v; }
       // Diagnostics: an inner run that ends in a few game-seconds means the
