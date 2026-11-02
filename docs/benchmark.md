@@ -9996,3 +9996,48 @@ run2: end=death  gameT=19  kills=2  floor=4  depth=1
 2. **先跑完三层再进无尽**（最真实，但每局成本高）。
 
 目前的天花板：19 游戏秒，2 击杀。
+#### 213¾. 无尽档起始状态无法靠 `hp` 字段抬高：`maxHp` 由 shard 决定，而没有任何 shard 加 hp
+
+### 尝试
+
+给 boost 传 `hp: 15 / 25 / 40`，期望活得更久。结果：
+
+```
+hp=15  end=death gameT=32 kills=1 floor=3
+hp=25  end=death gameT=32 kills=1 floor=3
+hp=40  end=death gameT=32 kills=1 floor=3
+```
+
+**三者完全相同。**
+
+### 原因（源码）
+
+```js
+// game.js:311  —— 存档里的 hp 上限就是 30
+s.hp = saveNum(s.hp, 5, 1, 30);
+// game.js:338  —— 最后被 maxHp 截断
+p.hp = clamp(s.hp, 1, p.maxHp);
+// combat.js:93  —— maxHp 由 shard 决定
+p.maxHp = Math.max(2, 5 + S.maxHp);
+```
+
+而 `grep 'S.maxHp' site/js/shards*.js` **零处赋值**——
+`baseStats()` 里 `maxHp: 0`，没有任何 shard 往上加。
+
+**所以初始 maxHp 恒为 5，存档里写多少 hp 都会被截到 5。**
+
+### 这意味着
+
+无尽档的起始生存力**不能靠 boost 抬高 hp**。
+要提高它，只能：
+
+1. 找到真正加 `maxHp` 的机制（角色成长 / 特定道具，而非 shard）；
+2. 或者接受 5 血进无尽——而实测那样只能活 19–32 秒。
+
+### 当前无尽档基线（暂定）
+
+```
+起始：hp 5（不可抬）、armor 3、hail t3 + twin
+结果：gameT 32 秒、1 击杀、floor 3–4
+可复现：两次运行逐字段相同（§213½）
+```
