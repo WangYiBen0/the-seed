@@ -43,7 +43,8 @@ function runCell(seed, optJson, tag) {
     rmSync(out, { force: true });
     // Per-arm boost: comparing BUILDS (e.g. a strong gun vs the default drop) needs
     // a different starting weapon per arm, not just a different autopilot flag.
-    const boost = (tag === 'off') ? args['boost-a'] : args['boost-b'];
+    // tag may carry a repeat suffix (_r0/_r1), so match on the arm prefix not the exact string
+    const boost = tag.startsWith('off') ? args['boost-a'] : args['boost-b'];
     const extra = boost ? ['--boost', String(boost)] : [];
     const child = spawn(process.execPath, ['scripts/headless-bench.mjs', '--kind', 'fullrun',
       '--seed', String(seed), '--policy', 'rounded', '--goal-depth', '1', '--speed', '8',
@@ -61,30 +62,50 @@ function runCell(seed, optJson, tag) {
   });
 }
 
+// REPEATS PER ARM.  Same-seed reruns are not bit-identical: measured, seed 1 gave
+// rooms 1 then 0 for the SAME arm (benchmark.md 224). A single sample per cell
+// therefore carries +/-1 room of noise, which is the entire size of the effect
+// being measured. `--repeats N` takes the MODE over N samples so a stray run
+// cannot flip a pair.
+const REPEATS = Math.max(1, +(args.repeats || 1));
+
 const cells = [];
-for (const seed of SEEDS) { cells.push([seed, A, 'off']); cells.push([seed, B, 'on']); }
+for (const seed of SEEDS) {
+  for (const [opt, tag] of [[A, 'off'], [B, 'on']]) {
+    for (let i = 0; i < REPEATS; i++) cells.push([seed, opt, tag, i]);
+  }
+}
 
 const results = [];
 let running = 0, idx = 0;
 await new Promise((done) => {
   const pump = () => {
     while (running < PAR && idx < cells.length) {
-      const [seed, opt, tag] = cells[idx++]; running++;
-      runCell(seed, opt, tag).then((r) => { results.push(r); running--; pump(); });
+      const [seed, opt, tag, rep] = cells[idx++]; running++;
+      runCell(seed, opt, tag + (REPEATS > 1 ? '_r' + rep : '')).then((r) => { results.push(r); running--; pump(); });
     }
     if (running === 0 && idx >= cells.length) done();
   };
   pump();
 });
 
+const mode = (xs) => {
+  const c = new Map();
+  for (const x of xs) c.set(x, (c.get(x) || 0) + 1);
+  let best = null, bn = -1;
+  for (const [k, n] of c) if (n > bn || (n === bn && best !== null && k > best)) { best = k; bn = n; }
+  return best;
+};
+
 results.sort((x, y) => x.seed - y.seed || x.tag.localeCompare(y.tag));
 console.log('seed\toff\ton\t(binary >= ' + ROOMS + ' rooms)');
 let offPass = 0, onPass = 0, pairs = 0;
 for (const seed of SEEDS) {
-  const off = results.find((r) => r.seed === seed && r.tag === 'off');
-  const on = results.find((r) => r.seed === seed && r.tag === 'on');
-  if (!off || !on || off.rooms == null || on.rooms == null) { console.log(seed + '\tINCOMPLETE'); continue; }
-  const a = off.rooms >= ROOMS ? 1 : 0, b = on.rooms >= ROOMS ? 1 : 0;
+  const offRuns = results.filter((r) => r.seed === seed && r.tag === 'off');
+  const onRuns = results.filter((r) => r.seed === seed && r.tag === 'on');
+  if (!offRuns.length || !onRuns.length) { console.log(seed + '\tINCOMPLETE'); continue; }
+  const a = mode(offRuns.map((r) => r.rooms)) >= ROOMS ? 1 : 0;
+  const b = mode(onRuns.map((r) => r.rooms)) >= ROOMS ? 1 : 0;
   offPass += a; onPass += b; pairs++;
   console.log([seed, a, b].join('\t'));
 }
