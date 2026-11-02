@@ -1424,8 +1424,11 @@
     const g = window.__achroma.G, iv = g.iv || {};
     const gameS = Math.max(1, (g.runT || 0) - runT0);
     return {
-      // Record the REQUESTED overrides (not the restored live values), so an A/B
-      // can tell the arms apart after the fact.
+      // Record BOTH what was asked for and what was in effect.  runFullRun does
+      // this; runInvade only recorded the applied object, so an A/B on a default
+      // value (tank) could not be told apart from the other arm and the paired
+      // runner reported "one arm produced nothing" on a complete batch.
+      autoOptsRequested: (function () { try { return Object.assign({}, autoOpts || {}); } catch (e) { return {}; } })(),
       autoOpts: (function () { try { return Object.assign({}, autoOpts || {}); } catch (e) { return {}; } })(),
       autoOptsUnknown: optUnknownI.slice(),
       kind: 'invade', at: Date.now(), seed, diff, role, startWave: wave, seconds, speed,
