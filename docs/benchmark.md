@@ -9642,3 +9642,51 @@ seed   wave8  wave9  wave10  wave11
 
 阈值为 **11** 时 `reach` 指标有分辨率（0/1 混合），
 这正是可以做有效 A/B 的位置。
+### 207. `runAB` 的同会话重复运行是坏的：inner run 只有 10–16 游戏秒
+
+### 发现了统计量，但数据本身是坏的
+
+`runAB` 能输出完整的统计量（`sd` / `sem` / `ci95` / `t` / `verdict`），
+看起来正是我需要的工具。实测：
+
+```
+metric=survived, seed 19, rounds 6, seconds 400
+a(dps)  = 12.3      b(tank) = 10.8
+delta   = -1.5   sd = 4.0   sem = 1.6   ci95 = [-4.7, +1.7]
+verdict = 无显著差异
+pairs   = [(13.6, 9.5), (16.1, 10.1), (13.8, 10.0), (8.9, 13.9), ...]
+```
+
+**`survived` 的单位是游戏秒，而这里只有 9–16 秒。**
+
+`--seconds 400` 的正常局应该跑 400 秒、击杀 400+，
+而这些 inner run 只有 **20 次击杀以内**。
+
+### 原因：代码自己早就写了
+
+`bench.js:1585` 的注释：
+
+> Diagnostics: an inner run that ends in a few game-seconds means the
+> repeated same-session start is broken, not that the arms are equal.
+
+**同会话第二次启动是坏的**（历史记录：run 1 死在 gameT 422，run 2 在 gameT 9 "timeout"）。
+
+### 因此
+
+| 结论 | 状态 |
+|---|---|
+| `runAB` 能输出统计量 | ✅ 真的 |
+| `runAB` 的数据可用于训练对比 | ❌ **不行**，inner run 提前结束 |
+| 跨进程 `ab-run` | ❌ 同种子不可复现 |
+
+### 所以目前没有任何可用的 A/B 口径
+
+- 跨进程：不可复现（1/3 概率完全不同）
+- 同进程：inner run 提前死（10–16 秒）
+
+### 但 `reach` 探测是有效的
+
+§206 的边界探测（10 波）之所以可信，是因为 `reach` 只需要「到达/未到达」，
+而 inner run 即使只跑 12 秒也足以判定「到不了第 11 波」。
+
+**所以：`reach` 可以判定「能不能」，不能判定「差多少」。**
