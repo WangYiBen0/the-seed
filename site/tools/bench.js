@@ -81,7 +81,12 @@
     if (useMods || b) {
       const save = {
         v: 1, at: stamp, floor: 0, diff: d, modifiers: useMods || [],
-        hp: 5, maxHp: 5, armor: 3, maxArmor: 3,
+        // hp/armor are overridable so a scenario can start from a realistic build.
+        // The endless floor is designed for a player who finished three floors; a
+        // boost that jumped there with 5 hp / 3 armor died in 15 seconds with eight
+        // enemies on screen (benchmark.md 213).
+        hp: (b && b.hp != null) ? b.hp : 5, maxHp: (b && b.hp != null) ? b.hp : 5,
+        armor: (b && b.armor != null) ? b.armor : 3, maxArmor: (b && b.armor != null) ? b.armor : 3,
         weapons: (b && b.weapons) ? b.weapons.slice() : ['nail'], wi: 0,
         wlv: (b && b.wlv) ? Object.assign({}, b.wlv) : {},
         shards: (b && b.shards) ? Object.assign({}, b.shards) : {},
@@ -269,8 +274,20 @@
     // (benchmark.md 182).  This calls the game's own entry point instead.
     if (boost && boost.endless) {
       try {
-        await new Promise((r) => setTimeout(r, 600));
+        // Wait for the resumed run to actually be in 'play' before entering
+        // endless. A fixed 600 ms was not enough on a cold page: measured, the
+        // same boost produced floor 2 in one probe and floor 0 in another, i.e.
+        // startEndless ran before G existed and silently did nothing.
+        let ws2 = performance.now();
+        while (performance.now() - ws2 < 12000) {
+          const gg = window.__achroma && window.__achroma.G;
+          if (gg && gg.state === 'play' && gg.p) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
         if (typeof startEndless === 'function') startEndless();
+        // confirm it took: endless set and the floor actually moved
+        const g2 = window.__achroma && window.__achroma.G;
+        if (g2) TSW.log('endless entry: endless=' + (g2.endless | 0) + ' floor=' + (g2.floor | 0));
       } catch (e) { TSW.err('endless entry', e); }
     }
     const G = () => window.__achroma.G;
