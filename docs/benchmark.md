@@ -9320,3 +9320,54 @@ gameT:        396 / 390 / 387          DIFF
 
 **因此五锁仍然不能做单种子 A/B**，只能多种子统计，
 而多种子统计又有 ±2 房的方差——这就是所有五锁结论都不稳的根本原因。
+
+### 200. 再排除一个熵源（存档时间戳），仍不可复现
+
+### 本轮尝试
+
+发现 `startRunWith` 写入的存档里，`at` 和 `rid` 来自 `Date.now()`：
+
+```js
+v: 1, at: Date.now(), ... , rid: 'r' + Date.now().toString(36)
+```
+
+而 `G.rid` 会被游戏用来判重（`achieve.js:153` 的 `clearRuns.includes(G.rid)`、
+`game.js:323` 的 `markAssisted`），所以两局同种子**签的是不同存档**。
+改为由种子派生（`stamp = 0x5eed0000 + seed`、`rid = 's' + seed.toString(36)`）。
+
+### 结果：仍不可复现
+
+```
+end:          goal / goal / death    DIFF
+ticks:        24005 / 24006 / 21309  DIFF
+roomsCleared: 1 / 1 / 2              DIFF
+kills:        132 / 118 / 28         DIFF
+```
+
+前两次（`goal`/`ticks≈24005`/`rooms=1`）非常接近，第三次在 21309 tick 死亡。
+
+### 已排除的熵源清单（累计）
+
+| 来源 | 排除依据 |
+|---|---|
+| `Math.random` 未播种 | 全部经 `mulberry32`，入侵档已验证可复现 |
+| `det` 读真实 `dt` | 已改为固定步进（§190） |
+| 500ms 轮询停止 | 已改为按 tick 切（§192½） |
+| `virt` 用 `performance.now()` 起手 | 已归零（§199） |
+| 存档 `at` / `rid` 用 `Date.now()` | 已由种子派生（本节） |
+
+### 剩余可能
+
+1. **浮点非结合性**：`virt += VIRT_DT` 每帧累加，
+   而 `rdt = (virt - last)/1000` 的减法在不同累计位置有不同舍入；
+   理论上同序列同结果，但如果某一帧被跳过（`if (!pending.size) return`），序列就错位。
+2. **`pump` 的 `pending.size === 0` 早退**：若某次 rAF 回调时 `pending` 为空，
+   该帧不推进 `virt`，但下一次推进量会不同。
+
+### 结论
+
+**测量链路仍有约 1/3 概率产生完全不同的结局**，
+因此任何基于 6 种子的均值都有 ±2 房的不确定性。
+
+这不是「再调一个参数」能解决的，需要在 `virt` 推进逻辑上做结构性改造：
+**让每一帧的推进严格由 tick 序号决定（`virt = tickN * VIRT_DT`），而不是累加**。

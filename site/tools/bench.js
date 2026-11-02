@@ -65,7 +65,14 @@
   }
   // `boost` lets a run START with better gear, so the damage threshold can be
   // measured directly instead of inferred: { weapons, wlv, shards, ink }.
-  function startRunWith({ diff = 'classic', mods = null, policy = null, boost = null } = {}) {
+  function startRunWith({ diff = 'classic', mods = null, policy = null, boost = null, seed = null } = {}) {
+    // DETERMINISTIC SAVE STAMP.  `at` and `rid` went into the save that the run
+    // resumes from, and both came from Date.now().  A save is not just bookkeeping:
+    // the game keys clear-run rewards and markAssisted off G.rid, so two runs of the
+    // same seed were resuming from genuinely different saves.  Deriving both from
+    // the seed makes the starting state identical.
+    const stamp = (seed == null) ? Date.now() : (0x5eed0000 + (seed >>> 0));
+    const ridOf = (seed == null) ? ('r' + Date.now().toString(36)) : ('s' + (seed >>> 0).toString(36));
     const d = (DIFF_BY && DIFF_BY[diff]) ? diff : (diff || 'classic');
     SET.diff = d; saveSettings();
     const useMods = Array.isArray(mods) && mods.length ? mods.slice() : null;
@@ -73,7 +80,7 @@
     let resumed = false;
     if (useMods || b) {
       const save = {
-        v: 1, at: Date.now(), floor: 0, diff: d, modifiers: useMods || [],
+        v: 1, at: stamp, floor: 0, diff: d, modifiers: useMods || [],
         hp: 5, maxHp: 5, armor: 3, maxArmor: 3,
         weapons: (b && b.weapons) ? b.weapons.slice() : ['nail'], wi: 0,
         wlv: (b && b.wlv) ? Object.assign({}, b.wlv) : {},
@@ -84,7 +91,7 @@
         // every floor first.  The game reads s.endless and restores it.
         endless: (b && b.endless) || 0,
         ...(b && b.endless ? { powCap: b.powCap || 0 } : {}),
-        rid: 'r' + Date.now().toString(36),
+        rid: ridOf,
       };
       try {
         // STORE.setItem silently drops writes while STORE.locked is set (it is
@@ -253,7 +260,7 @@
     // start a fresh run: either the game's own launchRun() or (with modifiers)
     // a crafted save resumed through the game's loader
     await waitScripts();
-    startRunWith({ diff, mods, boost });
+    startRunWith({ diff, mods, boost, seed });
     // Endless must be ENTERED, not merely recorded in a save.  G.endless is just
     // a counter; the endless floor is built by startEndless() ->
     // beginFloorTransition(endlessFloor()).  Writing endless:1 into a save left
@@ -658,6 +665,7 @@
     // as failures.  --game-seconds makes the budget meaningful; --timeout still
     // works as a hard wall ceiling for a hung browser.
     const gameBudget = +(gameSeconds || 0);
+    let ticksAtStop = null;          // hoisted: the row builder below needs it
     const res = await new Promise((resolve) => {
       // TICK-BASED STOP.  This used to be a 500 ms setInterval polling the tick
       // count, so a run always overshot its budget by however many ticks fit in
@@ -668,6 +676,12 @@
       let stopHook = null, settled = false;
       const finish = (aborted) => {
         if (settled) return; settled = true;
+        // Snapshot the tick count AT THE CUT.  The row used to read TSW.det.ticks
+        // after everything unwound, by which point the game's rAF loop had run a
+        // few more frames — that is where the 24005/24006/24010 spread came from,
+        // and a five-tick spread is enough to flip a threshold and send two
+        // otherwise-identical runs down different paths.
+        ticksAtStop = (TSW.det && TSW.det.ticks) || 0;
         try { if (stopHook) { stopHook(); stopHook = null; } } catch (e) { }
         clearInterval(iv);
         const g0 = G();
@@ -748,7 +762,7 @@
       // 0 = unbounded by game time (the wall ceiling still applies)
       gameSeconds,
       autoOptsDefault: { bossBodyDanger: TSW.auto.opts.bossBodyDanger, plateWeight: TSW.auto.opts.plateWeight, armorWaitT: TSW.auto.opts.armorWaitT },
-      det: !!detMode, ticks: (TSW.det && TSW.det.ticks) || 0,
+      det: !!detMode, ticks: ticksAtStop ?? ((TSW.det && TSW.det.ticks) || 0),
       modifiers: modsEarly,
       modifiersAtEnd: (window.__achroma.G && __achroma.G.modifiers) || [],
       end: res.end, wall: +res.wall.toFixed(1),
