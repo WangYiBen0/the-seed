@@ -128,6 +128,8 @@
       invadeFire: true,                                      // invade: hold the trigger while aiming
       // MUST be declared here or runAB voids the experiment.
       invadeStatScore: true,                                 // invade: score items by stat block, not name
+      // MUST be declared here or runAB voids the experiment.
+      summonerFirst: true,                                     // explore: kill summoners before stragglers
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
       // DEFAULT 'tank': invade deaths are health, not damage.  Live sampling showed
@@ -1895,6 +1897,20 @@
       // contact damage from every direction, and several runs died with the boss
       // on 11-118 hp exactly there.  Clear the adds first, then the boss.
       let ne = nearestEnemy(p.x, p.y, 900, false) || (G.boss && !G.boss.dead ? G.boss : null);
+      // SUMMONERS FIRST.  A room only opens when no living enemy shares it
+      // (game.js:229), and gravekeep re-spawns minis every 3.85 s (enemies2.js:103).
+      // Measured: seed 11 spent 387 of 400 combat seconds and cleared ZERO rooms
+      // with a gravekeep standing 90 px away spawning, while the autopilot chased
+      // the nearest mini (benchmark.md 197).  Killing the source is the only way
+      // that room can ever open, so a visible summoner outranks "nearest".
+      // switchable via opts.summonerFirst.
+      if (A.opts.summonerFirst !== false) {
+        try {
+          const summ = (G.enemies || []).filter((e) => !e.dead && e.spawnT <= 0 && e.inv <= 0 && e.type === 'gravekeep'
+            && dist(p.x, p.y, e.x, e.y) < 500).sort((a2, b2) => dist(p.x, p.y, a2.x, a2.y) - dist(p.x, p.y, b2.x, b2.y))[0];
+          if (summ) { ne = summ; A.status.note = '清房：先杀召唤者'; }
+        } catch (e2) { }
+      }
       // ---- focus a target until it dies --------------------------------------
       // Damage spread across several enemies leaves all of them half-dead, so the
       // room takes longer than killing them one by one.  Keep hitting the current
