@@ -76,6 +76,9 @@
   let tickN = 0;
   function fireTick() {
     tickN++;
+    // In det mode the clock is the tick ordinal, not a running sum, so tick N
+    // always reports the same time no matter what the frame schedule did.
+    if (det) virt = tickN * VIRT_DT;
     for (const fn of TSW.hooks._before) { try { fn(virt); } catch (e) { TSW.err('beforeTick', e); } }
     // page-scope debug mirror (webdriver sandboxes can't see game lexical bindings)
     if (window.__achroma) { try {
@@ -117,8 +120,13 @@
       // a 300 s run did not (measured: waves 5/5 then 6/5, kills 315/315 then
       // 470/315).  A benchmark that cannot be re-run is not a measurement, so this
       // no longer reads dt at all.
+      // DERIVE, DON'T ACCUMULATE.  virt += VIRT_DT sums a float once per tick, and
+      // the sum's rounding differs depending on where in the sequence it happens —
+      // which is exactly how otherwise-identical runs drifted apart.  Setting
+      // virt = tickN * VIRT_DT makes the clock a pure function of the tick ordinal,
+      // so tick N always reports the same timestamp regardless of history.
       const steps = Math.max(1, Math.round(Math.max(1, speed)));
-      for (let i = 0; i < steps; i++) { virt += VIRT_DT; fireTick(); }
+      for (let i = 0; i < steps; i++) { virt = (tickN + 1) * VIRT_DT; fireTick(); }
       return;
     }
     if (speed === 1) { virt += dt; fireTick(); return; }
