@@ -124,6 +124,8 @@
       // arena is crowded enough that lowering the effective distance of one enemy
       // does not redirect fire usefully.  Declared here so an A/B stays valid.
       invadeShooterFirst: false,                             // invade: shoot ranged enemies before melee
+      // MUST be declared here or runAB voids the experiment.
+      invadeStatScore: true,                                 // invade: score items by stat block, not name
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
       // DEFAULT 'tank': invade deaths are health, not damage.  Live sampling showed
@@ -1633,6 +1635,24 @@
           if (!o) return -1;
           if (style === 'weapon') return o.k === 'w' ? 60 + dpsOf(o.id, o.t | 0) + dupBonus(o.id, o.t | 0) + setBonus(o.id) : 10;   // weapons only, best DPS first
           if (o.k === 'w') return 100 + (o.t || 0) * 10;            // otherwise strongest weapon
+          // Score by the item's ACTUAL stat block, not by its name.  The old version
+          // regex-matched the id, so an item whose whole point is a negative
+          // `enemies` modifier (Candle: enemies -10, White flag: enemies -5) fell
+          // through to the 40-point bucket and was never bought.  Measured death
+          // cause is a melee swarm of 47 (benchmark.md 189), and `enemies` is the
+          // stat that thins the swarm: ivSpawnGroup scales desired spawns by
+          // max(.1, 1 + ivStats().enemies/100), so -10 means 10% fewer spawns.
+          const mods = (A.opts.invadeStatScore !== false && typeof IV_I !== 'undefined' && IV_I[o.id] && IV_I[o.id].m) || null;
+          if (mods) {
+            let v = 40;
+            const g = (k) => (typeof mods[k] === 'number' ? mods[k] : 0);
+            // fewer enemies is the strongest defensive stat we can buy here
+            v += Math.min(60, Math.max(0, -g('enemies')) * 5);
+            v += g('hp') * 4 + g('armor') * 3 + g('regen') * 3;
+            v += g('dmg') * 2 + g('aspd') * 2 + g('crit') * 1.5;
+            v += g('speed') * 1.5 + g('dodge') * 1.5;
+            return v;
+          }
           const id = o.id || '';
           if (/dmg|crit|aspd|atk|power/.test(id)) return 90;
           if (/hp|armor|regen|life|shield/.test(id)) return 70;
