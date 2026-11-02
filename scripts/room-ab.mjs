@@ -20,7 +20,7 @@ const args = (() => {
   for (let i = 0; i < a.length; i++) {
     if (!a[i].startsWith('--')) continue;
     const k = a[i].slice(2);
-    if (k === 'a' || k === 'b' || k === 'mods') { o[k] = a[++i] ?? ''; continue; }
+    if (k === 'a' || k === 'b' || k === 'mods' || k === 'boost-a' || k === 'boost-b') { o[k] = a[++i] ?? ''; continue; }
     const v = (a[i + 1] && !a[i + 1].startsWith('--')) ? a[++i] : true;
     o[k] = v;
   }
@@ -41,10 +41,14 @@ function runCell(seed, optJson, tag) {
   return new Promise((resolve) => {
     const out = join(OUTDIR, `s${seed}_${tag}.jsonl`);
     rmSync(out, { force: true });
+    // Per-arm boost: comparing BUILDS (e.g. a strong gun vs the default drop) needs
+    // a different starting weapon per arm, not just a different autopilot flag.
+    const boost = (tag === 'off') ? args['boost-a'] : args['boost-b'];
+    const extra = boost ? ['--boost', String(boost)] : [];
     const child = spawn(process.execPath, ['scripts/headless-bench.mjs', '--kind', 'fullrun',
       '--seed', String(seed), '--policy', 'rounded', '--goal-depth', '1', '--speed', '8',
       '--diff', 'despair', '--mods', MODS, '--game-seconds', String(args['game-seconds'] || 400),
-      '--timeout', String(args.timeout || 400), '--autoOpts', optJson, '--out', out], { stdio: 'ignore' });
+      '--timeout', String(args.timeout || 400), '--autoOpts', optJson, '--out', out, ...extra], { stdio: 'ignore' });
     child.on('exit', () => {
       let rooms = null;
       try {
