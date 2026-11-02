@@ -143,7 +143,13 @@
   // fixed multiplier buttons removed on request: the continuous slider below is
   // the single control, and clicking the ×1 readout snaps back to normal speed.
   const rPerf = row(sState);
-  const cbHud = check('测评 HUD（F9 或 HUD 右上角 ✕ 隐藏）', () => TSW.hud.visible, (v) => TSW.hud.toggle(v));
+  // GUARDED: if a tool script failed to load (or the injector pulled them in the
+  // wrong order), TSW.hud can be undefined and this threw
+  //   TypeError: can't access property "visible", TSW.hud is undefined
+  // which killed the rest of the panel build — the whole F8 window.
+  const cbHud = check('测评 HUD（F9 或 HUD 右上角 ✕ 隐藏）',
+    () => (TSW.hud ? !!TSW.hud.visible : false),
+    (v) => { if (TSW.hud) TSW.hud.toggle(v); else console.warn('[TSW] HUD 未加载，无法切换'); });
   rPerf.append(cbHud);
   const rPerf2 = row(sState);
   const cbPerf = check('性能模式', () => TSW.perf.active, (v) => v ? TSW.perf.enable() : TSW.perf.disable());

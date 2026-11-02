@@ -1,11 +1,26 @@
 # 在原版游戏里注入工具（inject）
 
 把工坊面板 / HUD / 指令台 / 挂机 / 宏 / 基准 **搬进官方页面**，不修改官方任何代码，
-只往页面追加 8 个 `<script>`。
+只往页面追加一串 `<script>`。
 
 官方页：<https://www.dzmm.ai/character/3738712>
 
-## 一键注入（复制这一整段，粘到控制台，回车）
+## 最短入口（110 字符，一行）
+
+不改任何源码，只让页面去加载 `inject.js`：
+
+```js
+document.head.append(Object.assign(document.createElement('script'),{src:'https://wangyiben0.github.io/the-seed/inject.js'}))
+```
+
+**已实测**（headless chromium，本地镜像）：`__TSW`、`panel`、`bench`、`auto` 全部挂载，
+**零异常**；`cloudhost` 按设计拒绝在 shim 下运行（它只认官方页的 `dzmm.kv`）。
+
+重复粘贴是幂等的：第二次会打印 `[TSW] 已注入`。
+
+## 备选：直接拉工具清单（437 字符）
+
+同样是外面入口，不经过 `inject.js`：
 
 ```js
 (()=>{const B='https://wangyiben0.github.io/the-seed/tools/',F=['core','macro','auto','hud','bench','explore','cheats','panel'];if(window.__TSW)return console.warn('[TSW] 已注入 —— F8 工坊 / F9 HUD / F10 指令台');(async()=>{const bad=[];for(const n of F){await new Promise(r=>{const s=document.createElement('script');s.src=B+n+'.js?v='+Date.now();s.onload=r;s.onerror=()=>{bad.push(n);r()};document.head.appendChild(s)})}if(bad.length)console.error('[TSW] 部分脚本加载失败: '+bad.join(',')+'（若页面有 CSP 限制，请改用镜像页）');else console.log('[TSW] 注入成功 · F8 工坊 / F9 HUD / F10 指令台')})()})();
