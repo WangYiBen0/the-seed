@@ -27,8 +27,10 @@
 
 ## 已完成
 
-- [x] **部署 gh-pages（新结构）**：commit `d0f2e93`，Pages build `built`。
-      实测线上三个入口与本地**字节一致**：`index.html 7161B`、`game.html 1652B`、`auto.html 2273B`。
+- [x] **部署 gh-pages（新结构）**：commit `32d609a`，Pages build `built`。
+      线上校验：`index.html` 7683B / `upstream/index.html` 70506B 均与本地**逐字节一致**；
+      `docs/benchmark.md` 返回 **404**（内部文档已撤下）；headless 实跑线上站点
+      `achroma:true state:intro`，**零异常、零资源加载失败**。
       真实浏览器实测行为：`frames:1, cta:true, barHidden:true, innerTsw:"undefined"`（注入前无工具）→
       点注入后 `ctaGone:true, barOn:true, inner:{tsw:"object", auto:true, panel:true}`。
 
