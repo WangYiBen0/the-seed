@@ -40,8 +40,16 @@
   const VIRT_DT = 1000 / 60;           // each simulated frame is one 60 Hz tick
   const MAX_STEPS = 40;                // hard ceiling per real frame (32× @30Hz)
   let speed = +TSW.settings.get('speed', 1) || 1;
-  let virt = (typeof performance !== 'undefined' ? performance.now() : 0);
-  let lastReal = virt, acc = 0, pumping = false, rafId = 0, rafSeq = 0;
+  // ABSOLUTE TIME MUST NOT LEAK INTO THE SIMULATION.  The game computes
+  // rdt = (now - last)/1000 from the timestamp rAF hands it, and derives G.time
+  // and G.runT from that.  Seeding virt from performance.now() gave every run a
+  // different starting epoch, so identical seeds diverged: measured three runs of
+  // the same command ending at tick 7350, 24005 and 24008.  In det mode virt
+  // starts at 0 and only ever advances by VIRT_DT.
+  let virt = 0;
+  // lastReal tracks the REAL clock and must not be zeroed with virt.
+  let lastReal = (typeof performance !== 'undefined' ? performance.now() : 0);
+  let acc = 0, pumping = false, rafId = 0, rafSeq = 0;
   const pending = new Map();           // handle -> callback
 
   TSW.clock = {

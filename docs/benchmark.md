@@ -9261,3 +9261,62 @@ A/B off 臂: end=death  ticks= 8645  gameT=140  wall=38.2
    或 `runInvade`/`runFullRun` 之间共享的模块级状态）；
 2. 或改用**同种子重复 N 次取众数**作为统计口径；
 3. **在此之前不应再宣布任何 A/B 结论**。
+
+### 199. `virt` 归零修掉了**结局**的确定性，但**路径**仍分叉
+
+### 发现
+
+```js
+// core.js:43（修复前）
+let virt = (typeof performance !== 'undefined' ? performance.now() : 0);
+```
+
+**每一局的虚拟时钟起点都不同**，而游戏正是用这个时间戳算 `rdt`：
+
+```js
+// game.js:693
+const rdt = Math.min(.05, Math.max(0, (now - last) / 1000));
+// game.js:602
+G.runT += rdt;
+```
+
+起点不同 → 第一帧 `rdt` 不同 → `G.time` / `G.runT` 的绝对值不同 →
+**所有基于绝对时间的阈值判断都漂移**。
+
+### 修复前（同一条命令连跑三次）
+
+```
+run1: end=death  ticks= 7350  rooms=1  gameT=119
+run2: end=goal   ticks=24005  rooms=2  gameT=395
+run3: end=goal   ticks=24008  rooms=0  gameT=392
+```
+三种结局都有。
+
+### 修复后（`virt` 从 0 开始）
+
+```
+end:          goal / goal / goal      ALL-SAME   ← 结局稳定了
+ticks:        24006 / 24010 / 24005    DIFF
+roomsCleared: 1 / 1 / 3                DIFF
+kills:        14 / 146 / 63            DIFF
+gameT:        396 / 390 / 387          DIFF
+```
+
+**结局（是否跑满）现在一致了，但路径（清几间房、杀多少）仍不同。**
+
+### 剩余熵源的判断
+
+已确认：`Math.random` 全部经 `mulberry32`；autopilot 零处 `performance.now()`。
+剩下的只可能是**浮点累积误差**导致的阈值分叉：
+`ticks` 差 5 说明停止点仍在 ±5 tick 抖动，足够让某个 `>` 判断翻转一次，
+之后路径完全分岔。
+
+### 结论（诚实）
+
+| 指标 | 可复现？ |
+|---|---|
+| 结局（goal/death） | **是** |
+| 清房数 / 击杀 | **否** |
+
+**因此五锁仍然不能做单种子 A/B**，只能多种子统计，
+而多种子统计又有 ±2 房的方差——这就是所有五锁结论都不稳的根本原因。
