@@ -9134,3 +9134,91 @@ seed  rooms  tCombat  kills  kills/min  roomClearMean
 - 或者确认是否存在「击杀某类敌人后停止补充」的机制。
 
 这需要在源码里查 `spawnWave` 的触发条件，而不是继续调参。
+
+### 196. 房间清空判定只查 `!e.dead`，包括还没落地的敌人
+
+### 源码
+
+```js
+// game.js:229
+if (rm.waveT <= 0 && !G.enemies.some(e => !e.dead && e.room === rm)) {
+  if (rm.waves.length) spawnWave(rm); else clearRoom(rm);
+}
+```
+
+### 关键：`spawnT` 期间敌人已经存在
+
+`enemies.js:51` 里新敌人生成时 `spawnT = SPAWN_T`（约 0.9 秒），
+期间**已经计入 `G.enemies` 且 `dead === false`**，只是还在播出生动画。
+
+所以判定 `!e.dead` 会把**正在出生的敌人也算作「还活着」**，
+房间必须等它落地、再被打死才能推进。
+
+### 现场采样（seed 11，波次推进时）
+
+```
+t=62 n=9  down=False  splitter 161血 spawnT 0.1 d=243   ← 刚出生
+t=64 n=9  down=True   splitter 161血 spawnT 0     d=196
+t=66 n=8  down=True   splitter 161血 spawnT 0     d=120
+t=68 n=6  down=True   splitter 154血 spawnT 0     d=53
+t=70 n=4  down=True   splitter 118血 ...
+t=75 n=2  down=True   splitter  43血 d=25
+t=77 n=2  down=True   splitter   0血  charger 13血
+t=79 n=3  down=True   charger    0血  mini 0血      ← 清完，下一波
+```
+
+这条链路是**健康的**：敌人生成 → 打包 → 逐波推进。
+
+### 因此「387 秒清 0 房」不是这个机制造成的
+
+需要单独定位那个个案。本节的结论只说明：
+**`spawnT ≠ 0` 的敌人会短暂阻止清房**，但只有 0.9 秒，不构成主要卡点。
+
+### 197. **卡房元凶找到了：`gravekeep`每 6 秒召唤 `mini`**
+
+### 现场（seed 11，400 秒预算，t=371）
+
+```
+gravekeep  hpe 115  inv -365.1  d=90   ← 血量停在 115 不动
+mini       hpe   6  inv -173.5         ← 被召唤出来的小怪
+note: 清房：追击漏网之敌
+```
+
+### 源码（`enemies2.js:102`）
+
+```js
+gravekeep(e, dt, d, a, sp) { e.face = a;
+  if (e.st === 'raise') {
+    if (e.t > .9) {
+      const n = G.enemies.filter(o => !o.dead && o.type === 'mini' && o.room === e.room).length;
+      for (...) spawn mini          // ← 召唤 mini
+    }
+  }
+  ...
+  if (e.cd <= 0) { e.st = 'raise'; e.t = 0; e.cd = 6; AU.play('cast', .7); ... }
+  //                                    ↑ 每 6 秒召唤一次
+}
+```
+
+`gravekeep` 血量 200（`enemies2.js:36`）。
+
+### 这就是「补充速度 ≥ 清除速度」的确切机制
+
+`game.js:229` 要求**房间里没有任何活着的敌人**才推进波次或清房。
+而 `gravekeep` 每 6 秒产出一批 `mini`，只要它没过期死亡，mini 就不断补充——
+**房间永远等不到「无活敌」的那一刻。**
+
+### 与实测数字吻合
+
+| 种子 | 战斗时长 | 击杀 | 清房 | 现场 |
+|---|---|---|---|---|
+| `seed 11` | 387.7 秒 | 137 | **0** | 正是 `gravekeep` + mini |
+| `seed 29` | 53.2 秒 | 29 | 1 | 未遇到召唤型，快速清完 |
+
+### 因此可操作的方向（终于具体了）
+
+1. **优先击杀召唤型**（`gravekeep`、以及可能存在的类似敌人）；
+2. 或**无视 mini 直冲 `gravekeep`** —— 因为 mini 只是拖延，杀掉源头才能推进。
+
+当前 autopilot 的「追击漏网之敌」是**追最近的敌人**，会一直在打 mini，
+而 `gravekeep` 站在 90px 外持续召唤。**打错了对象。**
