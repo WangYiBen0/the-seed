@@ -101,11 +101,16 @@
     const dt = Math.min(250, Math.max(0, realNow - lastReal));
     lastReal = realNow;
     if (!pending.size) return;
-    if (det) {                       // fixed tick regardless of wall clock / speed
-      acc += dt * Math.max(1, speed);
-      let steps = 0;
-      while (acc >= VIRT_DT && steps < MAX_STEPS) { acc -= VIRT_DT; virt += VIRT_DT; fireTick(); steps++; }
-      if (steps >= MAX_STEPS) acc = 0;
+    if (det) {
+      // TRUE determinism: a fixed number of ticks per animation frame, decided by
+      // the requested speed and NOT by how long this frame really took.
+      // What was here before accumulated from the real dt, so the tick count per
+      // frame tracked the machine's frame rate: a 200 s run reproduced exactly but
+      // a 300 s run did not (measured: waves 5/5 then 6/5, kills 315/315 then
+      // 470/315).  A benchmark that cannot be re-run is not a measurement, so this
+      // no longer reads dt at all.
+      const steps = Math.max(1, Math.round(Math.max(1, speed)));
+      for (let i = 0; i < steps; i++) { virt += VIRT_DT; fireTick(); }
       return;
     }
     if (speed === 1) { virt += dt; fireTick(); return; }

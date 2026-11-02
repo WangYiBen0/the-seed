@@ -1354,6 +1354,17 @@
     await waitScripts();
     const wasSpeed = TSW.speed.get(), wasMode = TSW.auto.mode;
     if (seed != null) TSW.rng.seed(seed);
+    // REPRODUCIBILITY.  Seeding Math.random is not enough: the game derives dt
+    // from real elapsed time (game.js rdt = (now-last)/1000), so two runs of the
+    // same seed diverge.  Measured: same seed 19 twice gave waves 6 vs 5, kills
+    // 470 vs 315, gameS 203.8 vs 149.5.  TSW.det replaces that clock with a fixed
+    // 16.667ms per frame, which is what makes an A/B comparable at all — and no
+    // bench had ever enabled it.
+    const detWas = TSW.det.on;
+    // Deterministic by default: a benchmark you cannot re-run is not a measurement.
+    // Callers can pass opts.det=false to opt out (e.g. when measuring throughput).
+    const detMode = !(autoOpts && autoOpts.det === false);
+    if (detMode) TSW.det.enable();
     const save = {
       v: 1, at: Date.now(), rid: 'r' + Date.now().toString(36), diff,
       ink: 0, kills: 0, runT: 0,
@@ -1418,6 +1429,7 @@
     TSW.auto.setMode('off');
     TSW.auto.opts.autoRestart = wasRestart;
     for (const k of Object.keys(optSavedI)) TSW.auto.opts[k] = optSavedI[k];   // restore invade overrides
+    if (!detWas) TSW.det.disable();                                            // leave the clock as found
     TSW.speed.set(wasSpeed, true);
     if (wasMode !== 'off') TSW.auto.setMode(wasMode);
     TSW.rng.clear();
@@ -1452,6 +1464,9 @@
       dmg: Math.round(TSW.metrics.dmgTotal - d0),
       weapons: (iv.w || []).map((w) => w.id + ':t' + w.t),
       lv: iv.lv | 0, state: g.state,
+      // Proof that this row came off the deterministic clock.  Without it a reader
+      // cannot tell a reproducible run from one that free-runs on real time.
+      det: detMode,
       ua: navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || '',
     };
   }

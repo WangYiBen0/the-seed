@@ -8773,3 +8773,66 @@ seed  off波  on波   offK  onK   offLv  onLv
 这是第 6 个被平衡 A/B 否掉的入侵方向。`tank` 仍是唯一成立的改动。
 而 `seed 19` 的 +1 波说明**开火确实在极端局面（47 只包围）下有用**，
 只是这种局面不够常见，平均下来被噪声吞掉。
+
+### 190. **测量链路有根本缺陷**：同种子结果不可复现，而我已用它跑了 100 多轮
+
+### 证据
+
+同一份代码、同一个种子（19）、同样参数，跑两次：
+
+```
+第一批（det 未启用）：
+  wavesPlayed  6 vs 5      DIFF
+  kills        470 vs 315  DIFF
+  gameS        203.8 vs 149.5  DIFF
+```
+
+### 启用 `TSW.det`（确定性时钟）后
+
+200 秒的局：
+```
+wavesPlayed  5 vs 5    SAME
+kills        315 vs 315 SAME
+hits         14 vs 14  SAME
+```
+
+**但 300 秒的局仍然发散：**
+```
+wavesPlayed  6 vs 5    DIFF
+kills        470 vs 315 DIFF
+```
+
+### 根因：`TSW.det` 的时钟仍依赖真实时间
+
+```js
+// core.js pump()
+const dt = Math.min(250, Math.max(0, realNow - lastReal));   // ← 真实墙钟
+if (det) {
+  acc += dt * Math.max(1, speed);      // ← 依然用真实 dt 累积
+  while (acc >= VIRT_DT && steps < MAX_STEPS) { ... fireTick(); }
+  if (steps >= MAX_STEPS) acc = 0;     // ← 追不上就丢弃积压
+}
+```
+
+所谓「确定性」只是**虚拟时间轴按固定 16.667ms 递增**，
+但**每帧推进多少步**取决于真实帧率，帧率一抖，总步数就不同。
+局越长，这种漂移累积越大——这正好解释了「200 秒可复现、300 秒不可复现」。
+
+### 对已有结论的影响
+
+**严重。** 本代全部三种 A/B 结论都建立在「同种子两次结果接近」的假设上：
+
+| 结论 | 是否可信 |
+|---|---|
+| `tank` 优于 `dps`（4 对好、均值 +1 波） | **存疑**——若单种子方差可达 ±1 波，差值可能全是噪声 |
+| `growth` 更差 | 存疑 |
+| `invadeCircle` / `invadeShooterFirst` / `invadeStatScore` / 开火修复 均为噪声 | 巧合地正确（本来就判为无效） |
+| `rateBias` 关闭 | 同上 |
+
+**`tank` 那条是唯一被采纳的改动，而它的证据强度现在也站不住了。**
+
+### 必须做的事
+
+1. 让 bench 真正确定：**tick 数由预算决定，而不是由真实经过时间决定**；
+2. 重跑关键 A/B（至少 `tank` vs `dps`），用可复现的口径；
+3. 在 `benchmark.md` 顶部标注：**190 之前的全部 A/B 结论未经可复现性检验**。
