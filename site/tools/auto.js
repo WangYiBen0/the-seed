@@ -56,6 +56,8 @@
       // converted fewer hits) is real, but the guns that actually drop are weak
       // ones, so preferring rate cannot help when no fast gun is on offer.
       rateBias: false,                                       // prefer high fire-rate guns (benchmark.md 172)
+      // MUST be declared here or runAB voids the experiment.
+      aoeBias: true,                                         // prefer blast weapons (benchmark.md 223)
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
@@ -303,6 +305,19 @@
           if (A.opts.rateBias !== false) {
             const rt = (ww.rate || 0);
             if (rt > 0) v += Math.min(2.5, rt / 6);
+          }
+          // AREA DAMAGE IS THE ONE THING THAT ACTUALLY CLEARS ROOMS.  A room opens
+          // only when no living enemy shares it (game.js:229), so what matters is
+          // how fast the last few foes are removed — and a blast removes several
+          // per shot.  Measured over 20 seeds against the true default drop:
+          // bloom won 9, lost 0, tied 11 (rooms 1.35 -> 1.80, binomial p ~= 0.002,
+          // benchmark.md 223).  That is the only change in this project that has
+          // survived a reproducibility check with a consistent direction.
+          // Weighted above per-shot damage (+2.6) but below the policy table, and
+          // switchable so it can be A/B'd.
+          if (A.opts.aoeBias !== false) {
+            const isAoe = ww.kind === 'rocket' || (ww.aoe | 0) > 0 || (ww.boom | 0) > 0;
+            if (isAoe) v += 2.6;
           }
           if ((ww.pierce | 0) >= 1) v += 1.2;            // piercing is worth a slot
           // Late-game scaling: every upgrade multiplies the BASE damage, so
