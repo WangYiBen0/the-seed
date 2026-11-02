@@ -75,7 +75,11 @@
   frame.id = 'game';
   frame.title = '[TheSeed]';
   frame.allow = 'autoplay; fullscreen';
-  frame.src = 'game.html';
+  // The frame is the VERBATIM upstream page, kept under upstream/ and served as
+  // saved (only its script paths were rewritten from [TheSeed]_files/x_auz1.js
+  // to ../js/x.js, which is the same content).  So what runs in this frame is the
+  // real game page, not a reduced loader.
+  frame.src = 'upstream/index.html';
   document.getElementById('stage').appendChild(frame);
 
   var injected = false;
@@ -109,7 +113,10 @@
         return;
       }
       var s = w.document.createElement('script');
-      s.src = 'tools/' + FILES[i] + '.js';
+      // Relative to the FRAME's document (upstream/), not to the host page:
+      // a script injected into the iframe resolves src against the iframe's URL,
+      // so 'tools/x.js' would look for upstream/tools/x.js and 404.
+      s.src = '../tools/' + FILES[i] + '.js';
       s.onload = s.onerror = function () { i++; next(); };
       w.document.head.appendChild(s);
     })();
