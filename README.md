@@ -72,7 +72,7 @@ nix run .#bench -- --kind fullrun --seed 7 --policy bloom --goal-depth 1 --speed
 镜像页的工坊面板里也有一个 **复制工具注入代码** 按钮，一键把这段代码放进剪贴板。
 
 F8 工坊 / F9 HUD / F10 指令台；脚本原件见 [site/inject.js](site/inject.js)，
-细节与风险见 [site/docs/inject.md](site/docs/inject.md)。
+细节与风险见 [docs/inject.md](docs/inject.md)。
 **注意**：官方页上的指令台/作弊/存档操作会写入你在 dzmm 的真实存档，想安全实验请用镜像页。
 
 ## 提交钩子（git-hooks.nix）
@@ -80,8 +80,8 @@ F8 工坊 / F9 HUD / F10 指令台；脚本原件见 [site/inject.js](site/injec
 `flake.nix` 里接了 [git-hooks.nix](https://github.com/cachix/git-hooks.nix)：
 
 - 在 `nix develop` 里工作时会自动安装 pre-commit 钩子；
-- 钩子只处理**我们自己写的文件**，`site/js/**`（上游逐字节同步）与 `[TheSeed]/**`
-  （原版页面存档）通过 `excludes` 明确排除；
+- 钩子只处理**我们自己写的文件**，`site/js/**`（上游逐字节同步）与
+  `site/upstream/index.html`（原版页面）通过 `excludes` 明确排除；
 - 两道闸门：`seed-fmt`（行尾空白/CRLF/空行/末尾换行，格式化后自动重新暂存）
   与 `seed-syntax`（`node --check`，写坏就拒绝提交）；
 - 钩子需要可写的缓存：devShell 已设 `PRE_COMMIT_HOME=$PWD/.tmp/pre-commit`，
@@ -116,8 +116,8 @@ nix run .#source img/cg/xxx.png   # 也可以手动指定路径
 游戏在上游持续更新，因此本镜像**从不改动**游戏脚本。上游版本更新后：
 
 ```bash
-# 0. 在仓库根目录执行（脚本默认读写 ./[TheSeed] 与 ./site）
-# 1. 浏览器打开上游游戏页面，Ctrl+S 保存为"网页，全部"，替换 ./[TheSeed]/
+# 0. 在仓库根目录执行（脚本默认读写 ./site）
+# 1. CI 会自动从上游拉取；手动时用 nix run .#source 与 .#sync
 nix run .#sync     # 把新脚本按字节同步进 site/js/（只改变化的文件）
 # 2. 校对 site/js/FILES.txt 的差异，提交
 ```
@@ -140,7 +140,7 @@ git push -f https://github.com/WangYiBen0/the-seed.git gh-pages
 
 启用方式：仓库 Settings → Pages → Source: **Deploy from a branch** →
 `gh-pages / (root)`（已配置）。若你更想用 GitHub Actions，见
-`site/docs/deploy-workflow.yml.example`（需要带 `workflow` scope 的 token）。
+`docs/deploy-workflow.yml.example`（需要带 `workflow` scope 的 token）。
 
 ## 免责
 

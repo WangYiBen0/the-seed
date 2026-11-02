@@ -6169,7 +6169,7 @@ A = 全关，B = `armorRegenBand + bossBulletHorizon + refitWeight 1.6` 全开�
 - 固定项：`--diff despair --mods rage,deathfight,bulwark,rot,cyst --floor 0 --hp 5
   --seconds 240 --speed 8`，同一 `--build '{"weapons":["nail"]}'`。
 - 种子：1,3,5,7,11,13,17,19,23,29。
-- 原始数据 `site/docs/data/boss-armor-curve-40.jsonl`（40 行，10/10/10/10）；
+- 原始数据 `docs/data/boss-armor-curve-40.jsonl`（40 行，10/10/10/10）；
   统计 `scripts/boss-curve-stats.mjs`（同种子配对差 + 95% CI，df=n−1 的 t 分位）。
 - 未改 `site/js/**` 与 `[TheSeed]/**`。
 
@@ -6514,7 +6514,7 @@ hard = (max(--timeout, gameSec*0.66 + 180) + 150) 秒
 
 ## 153. 结论 136：官方云存档端点**登录后可用**（200 + 空列表），推翻旧文档的悲观结论
 
-`site/docs/iframe-sso.md` 曾写「跨站不可行」，并附了三条约束（无 CORS / SameSite=Lax / HttpOnly）。
+`docs/iframe-sso.md` 曾写「跨站不可行」，并附了三条约束（无 CORS / SameSite=Lax / HttpOnly）。
 那些约束对**我们的域名直连**都成立，但因此推出「云存档没戏」是错的 —— 它漏掉了一个变量：
 **请求从哪个 origin 发出**。
 

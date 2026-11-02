@@ -63,12 +63,22 @@ async function main() {
   const root = resolve(opt('root', process.cwd()));
   const site = join(root, opt('site', 'site'));
   const jsDir = join(site, 'js');
-  const manifestPath = join(site, 'asset-manifest.json');
+  // The manifest is the sync script's own local state (upstream base + asset URLs).
+  // It lives OUTSIDE the served root so it is never published, and so a stale
+  // snapshot cannot be mistaken for a build artifact.
+  const manifestPath = join(root, opt('state', 'state'), 'manifest.json');
 
-  const base = opt('base', process.env.UPSTREAM_BASE)
-    || (existsSync(manifestPath) ? JSON.parse(await readFile(manifestPath, 'utf8')).base : null);
+  // The manifest stores a VERSION, not a base URL (see fetch-source.mjs).  The
+  // base is rebuilt from it plus the game id, which keeps the file free of a
+  // hardcoded, stale host.
+  const manifest = existsSync(manifestPath) ? JSON.parse(await readFile(manifestPath, 'utf8')) : null;
+  const fromManifest = (manifest && manifest.version)
+    ? 'https://www.dzmm.ai/api/gamefy/static/' + opt('game-id', process.env.DZMM_GAME_ID || '90e4b323-9859-482f-9eb0-7cba6f44a51b') + '/__v' + manifest.version + '/'
+    : null;
+
+  const base = opt('base', process.env.UPSTREAM_BASE) || fromManifest;
   if (!base) {
-    console.error('[sync-scripts] no base: pass --base, set UPSTREAM_BASE, or keep site/asset-manifest.json');
+    console.error('[sync-scripts] no base: pass --base, set UPSTREAM_BASE, or keep state/manifest.json with a version');
     process.exit(2);
   }
   const baseUrl = base.endsWith('/') ? base : base + '/';

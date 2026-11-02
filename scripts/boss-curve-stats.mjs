@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Paired stats for the boss-endurance armour curve.
 //
-//   node scripts/boss-curve-stats.mjs site/docs/data/boss-armor-curve-10seed.jsonl
+//   node scripts/boss-curve-stats.mjs docs/data/boss-armor-curve-10seed.jsonl
 //
 // The rig (bench.js runBossBench, kind: boss) writes one JSON result per
 // (seed, armour) run.  Runs are interleaved by seed in a single batch, so the

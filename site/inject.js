@@ -5,7 +5,7 @@
 // 两个入口，任选其一：
 //   A. 加载本文件（最短，一行）：
 //      document.head.append(Object.assign(document.createElement('script'),{src:'https://wangyiben0.github.io/the-seed/inject.js'}))
-//   B. 直接把下面的工具清单逐个拉起来（见 site/docs/inject.md 的一行版）。
+//   B. 直接把下面的工具清单逐个拉起来（见 docs/inject.md 的一行版）。
 //
 // 关键约束：
 //   * 工具脚本有依赖顺序（core → macro → auto → … → panel），必须**串行**加载。

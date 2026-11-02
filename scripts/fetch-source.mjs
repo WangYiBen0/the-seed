@@ -12,7 +12,12 @@
 //   assets/private/<id>.png          CG 私房照 per survivor     (js/girls.js)
 //   assets/stories/<id>-p<pose>.webp  story CGs, poses 1..6     (js/stories.js)
 // plus favicon.svg and anything the runtime 404 log recorded.
-// Results live in site/asset-manifest.json; login-gated files are reported, not faked.
+// Results live in state/manifest.json; login-gated files are reported, not faked.
+//
+// The manifest stores RELATIVE paths only.  It used to store a full upstream URL
+// per entry, which repeated the same 80-character base prefix 57 times and made
+// every entry stale whenever the base bumped.  The upstream URL of any asset is
+// simply BASE + path, and BASE is derivable from `version`.
 
 import { readFile, writeFile, mkdir, stat, appendFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -26,7 +31,8 @@ const ROOT = process.cwd();
 const SITE = [join(ROOT, 'site'), join(ROOT, '..', 'site')].find((p) => existsSync(join(p, 'index.html'))) ?? join(ROOT, 'site');
 const JS = join(SITE, 'js');
 const MISSING = resolve(ROOT, '.tmp/missing.log');
-const MANIFEST_PATH = join(SITE, 'asset-manifest.json');
+// lives outside the served root: sync state, not a published artifact
+const MANIFEST_PATH = join(ROOT, 'state', 'manifest.json');
 const POSES = 6; // js/stories.js: pose < 1 || pose > 6
 
 // ---- family ids, parsed from the game's own data files ----
@@ -96,37 +102,42 @@ const urlFor = (p) => (p.startsWith('api/')) ? new URL(BASE).origin + '/' + p : 
 
 // ---- manifest: merge previous entries, mark present/missing ----
 const prev = existsSync(MANIFEST_PATH) ? JSON.parse(await readFile(MANIFEST_PATH, 'utf8')) : { assets: {} };
-const manifest = { base: BASE, updatedAt: prev.updatedAt ?? Date.now(), assets: {} };
+// version IS the __v<publishedAt> number, parsed back out of the base.  Nobody
+// maintains it by hand: CI derives BASE from metadata and we read the version off.
+const verMatch = BASE.match(/__v(\d+)\/?$/);
+const version = verMatch ? verMatch[1] : (prev.version ?? null);
+const manifest = { version, generatedAt: prev.generatedAt ?? Date.now(), assets: {} };
 const wanted = await buildWanted();
 for (const [p, meta] of [...wanted].sort()) {
   const old = (prev.assets || {})[p];
   const file = normalize(join(SITE, p));
   const present = existsSync(file) && !flag('force');
   manifest.assets[p] = {
-    // url always follows the current base: keeping the previous one left every
-    // entry pointing at the retired __v<publishedAt>/ after an upstream bump.
-    url: urlFor(p), from: meta.from, present,
+    // RELATIVE path only.  The upstream URL is BASE + path, so storing it per
+    // entry duplicated the same base prefix on all 57 lines and went stale on a
+    // bump.  The path IS the key, which makes the file self-describing.
+    from: meta.from, present,
     ...(present ? { bytes: (await stat(file)).size } : {}),
     ...(old?.sha256 ? { sha256: old.sha256 } : {}),
   };
 }
-// updatedAt is a timestamp, not data: bumping it on every CI run makes the
+// generatedAt is a timestamp, not data: bumping it on every CI run makes the
 // "commit only when something changed" step commit every six hours forever.
-const signature = JSON.stringify({ base: manifest.base, assets: manifest.assets });
-const prevSignature = JSON.stringify({ base: prev.base, assets: prev.assets });
-if (signature !== prevSignature) manifest.updatedAt = Date.now();
+const signature = JSON.stringify({ version: manifest.version, assets: manifest.assets });
+const prevSignature = JSON.stringify({ version: prev.version, assets: prev.assets });
+if (signature !== prevSignature) manifest.generatedAt = Date.now();
 await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 1) + '\n');
 
 const missing = Object.entries(manifest.assets).filter(([, a]) => !a.present);
 console.log(`[source] manifest: ${Object.keys(manifest.assets).length} assets, ${missing.length} missing, base=${BASE}`);
 if (flag('list')) { for (const [p, a] of Object.entries(manifest.assets)) console.log(` ${a.present ? '✓' : '·'} ${p}`); process.exit(0); }
-if (flag('dry')) { for (const [p, a] of missing) console.log(`[dry] ${a.url} → site/${p}`); process.exit(0); }
+if (flag('dry')) { for (const [p] of missing) console.log(`[dry] ${urlFor(p)} → site/${p}`); process.exit(0); }
 
 // ---- fetch missing ----
 let ok = 0, fail = 0, gate = 0;
 for (const [p, a] of missing) {
   try {
-    const rsp = await fetch(a.url, { headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) theseed-mirror-fetch', 'referer': BASE } });
+    const rsp = await fetch(urlFor(p), { headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) theseed-mirror-fetch', 'referer': BASE } });
     const type = rsp.headers.get('content-type') || '';
     if (rsp.status !== 200) throw new Error(`HTTP ${rsp.status}`);
     if (/text\/html/i.test(type)) { gate++; console.log(`× ${p} — got HTML; likely login-gated upstream (fetch manually or ignore)`); continue; }
@@ -148,6 +159,6 @@ for (const [p, a] of missing) {
 }
 // Only re-date the manifest if this run actually fetched something; otherwise
 // a no-op sync would dirty the file every run and defeat the CI commit gate.
-if (ok + gate + fail > 0) { const at = Date.now(); if (at > manifest.updatedAt) manifest.updatedAt = at; }
+if (ok + gate + fail > 0) { const at = Date.now(); if (at > manifest.generatedAt) manifest.generatedAt = at; }
 await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 1) + '\n');
 console.log(`\n[source] fetched=${ok} failed=${fail} gated=${gate} | manifest: ${MANIFEST_PATH}`);
