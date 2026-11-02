@@ -78,7 +78,12 @@
     tickN++;
     // In det mode the clock is the tick ordinal, not a running sum, so tick N
     // always reports the same time no matter what the frame schedule did.
-    if (det) virt = tickN * VIRT_DT;
+    // NORMALISE THE TICK ORDINAL TOO.  virt = tickN * VIRT_DT is only a pure
+    // function of the run if tickN itself starts from zero; before this, a page
+    // that had already ticked (menu, idle) began every run at a different
+    // absolute time, which is the same leak §199 fixed for virt and that the
+    // derivation above silently reintroduced.
+    if (det) virt = (tickN - detBase) * VIRT_DT;
     for (const fn of TSW.hooks._before) { try { fn(virt); } catch (e) { TSW.err('beforeTick', e); } }
     // page-scope debug mirror (webdriver sandboxes can't see game lexical bindings)
     if (window.__achroma) { try {
@@ -100,10 +105,11 @@
   // 也跑出不同结果。 det 模式下我们给游戏一个**严格按 16.667ms 递增**的时间轴，
   // 每帧一个固定 tick → 同 seed 同结果，A/B 方差趋近 0。
   let det = false;
+  let detBase = 0;          // tick ordinal captured when det is enabled
   TSW.det = {
     get on() { return det; },
     get ticks() { return tickN; },
-    enable() { det = true; acc = 0; return det; },
+    enable() { det = true; acc = 0; detBase = tickN; return det; },
     disable() { det = false; acc = 0; return det; },
   };
 
