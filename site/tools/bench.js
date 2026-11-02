@@ -643,7 +643,13 @@
         }
       } catch (e) { }
     }, 250);
-    const tickBudget = detMode ? Math.round((ticks || 18000)) : 0;   // 18000 ticks = 300 game-s
+    // A tick is one 60 Hz frame = 1/60 game-second.  Derive the budget from
+    // --game-seconds; the old line read only `ticks` and fell back to a hardcoded
+    // 18000 (= 300 game-seconds) no matter what --game-seconds said, so every
+    // "400 second" five-lock run silently stopped at 300.
+    const tickBudget = detMode
+      ? Math.round(ticks || (gameSeconds ? gameSeconds * 60 : 18000))
+      : 0;
     // --timeout is expressed in WALL seconds, but the browser only reaches ~4x
     // realtime even at speed 8 (measured gameT/wall = 3.29-4.68 over 11 runs).
     // A full despair five-lock run needs 2500+ game-seconds, so the documented
