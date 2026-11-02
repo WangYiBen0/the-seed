@@ -129,7 +129,11 @@
       // MUST be declared here or runAB voids the experiment.
       invadeStatScore: true,                                 // invade: score items by stat block, not name
       // MUST be declared here or runAB voids the experiment.
-      summonerFirst: true,                                     // explore: kill summoners before stragglers
+      // DEFAULT OFF: six paired seeds gave off 1.83 vs on 1.50 rooms — worse on
+      // three pairs, better on one. Chasing a 200-hp summoner abandons the melee
+      // that is actually damaging us, and the room still needs no living enemy;
+      // killing the minis first reaches that state sooner.  See benchmark.md 197½.
+      summonerFirst: false,                                    // explore: kill summoners before stragglers
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
       // DEFAULT 'tank': invade deaths are health, not damage.  Live sampling showed
