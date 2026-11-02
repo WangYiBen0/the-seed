@@ -57,7 +57,11 @@
       // ones, so preferring rate cannot help when no fast gun is on offer.
       rateBias: false,                                       // prefer high fire-rate guns (benchmark.md 172)
       // MUST be declared here or runAB voids the experiment.
-      aoeBias: true,                                         // prefer blast weapons (benchmark.md 223)
+      // DEFAULT OFF: forcing a blast weapon into the build helps (223), but letting
+      // the autopilot CHASE one does not — three repeats per arm over six seeds gave
+      // 3/6 -> 1/6, worse on two seeds and better on none (benchmark.md 225). The
+      // gain in 223 had no swap cost; pursuing it does.
+      aoeBias: false,                                        // prefer blast weapons (benchmark.md 223)
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable

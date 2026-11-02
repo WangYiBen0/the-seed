@@ -101,8 +101,9 @@ results.sort((x, y) => x.seed - y.seed || x.tag.localeCompare(y.tag));
 console.log('seed\toff\ton\t(binary >= ' + ROOMS + ' rooms)');
 let offPass = 0, onPass = 0, pairs = 0;
 for (const seed of SEEDS) {
-  const offRuns = results.filter((r) => r.seed === seed && r.tag === 'off');
-  const onRuns = results.filter((r) => r.seed === seed && r.tag === 'on');
+  // tag carries a repeat suffix (_r0/_r1), so match the arm prefix
+  const offRuns = results.filter((r) => r.seed === seed && r.tag.startsWith('off'));
+  const onRuns = results.filter((r) => r.seed === seed && r.tag.startsWith('on'));
   if (!offRuns.length || !onRuns.length) { console.log(seed + '\tINCOMPLETE'); continue; }
   const a = mode(offRuns.map((r) => r.rooms)) >= ROOMS ? 1 : 0;
   const b = mode(onRuns.map((r) => r.rooms)) >= ROOMS ? 1 : 0;
