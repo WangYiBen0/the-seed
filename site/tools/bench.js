@@ -86,11 +86,12 @@
         wlv: (b && b.wlv) ? Object.assign({}, b.wlv) : {},
         shards: (b && b.shards) ? Object.assign({}, b.shards) : {},
         skill: null, ink: (b && b.ink) || 0, kills: 0, runT: 0, hits: 0, curses: [],
-        // Endless depth must be expressible in a boost save, otherwise the third
-        // target (endless) has no way to be measured without literally clearing
-        // every floor first.  The game reads s.endless and restores it.
-        endless: (b && b.endless) || 0,
-        ...(b && b.endless ? { powCap: b.powCap || 0 } : {}),
+        // DO NOT write endless into the save.  startEndless() begins with
+        // `if (G.endless) return;` (game.js:747), so pre-setting the counter makes
+        // the entry point a no-op: measured, a boost with endless:1 ran 4 game
+        // seconds with zero kills because beginFloorTransition never ran.
+        // The floor is entered by calling startEndless below, which sets the
+        // counter itself.  `endlessWanted` only signals that intent to the caller.
         rid: ridOf,
       };
       try {

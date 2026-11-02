@@ -9924,3 +9924,44 @@ seed    noCircle  circle
 
 **结论：入侵档在挂机策略层面已经没有可见的提升空间。**
 要到 20 波，需要的是数值层面的改变（武器/属性/机制），而非移动或目标选择。
+### 213. 无尽档入口终于打通，但初始状态不足导致 15 秒死亡
+
+### 修掉的阻碍
+
+```js
+// game.js:747
+function startEndless() { if (G.endless) return; ... }
+```
+
+`startEndless` 的**第一行就是「已经无尽就返回」**。
+而我在 boost 存档里写了 `endless: 1`，于是 `G.endless` 已经是 1——
+**`startEndless()` 直接 return，`beginFloorTransition(endlessFloor())` 从未执行。**
+
+这就是 §182/§183 两次尝试都失败的真因（当时误判为「build 不足」）。
+
+### 修复：存档里不写 `endless`
+
+改为只由 `startEndless()` 自己设置计数器。
+
+### 验证（探针实测）
+
+```
+S0  state=play  runT=10.5  floor=2  endless=1  enemies=8
+S1  state=dead  runT=15    floor=2  endless=1  enemies=8
+```
+
+**`endless=1`、`floor=2` —— 入口确实进入无尽了。**
+
+### 但 15 秒就死
+
+boost 存档只有 `hp:5, armor:3`（初始值），
+而无尽地板是按「已经通关三层」的玩家设计的。
+
+**所以需要一个匹配的起始 build**，而不只是武器。
+
+### 下一步
+
+要给无尽档一个有意义的起始状态：
+- `hp` / `maxHp`（当前 5）；
+- `armor` / `maxArmor`（当前 3）；
+- 或先跑完整三层再进无尽（成本高但最真实）。
