@@ -82,6 +82,18 @@ function runWithRetry(seed, optJson, label, armExtra) {
   return null;
 }
 
+// WARM-UP, DISCARDED.  Measured across both targets: the FIRST run of a batch
+// consistently ends earlier and scores worse than later runs of the identical
+// command (invade: 177.5/177.5/310.3 game-seconds over three runs; five-lock:
+// death/goal/death).  Cold-start asset loading shifts the first tick's state.
+// One throwaway run makes the batch start from the steady state, so the pairs
+// compared afterwards are measured under the same conditions.
+if (args['no-warmup'] !== true) {
+  const warm = runOnce(seeds[0], A);
+  console.log('[ab] warm-up ' + (warm ? 'done' : 'produced no row (ignored)') + ' — discarded');
+  // the bench APPENDS to the out file, so the warm-up row is still in there
+  rmSync(OUT, { force: true });
+}
 const pairs = [];
 for (const seed of seeds) {
   // interleave: A then B for the same seed, so drift affects both equally
