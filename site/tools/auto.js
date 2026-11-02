@@ -125,6 +125,8 @@
       // does not redirect fire usefully.  Declared here so an A/B stays valid.
       invadeShooterFirst: false,                             // invade: shoot ranged enemies before melee
       // MUST be declared here or runAB voids the experiment.
+      invadeFire: true,                                      // invade: hold the trigger while aiming
+      // MUST be declared here or runAB voids the experiment.
       invadeStatScore: true,                                 // invade: score items by stat block, not name
       invadeShop: TSW.settings.get('autoInvadeShop', true),  // invade: buy between waves
       invadeCombine: TSW.settings.get('autoInvadeCombine', true), // invade: merge duplicate weapons
@@ -1407,7 +1409,18 @@
       const rank = d / pri;
       if (rank < bd) { bd = rank; tgt = e; }
     }
-    if (tgt) { Input.mx = clampM(tgt.x - G.cam.x, GW()); Input.my = clampM(tgt.y - G.cam.y, GH()); }
+    if (tgt) {
+      Input.mx = clampM(tgt.x - G.cam.x, GW()); Input.my = clampM(tgt.y - G.cam.y, GH());
+      // HOLD THE TRIGGER.  The comment below used to claim "invade fires
+      // automatically, we only aim" and the code therefore never set Input.down.
+      // It does not: attackHeld() is Input.down || Input.padFire (engine.js:68),
+      // and Input.down is assigned from the EXPLORE-mode wantFire (auto.js), which
+      // driveInvade never touches.  Live sampling of wave 7 showed fire:N on every
+      // sample while the swarm grew 6 -> 35 and hp fell 29 -> 2, i.e. the bot was
+      // fleeing and never shooting back.  Switchable so the old behaviour can be
+      // restored for an A/B.
+      if (A.opts.invadeFire !== false) Input.down = true;
+    }
     // 2) kite: the arena is a walled box, so "back off" alone walks into a corner
     //    and dies.  Instead we circulate: pick the tangential direction (clockwise
     //    or counter-clockwise, committed for the whole wave) and add a radial
@@ -2690,7 +2703,13 @@
     }
     moveKeys(mx, my);
     A._dbg = [mx, my];
-    Input.down = !!wantFire && A.mode !== 'off' && !A.opts.noFire;
+    // In invade, driveInvade has already decided whether to hold the trigger
+    // (game.js's attackHeld() only reads Input.down).  Overwriting it here with
+    // explore's wantFire — which driveInvade never sets — silently cancelled
+    // every invade shot, which is exactly what the wave-7 telemetry showed.
+    if (!(G.mode === 'invade' && A.opts.invadeFire !== false)) {
+      Input.down = !!wantFire && A.mode !== 'off' && !A.opts.noFire;
+    }
   }
 
   // choose the next room/point to walk to
