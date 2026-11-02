@@ -287,7 +287,9 @@
         if (typeof startEndless === 'function') startEndless();
         // confirm it took: endless set and the floor actually moved
         const g2 = window.__achroma && window.__achroma.G;
-        if (g2) TSW.log('endless entry: endless=' + (g2.endless | 0) + ' floor=' + (g2.floor | 0));
+        if (g2) TSW.log('endless entry: endless=' + (g2.endless | 0) + ' floor=' + (g2.floor | 0)
+          + ' hp=' + (g2.p ? g2.p.hp + '/' + g2.p.maxHp : '?')
+          + ' shards=' + JSON.stringify(g2.p && g2.p.shards ? g2.p.shards : {}));
       } catch (e) { TSW.err('endless entry', e); }
     }
     const G = () => window.__achroma.G;
