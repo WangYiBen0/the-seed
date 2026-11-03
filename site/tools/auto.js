@@ -64,6 +64,9 @@
       aoeBias: false,                                        // prefer blast weapons (benchmark.md 223)
       armorWaitT: 3,                                         // explore: match the game's real armour-regen start (lastHit > 3)
       forgeGiveUp: 25,                                       // explore: seconds before abandoning a stuck forge
+      // MUST be declared or runAB voids the experiment. Optional pickups get a
+      // 25 s leash instead of the 90 s goalGiveUp (benchmark.md 251/252).
+      pickupLeap: true,                                      // explore: short leash for weapon/chest/fount
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
       specialsFirst: TSW.settings.get('autoSpecialsFirst', true),                                   // explore: detour to special rooms before combat
       powerupFirst: TSW.settings.get('autoPowerupFirst', true),                                    // explore: grab weapons/chips/serums before fights
@@ -2555,7 +2558,7 @@
         // all (benchmark.md 251). A dropped weapon is a convenience, not an
         // objective: it must not outlive a key room. Measured before the change:
         // 83 s on 'weapon|65:70' in one run, 116 s idle in another.
-        const leash = (tgt.label === 'weapon' || tgt.label === 'chest' || tgt.label === 'fount')
+        const leash = (A.opts.pickupLeap !== false && (tgt.label === 'weapon' || tgt.label === 'chest' || tgt.label === 'fount'))
           ? Math.min(25, gene('goalGiveUp')) : gene('goalGiveUp');
         if (A._goalKey !== gk) { A._goalKey = gk; A._goalSince = G.time; }
         else if (G.time - (A._goalSince || 0) > leash) {
