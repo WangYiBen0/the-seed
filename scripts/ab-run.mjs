@@ -36,6 +36,13 @@ const args = (() => {
   return o;
 })();
 
+// A typo here is silent and expensive: passing --seeds instead of --seed-list
+// silently fell back to the six defaults, so a "ten seed" batch really ran six
+// and looked successful (benchmark.md 246). Refuse the ambiguity instead.
+if (args.seeds && !args['seed-list']) {
+  console.error('[ab] --seeds is not a flag; use --seed-list  (refusing to run with the default six)');
+  process.exit(2);
+}
 const seeds = String(args['seed-list'] || '1,5,11,19,23,29').split(',').map((x) => +x.trim()).filter((x) => x > 0);
 const A = String(args.a || '{}');
 const B = String(args.b || '{}');
