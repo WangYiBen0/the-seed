@@ -171,7 +171,13 @@ try {
 
 if (pairs.length < 2) { console.log('[ab] TOO FEW PAIRS — result is not usable'); process.exit(3); }
 const ar = pairs.map((p) => pick(p.a, METRIC)), br = pairs.map((p) => pick(p.b, METRIC));
-console.log('A ' + METRIC + ' mean ' + mean(ar).toFixed(2) + '   B ' + METRIC + ' mean ' + mean(br).toFixed(2));
+const median = (xs) => { if (!xs.length) return 0; const s = xs.slice().sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+// MEAN AND MEDIAN BOTH, because the effects here are long-tailed: a dash batch gave
+// a +57% mean driven entirely by three large wins while three small losses offset
+// nothing (benchmark.md 244). A mean alone cannot tell that apart from a uniform
+// shift, so report both and let the reader see the shape.
+console.log('A ' + METRIC + ' mean ' + mean(ar).toFixed(2) + '   B ' + METRIC + ' mean ' + mean(br).toFixed(2)
+  + '   |  median A ' + median(ar).toFixed(2) + '  median B ' + median(br).toFixed(2));
 const ak = pairs.map((p) => pick(p.a, 'kills')), bk = pairs.map((p) => pick(p.b, 'kills'));
 console.log('A kills mean ' + mean(ak).toFixed(1) + '   B kills mean ' + mean(bk).toFixed(1));
 const deltas = pairs.map((p) => pick(p.b, METRIC) - pick(p.a, METRIC));
