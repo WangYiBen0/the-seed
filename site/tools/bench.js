@@ -1452,8 +1452,13 @@
     // Callers can pass opts.det=false to opt out (e.g. when measuring throughput).
     const detMode = !(autoOpts && autoOpts.det === false);
     if (detMode) TSW.det.enable();
+    // THE SAME LEAK FIXED FOR runFullRun, HERE TOO.  §200 made startRunWith derive
+    // its stamp from the seed because Date.now() in the save changes the resumed
+    // state; runInvade kept reading the real clock, so every invade sample carried
+    // a fresh timestamp no matter how deterministic the ticks were.
+    const stamp = detMode && seed != null ? (0x1eead0000 + seed) : Date.now();
     const save = {
-      v: 1, at: Date.now(), rid: 'r' + Date.now().toString(36), diff,
+      v: 1, at: stamp, rid: 'r' + (detMode && seed != null ? 's' + String(seed) : Date.now().toString(36)), diff,
       ink: 0, kills: 0, runT: 0,
       iv: {
         wave, role, w: weapons.slice(), items: {}, base: {}, xp: 0, lv: 0, lvPend: 0,
