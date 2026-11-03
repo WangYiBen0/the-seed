@@ -12263,3 +12263,35 @@ t=331  wave=4  alive=2  bombard+gunner
 - `tCombat` 里绝大部分时间在打一个 `ashbrute`；
 - 而这一波清不掉，波次就不推进；
 - 波次不推进，房间就永远清不了。
+### 260. `focusFire` 已默认开启，但 `ashbrute` 仍活了 175 秒
+
+### 事实
+
+```js
+focusFire: TSW.settings.get('autoFocusFire', true),   // 默认 true
+```
+
+而 §259 探针显示：一个 `ashbrute` 在**已开启集火**的配置下活了 175 秒以上。
+
+### 集火的实现条件（`auto.js:1946`）
+
+```js
+if (keep && !keep.dead && keep.deathFightLeft <= 0 && keep.spawnT <= 0
+    && Math.hypot(keep.x - p.x, keep.y - p.y) < 460 && los(p.x, p.y, keep.x, keep.y)) {
+  ne = keep; A.status.note = '集火 ' + Math.round(keep.hp | 0);
+} else { A._focusRef = ... }
+```
+
+**三个条件**：距离 < 460、有视线、未在死亡动画。
+
+### 所以问题可能是
+
+1. `ashbrute` 常处于**无视线**位置（慢速但会绕墙）；
+2. 或 bot 为了躲避而**主动拉开距离**（超过 460 就丢失集火目标）；
+3. 或它的 `hp` 掉得很慢（伤害不足）。
+
+### 正在测
+
+`focusFire` false vs true 的同批 A/B（6 种子 × 3 次重复）。
+
+如果两者无差异，说明**集火已经不是瓶颈**，问题在别处（距离/视线/DPS）。
