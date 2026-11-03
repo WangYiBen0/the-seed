@@ -189,3 +189,44 @@ jobs:
             echo "| publishedAt | ${DZMM_PUBLISHED_AT:-—} |"
             echo "| committed | ${{ steps.commit.outputs.changed }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+  # ---- deploy -----------------------------------------------------------------
+  # Pages serves gh-pages, and nothing here ever updated it: the live site was
+  # stuck on a commit from 2026-11-02 while main advanced past a hundred more
+  # (measured via gh api repos/.../pages/builds). Every site/ change needed a
+  # manual push to gh-pages, which is exactly the kind of step that gets skipped.
+  # This publishes on every push to main, so the mirror cannot drift again.
+  deploy:
+    needs: sync
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # the published tree is site/ only (docs/ and tests/ stay in the repo)
+      - name: stage site/
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dist
+          cp -R site/. /tmp/dist/
+
+      - name: publish to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd /tmp/dist
+          git init -q -b gh-pages
+          git config user.name  "theseed-sync-bot"
+          git config user.email "theseed-sync-bot@users.noreply.github.com"
+          git add -A
+          git commit -qm "deploy: ${{ github.sha }}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
