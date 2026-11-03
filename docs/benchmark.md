@@ -13440,3 +13440,60 @@ seed   base gameT  +plate gameT   base hp  +plate hp
 
 §238 已经得出同样结论，本节用**正确途径**（shard 而非存档字段）复核，
 结论一致。
+### 281. **离线镜像的存档读写不可用**：上游页用的是真 SDK，不是我们的 shim
+
+### 实测（在 `upstream/index.html` 内执行）
+
+```
+{"url":"/upstream/index.html", "hasDzmm":true, "kvType":"present",
+ "get1err":"Unknown host request: kv.get",
+ "putErr":"Unknown host request: kv.put",
+ "get2err":"Unknown host request: kv.get",
+ "ls":null}
+```
+
+**`kv.get` 与 `kv.put` 全部失败。**
+
+### 错误来源
+
+```
+$ grep -rn 'Unknown host request' site/
+site/upstream/index.html:23: <script>(function(exports){...
+```
+
+**这个字符串来自 `upstream/index.html` 第 23 行的内联 SDK**，
+也就是**官方真 SDK**，它把请求发给 dzmm 宿主；
+而离线镜像里没有宿主，于是返回 `Unknown host request`。
+
+### 这意味着
+
+| 假设 | 实际 |
+|---|---|
+| 上游页加载我们的 `dzmm-shim.js` | **否**，它用的是内联的真 SDK |
+| 存档读写由 shim 接管 | **否** |
+| 离线镜像「云存档读可用」 | **不成立** |
+
+### 为什么此前没发现
+
+`§265` 我测的是**宿主页**，那里 `dzmm` 不存在，我判定「设计如此」。
+而**没有再测 `upstream/index.html` 内部** —— 那里才是游戏真正运行的地方。
+
+### 目标里这一条必须重新评估
+
+> 云存档读可用、写入机制已厘清（由 dzmm 宿主代写，非 HTTP）
+
+**「读可用」在离线镜像中不成立。**
+
+写入机制已厘清（真 SDK 走 postMessage 到宿主）是对的，
+但**读写都需要一个 dzmm 宿主**，而离线镜像没有。
+
+### 可能的修法
+
+`site/dzmm-host.js` 存在（注释提到「A page that mounts us in an iframe and answers that pair is a legitimate host」）。
+
+但需要：
+1. 宿主页回答 `dzmm:request`（`kv.get`/`kv.put`）；
+2. 并且用 `?dzmmhost=1` 让 shim 的 hostBridge 生效——
+   **但上游页用的是真 SDK，shim 根本没加载**。
+
+所以要先解决「让上游页加载 shim 而不是真 SDK」。
