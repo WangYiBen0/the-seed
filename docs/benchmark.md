@@ -12419,3 +12419,54 @@ const sp = shuffle(SPECIALS.slice()).slice(0, FLOORS[fi].specials);
 不是「去锻造没价值」，而是**「在五锁条件下根本去不了」**。
 
 两者对策略的启示相同：**这条路径不可依赖**。
+### 264. 端到端复核抓到两个真问题（都已修复）
+
+### 问题 1：CI 失败，因为没有实现
+
+上一轮我提交了纪律测试 06a7375，但那次的 site/tools/auto.js 没有提交，
+pickupLeap 的声明只存在于工作区。
+
+CI 报错：
+
+```
+AssertionError: The input did not match the regular expression /pickupLeap:/
+```
+
+这正是 AGENTS.md 第 5 节要求防的「改动未落盘」——而我恰好在写那条纪律的同一轮犯了它。
+
+修复：9df3de0 提交 auto.js，CI 转绿。
+
+### 问题 2：Pages 落后 100+ 提交
+
+```
+Pages 构建历史：32d609a (11-02) / d0f2e93 (11-01) / 0e36f68 (10-30)
+main HEAD：     22edf92 (11-03，100+ 提交之后)
+```
+
+原因：.github/workflows/sync.yml 只推 main，从不更新 gh-pages，
+而 Pages 从 gh-pages 服务。所以每次改 site/ 都要手动部署。
+
+### 修复：新增 deploy job（8d03f4c）
+
+sync 之后自动 cp -R site/. /tmp/dist，然后强推 gh-pages。
+
+### 验证
+
+```
+ci: publish site/ to gh-pages on every push to main   success  1m47s
+pages build and deployment                            success  36s
+pages latest: built 55a4dc3
+
+index.html         identical: True  (7683 B)
+upstream/index.html identical: True (70506 B)
+```
+
+### 这意味着
+
+目标里「CI 自动追上游并守门」这条现在是真的自动：
+
+| 环节 | 之前 | 现在 |
+|---|---|---|
+| 追上游 | 自动 | 自动 |
+| 语法/测试闸门 | 自动 | 自动 |
+| **部署** | **手动** | **自动** |
