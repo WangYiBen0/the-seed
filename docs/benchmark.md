@@ -11345,3 +11345,49 @@ end=death  gameT=15  depth=1  mods5=1  hpLostTotal=6  floor=2
 
 它是目标的最终形态。任何改动只要能把这 6 个种子的 `hpLost` 或 `gameT` 推高，
 就是在朝终局靠近——即使还远达不到「无伤」。
+### 238. 加护甲聚 shard：`gameT` +45%，但**`hpLostTotal` 不动**
+
+### 设计
+
+6 种子，两臂都进无尽 + 五锁：
+
+- `vital` 臂：`shards {vital:3}`（+6 max hp）
+- `both` 臂：`shards {vital:3, plate:3}`（再 +护甲，`combat.js:46`）
+
+### 结果
+
+```
+seed   vital gameT/hpLost   +plate gameT/hpLost
+1      15 / 5              21 / 5
+5      17 / 5              22 / 5
+11     22 / 5              21 / 6   ← 略差
+19     15 / 5              16 / 5
+23     18 / 5              42 / 5   ← 明显更好
+29     14 / 5              16 / 5
+---
+均值   17 / 5              24.7 / 5.3
+```
+
+**`gameT` 均值 17 → 24.7（+45%），但 `hpLostTotal` 几乎不变（5 → 5.3）。**
+
+### 这不是 bug，是定义
+
+`bench.js:817` 的注释：
+
+> `hpLostTotal`: how many hp points were lost (0 = a damage-free run;
+> **armour absorption is NOT damage and does not count**)
+
+所以 `hpLostTotal = 5` 的含义是：**护甲全部打光后，还真实掉了 5 点血**。
+
+加护甲只**延后**了“护甲打光”这个时刻，让 bot 多活一会儿，
+但一旦护甲清空，掉的还是那 5 点。
+
+### 对组合目标的含义
+
+「无伤终局」要求 `hpLostTotal == 0`，即**护甲全程不破**。
+
+而实测：即使给满护甲 shard，护甲仍然被打光，然后掉 5 点血。
+
+**所以要达成无伤，需要的不是更多护甲，而是「不被连续命中」——即躲弹幕能力。**
+
+这与 §232 的躲弹幕测评可测、以及 `dodge` 工具的存在是对得上的。
