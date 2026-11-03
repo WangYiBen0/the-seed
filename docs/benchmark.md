@@ -10965,3 +10965,45 @@ n=2 太小，只能当线索：如果成立，说明「进入楼层」对无尽�
 
 用「均值 101 秒」描述无尽的会掩盖这个双峰结构。
 更准确的描述是：**2/10 能活到接近 400 秒预算，8/10 在 60 秒内死亡。**
+#### 229½. 双峰的真实结构：**2/10 打满预算，8/10 在 56 秒内死亡**
+
+### 十局的 `end` 字段
+
+```
+seed  gameT  kills  end     主要伤害来源
+1     13     0      death   runner:7, shielder:1
+2     29     0      death   swarm:2, charger:2, crawler:5
+3     15     0      death   crawler:5, runner:2, gunner:1
+4     20     1      death   charger:1, runner:4, crawler:2, mini:1
+5     19     2      death   runner:6, charger:2
+6     40     4      death   crawler:2, splitter:1, mini:11
+7     56     6      death   digger:2, runner:1, splitter:3, mortar:2, mini:9
+8     392    7      **goal**  swarm:1, digger:5, bloater:3, nullpriest:13, turret:1
+9     37     3      death   crawler:3, digger:5, shielder:3
+10    393    5      **goal**  screamer:3, turret:3
+```
+
+**只有 2 局 `end=goal`（打满 400 秒预算），其余 8 局全部 `death`，且都在 56 秒内。**
+
+### 因此「双峰」的准确描述
+
+不是「有的活很久、有的活很短」，而是：
+
+```
+过得了开场 → 打满预算（goal）
+过不了开场 → 60 秒内死亡（death）
+```
+
+**是一个布尔门槛，不是连续分布。**
+
+### 短命局的共同特征
+
+8 局死亡中，伤害来源高度集中在 **近战冲锋类**：
+`runner`（4 局出现）、`crawler`（4 局）、`charger`（3 局）、`mini`（3 局）。
+
+而两局存活的，被击中的次数少（13 次 / 6 次）且来源分散。
+
+### 对基线的含义
+
+无尽档的基线应当用 **「能否打满预算」的通过率**（2/10）来表述，
+而不是「均值 101 秒」——后者把布尔门槛混成了连续量。
