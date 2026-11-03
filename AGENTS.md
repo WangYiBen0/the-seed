@@ -124,6 +124,11 @@ grep -c "<新符号>" site/tools/auto.js     # 必须 > 0
 `upgradesDone`、`waveCount`、`tCombat`），**下结论前先看它们**。
 `tests/measurement-discipline.test.mjs` 会把缺这些字段的情况判为失败。
 
+**大文件禁止 read-then-write。** `read` 默认只给 2000 行，`write` 是整体覆盖：
+用默认读取的内容去覆盖 `docs/benchmark.md`（13332 行）会把它截成 1093 行。
+超过 2000 行的文件一律用 `edit` 定点修改。
+`tests/measurement-discipline.test.mjs` 会检查该文件行数、编号节数、`###` 标题数与编号单调性，截断或重排都会让它失败（已用真实截断验证过）。
+
 **部署必须验证字节**（github.io 有 CDN 滞后）：
 
 ```bash
