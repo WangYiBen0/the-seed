@@ -2549,8 +2549,16 @@
       // boss/… so a single unreachable special can never freeze a run again.
       if (tgt) {
         const gk = tgt.label + '|' + (tgt.room ? (tgt.room.cx + ':' + tgt.room.cy) : (tgt.pt || []).join(','));
+        // OPTIONAL OBJECTIVES GET A SHORTER LEASH.  Everything used to share the
+        // 90 s goalGiveUp, and a single floor weapon monopolised 88 s of a 448 s
+        // five-lock run — 79% of the sampled time was spent with no progress at
+        // all (benchmark.md 251). A dropped weapon is a convenience, not an
+        // objective: it must not outlive a key room. Measured before the change:
+        // 83 s on 'weapon|65:70' in one run, 116 s idle in another.
+        const leash = (tgt.label === 'weapon' || tgt.label === 'chest' || tgt.label === 'fount')
+          ? Math.min(25, gene('goalGiveUp')) : gene('goalGiveUp');
         if (A._goalKey !== gk) { A._goalKey = gk; A._goalSince = G.time; }
-        else if (G.time - (A._goalSince || 0) > gene('goalGiveUp')) {
+        else if (G.time - (A._goalSince || 0) > leash) {
           benchFor(tgt.room || tgt.pt, 90);
           A._goalSince = G.time; A._goalKey = null;
           A.status.note = '放弃目标 ' + tgt.label + ' 90s';
