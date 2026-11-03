@@ -83,3 +83,22 @@ test('the summoner and pickup switches stay declared so they can be A/B-ed', () 
   assert.match(AUTO, /pickupLeap:/);
   assert.match(AUTO, /focusFire:/);
 });
+
+test('the measurement log keeps every recorded section', () => {
+  // The log grew past 13000 lines and a single whole-file rewrite silently cut it
+  // to 1093 (benchmark.md), because the rewrite was based on a partial read. Every
+  // recorded section number must still be present and the file must keep its size.
+  const LOG = readFileSync(join(ROOT, 'docs', 'benchmark.md'), 'utf8');
+  const lines = LOG.split('\n');
+  assert.ok(lines.length > 10000, 'the log must not shrink below its recorded size, got ' + lines.length);
+  const sections = [...LOG.matchAll(/^### (\d+)\./gm)].map((m) => +m[1]);
+  // 119 numbered sections and ~1400 "###" headings at the time of writing; guard
+  // against a rewrite that drops the numbered narrative.
+  assert.ok(sections.length >= 119, 'numbered sections went missing, got ' + sections.length);
+  const headings = LOG.split('\n').filter((l) => l.startsWith('### ')).length;
+  assert.ok(headings >= 1388, '### headings went missing, got ' + headings);
+  // section numbers must be non-decreasing: a rewrite that reorders or drops them is suspicious
+  for (let i = 1; i < sections.length; i++) {
+    assert.ok(sections[i] >= sections[i - 1], 'sections went backwards at ' + sections[i - 1] + ' -> ' + sections[i]);
+  }
+});

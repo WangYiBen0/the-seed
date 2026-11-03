@@ -13331,3 +13331,37 @@ sum_{lv=0}^{19} (lv+4)^2 = **4310 xp**（精确计算）= 约 4310 次击杀
 而是**每击杀给更多 xp**（例如 `st.xp` 加成、或角色 `xpNeed` 更低）。
 
 **这些都是装备/角色属性，不是挂机策略。**
+### 279. 把「文档被截断」做成断言（并验证它真的抓得住）
+
+### 事故回顾（上一轮）
+
+我用 `write` 整体重写 `docs/benchmark.md`，
+而那次重写基于 `read` 的**默认 2000 行**，
+结果把 **13332 行的文档截断成 1093 行**，丢了 12000 多行。
+
+已用 `git checkout` 恢复。
+
+### 新增断言（`tests/measurement-discipline.test.mjs`）
+
+```js
+assert.ok(lines.length > 10000, 'the log must not shrink below its recorded size');
+assert.ok(sections.length >= 119, 'numbered sections went missing');
+assert.ok(headings >= 1388, '### headings went missing');
+// 编号必须单调不减：重排或漏掉都算可疑
+for (...) assert.ok(sections[i] >= sections[i-1]);
+```
+
+### 验证它有效
+
+```
+截断到 1093 行 -> tests fail 1   （抓住了）
+恢复后          -> 136/136 pass
+```
+
+**这是本代第一次对「文档完整性」本身设防。**
+
+### 教训
+
+`read` 的默认 `limit` 是 2000 行，而 `write` 是**整体覆盖**。
+对超过 2000 行的文件，**永远不要 read-then-write**——
+应当用 `edit` 做定点修改。
