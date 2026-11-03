@@ -13365,3 +13365,40 @@ for (...) assert.ok(sections[i] >= sections[i-1]);
 `read` 的默认 `limit` 是 2000 行，而 `write` 是**整体覆盖**。
 对超过 2000 行的文件，**永远不要 read-then-write**——
 应当用 `edit` 做定点修改。
+### 280. **boost 的 `armor` 参数无效**：`maxArmor` 由属性重算，存档值会被覆盖
+
+### 证据（组合目标探针）
+
+```
+{"at":21,"hp":1,"ar":0,"ma":3,"inv":0.1,"nt":"crawler"}
+```
+
+**`ma:3`（maxArmor = 3），而我 boost 传的是 `armor: 8`。**
+
+### 源码原因
+
+```js
+// combat.js:94 —— maxArmor 由属性重算，不看存档
+p.maxArmor = 3 + S.armor + diffV('armor');
+
+// game.js:338 —— 存档的 armor 被 clamp 到 maxArmor
+p.armor = clamp(s.armor, 0, p.maxArmor);
+```
+
+`bench.js:89` 把 `armor: 8, maxArmor: 8` 写进存档，
+但 `recomputeStats()` 把 `maxArmor` 重算成 3，随后 `p.armor` 被 clamp 到 3。
+
+### 这解释了 §238 的困惑
+
+§238 我测「加护甲 shard 是否改善组合目标」，
+结论是「护甲被打光后仍掉 5 点血」。
+
+**但那次用的是 `plate` shard（正确途径），而组合目标的基线用的是 `armor: 8`（无效途径）。**
+
+### 处置
+
+`bench.js` 的 `armor` 参数应当**明确标注无效**，或改为通过 shard 实现。
+
+当前保留（改存档不影响正确性），但在文档里标清：
+
+**要提升护甲，只能用 `plate` shard，不能用存档字段。**
