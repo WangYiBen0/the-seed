@@ -105,10 +105,15 @@ for (const seed of seeds) {
 
 const mean = (xs) => xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : 0;
 const pick = (r, k) => (r && typeof r[k] === 'number' ? r[k] : 0);
+// THE REPORTED METRIC MUST MATCH THE KIND.  This runner read roomsCleared
+// unconditionally, but invade rows do not carry it, so a batch with a real +52%
+// kill difference was reported as "A rooms 0.00, B rooms 0.00, ties: 6".  An
+// absent field is not a tie.
+const METRIC = String(args.metric || (KIND === 'invade' ? 'kills' : 'roomsCleared'));
 
 console.log('\nseed\tA rooms\tB rooms\tA kills\tB kills');
 for (const p of pairs) {
-  console.log([p.seed, pick(p.a, 'roomsCleared'), pick(p.b, 'roomsCleared'), pick(p.a, 'kills'), pick(p.b, 'kills')].join('\t'));
+  console.log([p.seed, pick(p.a, METRIC), pick(p.b, METRIC), pick(p.a, 'kills'), pick(p.b, 'kills')].join('\t'));
 }
 console.log('\npairs used: ' + pairs.length + ' of ' + seeds.length);
 
@@ -165,10 +170,10 @@ try {
 } catch (e) { }
 
 if (pairs.length < 2) { console.log('[ab] TOO FEW PAIRS — result is not usable'); process.exit(3); }
-const ar = pairs.map((p) => pick(p.a, 'roomsCleared')), br = pairs.map((p) => pick(p.b, 'roomsCleared'));
-console.log('A rooms mean ' + mean(ar).toFixed(2) + '   B rooms mean ' + mean(br).toFixed(2));
+const ar = pairs.map((p) => pick(p.a, METRIC)), br = pairs.map((p) => pick(p.b, METRIC));
+console.log('A ' + METRIC + ' mean ' + mean(ar).toFixed(2) + '   B ' + METRIC + ' mean ' + mean(br).toFixed(2));
 const ak = pairs.map((p) => pick(p.a, 'kills')), bk = pairs.map((p) => pick(p.b, 'kills'));
 console.log('A kills mean ' + mean(ak).toFixed(1) + '   B kills mean ' + mean(bk).toFixed(1));
-const deltas = pairs.map((p) => pick(p.b, 'roomsCleared') - pick(p.a, 'roomsCleared'));
+const deltas = pairs.map((p) => pick(p.b, METRIC) - pick(p.a, METRIC));
 console.log('per-pair room delta (B-A): ' + deltas.join(', '));
 console.log('pairs favouring B: ' + deltas.filter((d) => d > 0).length + ', favouring A: ' + deltas.filter((d) => d < 0).length + ', ties: ' + deltas.filter((d) => d === 0).length);
