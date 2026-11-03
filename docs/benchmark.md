@@ -12338,3 +12338,41 @@ seed   off（关）  on（开）      均值
 | 集火是瓶颈 | ❌ 已默认开启，`ashbrute` 仍活 175 秒 |
 
 真正要解决的仍是**对单个厚血目标的伤害不足**。
+### 262. **§249 的实验无效**：打开 `forge` 后，`forgeRoomsSeen` 仍是 0
+
+### 数据
+
+```
+s11_on_r0  forgeRoomsSeen=0  upgradesDone=0  rooms=1
+s11_on_r1  forgeRoomsSeen=0  upgradesDone=0  rooms=0
+s11_on_r2  forgeRoomsSeen=0  upgradesDone=0  rooms=3
+s19_on_r0  forgeRoomsSeen=0  upgradesDone=0  rooms=2
+s19_on_r1  forgeRoomsSeen=0  upgradesDone=0  rooms=1
+s19_on_r2  forgeRoomsSeen=0  upgradesDone=0  rooms=1
+```
+
+**6 次运行，一次锻造房都没进过，一次升级都没有。**
+
+### 这意味着 §249 的结论必须撤回
+
+§249 说「去商店/锻造无效，时间成本吃掉收益」。
+
+**实际是 bot 根本走不到锻造房**（`forgeRoomsSeen=0`），
+所以那个 A/B 比较的是「两个都没进锻造房的配置」。
+
+### 工具本身提供了判定字段
+
+`bench.js` 已经记录 `forgeRoomsSeen` 和 `upgradesDone` ——
+**这正是用来判断「实验是否真的触发了目标行为」的字段**，而我没看。
+
+### 这是第 19 次同类错误
+
+我的错误模式再次重复：**没核对「实验是否真的发生了」就下结论**。
+
+`AGENTS.md` 第 5 节明确要求「确认改动真的落盘」并检查 `autoOptsUnknown`，
+但没要求检查**行为是否触发**。这一条应当补进纪律。
+
+### 为什么走不到锻造房
+
+需要查：五锁 400 秒内，`pickObjective` 是否会优先选择锻造房？
+还是锻造房在 `specials` 里但从未被访问？
