@@ -12470,3 +12470,43 @@ upstream/index.html identical: True (70506 B)
 | 追上游 | 自动 | 自动 |
 | 语法/测试闸门 | 自动 | 自动 |
 | **部署** | **手动** | **自动** |
+### 265. 端到端复核：宿主页没有 dzmm 是**设计如此**，不是缺陷
+
+### 探针结果
+
+```
+{"url":"/index.html", "hasDzmm":false, "kvType":"absent",
+ "kvErr":"dzmm is not defined", "frames":["upstream/index.html"]}
+```
+
+宿主页里 `dzmm` 不存在，而 iframe 正常加载。
+
+### 为什么这是对的
+
+| 上下文 | `dzmm` 从哪来 |
+|---|---|---|
+| **iframe（`upstream/index.html`）** | `dzmm-shim.js`（localStorage 实现） |
+| **宿主页（`index.html`）** | 没有，也不需要 |
+| 官网页（`site/inject.js` 注入） | 真 SDK，宿主代写 |
+
+`cloudhost.js` 的注释明确写着：
+
+> Only useful when the tools are injected INTO the official page (site/inject.js),
+> because that is the only place where `window.dzmm` exists and where the dzmm
+> Host performs the actual cloud write.
+
+**所以宿主页探测 `dzmm` 是探错了对象。**
+
+### 正确的验证位置
+
+存档 API 在 **iframe 内**，应当在那儿验证读写往返。
+
+### 本轮其它复核结果
+
+| 项 | 结果 |
+|---|---|
+| 工作区残留 | 无 |
+| `nix flake check --no-build` | 通过（需 `XDG_CACHE_HOME`） |
+| 语法检查 | 53 个文件通过 |
+| 单元测试 | 135/135 |
+| 构建产物含 `docs/` | 否 |
