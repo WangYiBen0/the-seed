@@ -12098,3 +12098,36 @@ while (budget > 0 && list.length < 48) { ... }
 ### 这才是真正的瓶颈
 
 不是「时间不够」，也不是「输出不够」，而是**一个会自我补充的房间**。
+### 256. **`summonerFirst` 的逻辑早已写好，也早已知道真因，却默认关闭**
+
+### 源码里的注释（`auto.js:1927`）
+
+> SUMMONERS FIRST. A room only opens when no living enemy shares it
+> (game.js:229), and gravekeep re-spawns minis every 3.85 s (enemies2.js:103).
+> **Measured: seed 11 spent 387 of 400 combat seconds and cleared ZERO rooms
+> with a gravekeep standing 90 px away spawning**, while the autopilot chased
+> the nearest mini (benchmark.md 197). Killing the source is the only way
+> that room can ever open, so a visible summoner outranks "nearest".
+
+**这段话精确描述了 §255 我独立测到的同一个现象。**
+
+### 但默认值是 `false`
+
+```js
+summonerFirst: false,   // explore: kill summoners before stragglers
+```
+
+### 这是一条重要的历史线索
+
+| 环节 | 状态 |
+|---|---|
+| 机制被理解 | ✅ §197 已写明 |
+| 代码已实现且可开关 | ✅ |
+| **默认关闭** | ❓ **原因未记录** |
+| 在可信判据下验证过 | ❌ |
+
+§197 之后的所有五锁结论（§219 测的是同一个开关）都是**在默认关闭状态下测的**。
+
+### 正在复测
+
+`room-ab`：6 种子 × 3 次重复，`summonerFirst` false vs true。
