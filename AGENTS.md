@@ -118,6 +118,12 @@ grep -c "<新符号>" site/tools/auto.js     # 必须 > 0
 选项做实验。`runAB` 会额外检查 `autoOpts` 的键，打印
 `AB: unknown autoOpts ignored` 时**实验作废**。
 
+**还要确认「被测行为真的发生了」。** 打开一个开关不等于它会运行：
+把 `forge`/`shop` 打开跑 8 局，`forgeRoomsSeen` 全程为 0 —— 那次 A/B 比较的
+是两个「都没进锻造房」的配置。结果行里已经有判定字段（`forgeRoomsSeen`、
+`upgradesDone`、`waveCount`、`tCombat`），**下结论前先看它们**。
+`tests/measurement-discipline.test.mjs` 会把缺这些字段的情况判为失败。
+
 **部署必须验证字节**（github.io 有 CDN 滞后）：
 
 ```bash
