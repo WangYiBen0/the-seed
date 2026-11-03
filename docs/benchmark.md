@@ -10770,3 +10770,39 @@ nail 臂：seed 1 [2,1,2]    seed 11 [1,3,2]    seed 19 [1,2,1]    seed 23 [2,1,
 
 `bloom` 的收益真实但微弱（约 1/6 种子、阈值边缘），
 而 §223 报的「9:0」是单次采样的产物。
+### 227. 无尽档的重复性：**不一致，且入口本身不稳定**
+
+### 实测（2 种子 × 3 次重复，同 boost）
+
+```
+seed1 rep1 end=death gameT=13 kills=0 floor=4
+seed1 rep2 end=death gameT=13 kills=0 floor=4    ← 前两次一致
+seed1 rep3 end=death gameT=19 kills=2 floor=4    ← 第三次不同
+
+seed5 rep1 end=death gameT=23 kills=2 floor=0
+seed5 rep2 end=death gameT=29 kills=7 floor=0
+seed5 rep3 end=death gameT=20 kills=0 floor=0    ← 三次都不同
+```
+
+### 两个独立问题
+
+1. **`seed 5` 三次 `floor=0`** —— 无尽入口根本没生效。
+   `seed 1` 是 `floor=4`（正确），所以入口行为**因种子而异**。
+
+2. **存活时间 13–29 秒，三次都不同** —— 无尽档目前不可复现。
+
+### 根因推测
+
+`startEndless()` 会在 `endless >= goalDepth` 时结束（`bench.js:736` 的 `done` 条件）。
+而 `--goal-depth 3` + 存档 `endless` 不预置 → `startEndless` 设 `endless=1`，
+**`1 >= 3` 为假**，所以不会因 goalDepth 提前结束；但
+入口是否成功取决于 `startEndless` 调用时机的竞态。
+
+### 结论
+
+**无尽档目前没有可信基线。** 它需要先解决：
+
+1. 入口的确定性（为什么 `seed 5` 是 floor 0）；
+2. 存活时间的方差。
+
+在解决这两点之前，无尽档的任何数字都不能用作基线。
