@@ -12988,3 +12988,52 @@ t=449  pos=(964,1060)   ← 冻结 48 秒以上
 ### 下一步
 
 查 `到达目标：微调到交互点` 这个 note 在哪个分支设置，以及它是否有超时。
+### 273. 卡点的代码位置：微调分支 + 通用脱困都没能脱离
+
+### 代码路径（`auto.js:2650` 起）
+
+```js
+if (ol > 2) {
+  const k = Math.min(1, ol / 6);
+  mx = (ox / ol) * k; my = (oy / ol) * k;
+  A.status.note = '到达目标：微调到交互点';
+} else {
+  // ARRIVED, BUT THERE IS NOTHING HERE
+  ...
+}
+```
+
+注释里已经记录过**一模一样的历史 bug**：
+
+> note became 空目标点：放弃 yet idle stayed at 134 s,
+> because it was abandoning and immediately re-picking forever.
+
+### 通用脱困（`auto.js:2701`）
+
+```js
+if (Math.abs(p.x - lastPos.x) + Math.abs(p.y - lastPos.y) < 2) {
+  if (G.time - lastPos.t > 1.2) { ... 寻路绕行 / wiggle ... }
+}
+```
+
+**它只做「绕行」和「扭动」，不重新选目标。**
+
+### 实测矛盾
+
+我观测到位置在 (964,1060) **完全冻结 48 秒**：
+
+- 若在 `ol > 2` 分支，位置应当每秒移动（`k = ol/6` 最多 1）；
+- 若在 `ol <= 2` 分支，应当走「已到目标点 / 放弃」并**封禁目标**；
+- 若在通用脱困，应当 wiggle（位置会变）。
+
+**三种情况都会导致位置变化，但实测完全不变。**
+
+### 因此
+
+要么 `mx/my` 被覆盖为 0（其它逻辑接管了移动），
+要么脱困的 wiggle 被同帧的寻路拉回。
+
+### 这仍然是最有价值的一条线索
+
+它有：明确状态名、明确坐标、明确冻结时长、明确代码位置。
+前 19 个改动都没能指认到这种粒度。
