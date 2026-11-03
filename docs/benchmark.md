@@ -10806,3 +10806,49 @@ seed5 rep3 end=death gameT=20 kills=0 floor=0    ← 三次都不同
 2. 存活时间的方差。
 
 在解决这两点之前，无尽档的任何数字都不能用作基线。
+#### 227½. 无尽入口诊断：`state` 已 `play` 但 `floor` 停在 0/1，且各 `floor` 值**可复现**
+
+### 诊断手段
+
+把入口状态写进**结果行**（`endlessEntry` 字段），而不是 `console.log`——
+实测页面的 `console` 输出根本没有被 headless 日志捕获，
+这就是「为什么 floor 是 0」查了多轮都看不见的原因。
+
+### 结果（3 种子 × 2 次）
+
+```
+seed1  rep1 gameT=18 floor=4 entryFloor=4 state=play
+seed1  rep2 gameT=18 floor=4 entryFloor=4 state=play   ← 一致
+seed5  rep1 gameT=25 floor=0 entryFloor=0 state=play
+seed5  rep2 gameT=24 floor=0 entryFloor=0 state=play   ← 一致
+seed11 rep1 gameT=16 floor=1 entryFloor=1 state=play
+seed11 rep2 gameT=16 floor=1 entryFloor=1 state=play   ← 一致
+```
+
+### 两个结论
+
+1. **同一配置下的重复是稳定的**：每组两次几乎逐字段相同。
+   这意味着无尽档**可以**做 A/B，只要固定种子。
+
+2. **入口的楼层结果因种子而异**（4 / 0 / 1），且 `state` 已是 `play`、
+   说明不是过渡未完成，而是 `startEndless()` 对某些种子**部分失效**。
+
+### 为什么停在 0/1
+
+`startEndless()` 内部：
+
+```js
+if (G.endless) return;            // 已设置 endless=1 后不会重复
+girlsOnClear();
+G.powCap = powerScale();
+G.endless = 1;
+beginFloorTransition(endlessFloor());
+```
+
+`beginFloorTransition` 会发起一个过渡；如果游戏在过渡中死亡或状态被打断，
+`floor` 就可能停在原值。而 `seed 5` 在 24 秒内死亡，可能正好在过渡期间。
+
+### 处置
+
+无尽档**暂不建立基线**：入口本身对种子敏感，需要更长的存活时间才能确认
+「进去的是哪个楼层」。

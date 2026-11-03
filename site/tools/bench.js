@@ -272,6 +272,7 @@
     // beginFloorTransition(endlessFloor()).  Writing endless:1 into a save left
     // the bot on an ordinary floor and it died in 13-15 s with zero kills
     // (benchmark.md 182).  This calls the game's own entry point instead.
+    let endlessEntry = null;
     if (boost && boost.endless) {
       try {
         // Wait for the resumed run to actually be in 'play' before entering
@@ -285,11 +286,31 @@
           await new Promise((r) => setTimeout(r, 100));
         }
         if (typeof startEndless === 'function') startEndless();
+        else console.warn('[bench] startEndless is not defined — endless entry skipped');
         // confirm it took: endless set and the floor actually moved
+        // WAIT FOR THE FLOOR TRANSITION.  startEndless sets the counter and starts a
+        // transition; it does not finish it. Measured: right after the call the game
+        // was at state 'trans' with floor still 0 on seed 5 but floor 4 on seed 1,
+        // purely because seed 5's transition was slower. The entry only counts once
+        // the new floor is actually playing.
+        {
+          let wt = performance.now();
+          while (performance.now() - wt < 15000) {
+            const gg2 = window.__achroma && window.__achroma.G;
+            if (gg2 && gg2.state === 'play' && (gg2.floor | 0) > 0) break;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
         const g2 = window.__achroma && window.__achroma.G;
-        if (g2) TSW.log('endless entry: endless=' + (g2.endless | 0) + ' floor=' + (g2.floor | 0)
-          + ' hp=' + (g2.p ? g2.p.hp + '/' + g2.p.maxHp : '?')
-          + ' shards=' + JSON.stringify(g2.p && g2.p.shards ? g2.p.shards : {}));
+        // console, not TSW.log: TSW.log is swallowed by the headless log capture,
+        // which is why "why did seed 5 stay on floor 0" was invisible.
+        // Record it in the ROW, not just the console: headless log capture never
+        // showed the page's console output, which is why "why is floor 0" stayed
+        // invisible across several runs.
+        endlessEntry = g2
+          ? { endless: (g2.endless | 0), floor: (g2.floor | 0), hp: g2.p ? (g2.p.hp + '/' + g2.p.maxHp) : '?',
+              shards: JSON.stringify(g2.p && g2.p.shards ? g2.p.shards : {}), state: g2.state }
+          : { missing: true };
       } catch (e) { TSW.err('endless entry', e); }
     }
     const G = () => window.__achroma.G;
@@ -789,6 +810,7 @@
       // what strict rule ended the run, so 'aborted' is never mistaken for a timeout
       abortOn: abortOn || null,
       gameT: +g.runT.toFixed(0), floor: g.floor, maxFloor: maxFloor, depth: g.endless | 0,
+      endlessEntry,
       // The endgame the objectives actually ask for: endless depth × modifiers ×
       // damage-free × full pickups.  Each term is recorded separately so the
       // composite is auditable instead of a single opaque score.
