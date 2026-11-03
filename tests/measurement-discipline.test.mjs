@@ -17,6 +17,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BENCH = readFileSync(join(ROOT, 'site', 'tools', 'bench.js'), 'utf8');
 const CORE = readFileSync(join(ROOT, 'site', 'tools', 'core.js'), 'utf8');
 const AB = readFileSync(join(ROOT, 'scripts', 'ab-run.mjs'), 'utf8');
+const AUTO = readFileSync(join(ROOT, 'site', 'tools', 'auto.js'), 'utf8');
 
 test('runAB starts invade from wave 1, not a hidden default', () => {
   // A default of 9 meant an A/B asking "can the build reach wave N" actually
@@ -61,4 +62,24 @@ test('the endless entry is not disabled by its own guard', () => {
   assert.doesNotMatch(saveBlock, /endless: \(b && b\.endless\) \|\| 0/,
     'presetting endless in the save makes startEndless a no-op');
   assert.match(BENCH, /gg\.state === 'play' && gg\.p/, 'must wait for play before entering endless');
+});
+
+test('rows record whether the behaviour under test actually fired', () => {
+  // An A/B of the forge switch compared two configurations that BOTH never
+  // reached a forge: forgeRoomsSeen stayed 0 in every row (benchmark.md 262).
+  // Without a field like this there is no way to tell "the feature is useless"
+  // from "the feature never ran".
+  assert.match(BENCH, /forgeRoomsSeen/, 'rows must record forge visits');
+  assert.match(BENCH, /upgradesDone/, 'rows must record forge upgrades');
+  assert.match(BENCH, /waveCount/, 'rows must record how many waves actually spawned');
+  assert.match(BENCH, /tCombat/, 'rows must split combat from travel and idle');
+});
+
+test('the summoner and pickup switches stay declared so they can be A/B-ed', () => {
+  // A patch that adds a branch but never declares the option in A.opts makes the
+  // experiment silently identical on both arms.
+  const decl = AUTO.slice(AUTO.indexOf('const opts'), AUTO.indexOf('const opts') + 4000) || AUTO;
+  assert.match(AUTO, /summonerFirst:/);
+  assert.match(AUTO, /pickupLeap:/);
+  assert.match(AUTO, /focusFire:/);
 });
