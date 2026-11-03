@@ -67,6 +67,9 @@
       // MUST be declared or runAB voids the experiment. Optional pickups get a
       // 25 s leash instead of the 90 s goalGiveUp (benchmark.md 251/252).
       pickupLeap: true,                                      // explore: short leash for weapon/chest/fount
+      // MUST be declared or the A/B is void. Probe the next path node for
+      // walkability before steering at it (benchmark.md 274).
+      wallGuard: true,                                       // explore: skip blocked path nodes
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
       specialsFirst: TSW.settings.get('autoSpecialsFirst', true),                                   // explore: detour to special rooms before combat
       powerupFirst: TSW.settings.get('autoPowerupFirst', true),                                    // explore: grab weapons/chips/serums before fights
@@ -2706,7 +2709,18 @@
         if (A._lastWp) {
           const path = gridPath(p, A._lastWp[0], A._lastWp[1]);
           if (path && path.length) {
-            for (const node of path) { if (dist(p.x, p.y, node[0], node[1]) > 14) { const l = Math.hypot(node[0] - p.x, node[1] - p.y) || 1; mx = (node[0] - p.x) / l; my = (node[1] - p.y) / l; handled = true; break; } }
+            // A path node is not automatically walkable IN THE CURRENT FRAME.  Measured:
+            // full velocity (92 px/s) against a completely unchanged position
+            // (benchmark.md 274) — gridPath returned a node, the nudge aimed straight at
+            // it, and a wall cancelled the move every frame.  Probe the next node before
+            // committing; if it is blocked, fall through to the wiggle.
+            for (const node of path) {
+              if (dist(p.x, p.y, node[0], node[1]) <= 14) continue;
+              if (A.opts.wallGuard !== false && collides(node[0], node[1], (p.r || 4) + 1, false)) continue;
+              const l = Math.hypot(node[0] - p.x, node[1] - p.y) || 1;
+              mx = (node[0] - p.x) / l; my = (node[1] - p.y) / l;
+              handled = true; break;
+            }
             A.status.note = '寻路绕行';
           }
         }
