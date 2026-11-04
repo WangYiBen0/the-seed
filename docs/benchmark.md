@@ -13497,3 +13497,45 @@ site/upstream/index.html:23: <script>(function(exports){...
    **但上游页用的是真 SDK，shim 根本没加载**。
 
 所以要先解决「让上游页加载 shim 而不是真 SDK」。
+### 282. **黑屏根因与修复**（用户报告「真黑屏bug」，已复现、已修、已验证）
+
+### 复现（像素级）
+
+宿主页顶栏/底栏正常，iframe 内游戏区域纯黑；主画布 1440×810 中心 rgb=[0,0,0]，
+从 intro 状态就如此；零异常、零 NaN、无 console.error——**不是渲染崩溃，是循环没启动**。
+
+### 根因（两层，叠加）
+
+**层 1：没人当 dzmm 宿主。** `upstream/index.html` 内嵌的是真 SDK，kv 走 postMessage 问宿主；
+离线镜像无宿主 → `storeLoad` 无限重试 → 游戏脚本不加载、`EMBER_START` 不调用。
+
+**层 2：`frameWin` 为 null。** 第一版修复用 `DzmmHost.create()` 但没用 `mount()`，
+宿主的 `send()` 指向 null，`dzmm:ready` 静默失效（实测 kv.get 挂起）。
+
+**层 3：动态加载器 404。** `platform.js` 用相对路径 `js/…` 二次加载 45 个脚本，
+在 `upstream/` 布局下全部 404 → `Promise.all` 拒绝 → **跳过 `EMBER_START`**。
+但 77 个静态 `../js/` 标签已把**全部脚本**加载完毕（`launchRun` 存在而屏幕全黑的矛盾来源）。
+
+### 修复（`site/index.html` + `site/dzmm-host.js`）
+
+1. `DzmmHost.create({})` + `dzmmHost.mount('#stage', 'upstream/index.html', {id:'game'})`——宿主应答握手与 kv；
+2. 检测「加载失败」横幅 → 补调一次 `EMBER_START()`（`__emberKicked` 防双循环）；
+3. kick 成功后摘除横幅；
+4. 未知宿主方法打印方法名（抓到了 `fn.invoke`——SDK 的服务器调用通道，离线无服务器，失败是正确行为）。
+
+### 验证（同一探针，修复前后）
+
+```
+阶段          修复前                      修复后
+BASE(intro)   rgb[0,0,0] grid=0 intro    rgb[8,8,8]  grid=8-9  menu
+PLAY          rgb[0,0,0] grid=0 launch   rgb[41,39,37] grid=17-19 play
+存档往返      失败/挂起                  put+get 成功（宿主 localStorage）
+```
+
+截图：修复前整页除宿主栏全黑；修复后游戏 HUD（武器栏、房间 1-废墟、技能晶片）、
+新档起名对话框均正常渲染。
+
+### 遗留（非阻塞）
+
+- `fn.invoke` 每次调用产生一条 SDK 侧 console.error（无服务器，正确失败）；
+- 真实账号云存档往返仍待用户授权（宿主已支持 `kvFetch` 转发）。

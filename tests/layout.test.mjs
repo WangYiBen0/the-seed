@@ -22,7 +22,10 @@ test('internal docs and sync state are outside the served root', () => {
 
 test('the entry page frames the verbatim upstream page', () => {
   const host = readFileSync(join(SITE, 'index.html'), 'utf8');
-  assert.match(host, /frame\.src = 'upstream\/index\.html'/, 'host must frame the upstream page');
+  // the frame is created through DzmmHost.mount (benchmark.md 282: the entry page
+  // must ALSO answer the SDK's postMessage handshake, or the game never boots)
+  assert.match(host, /upstream\/index\.html/, 'host must frame the upstream page');
+  assert.match(host, /DzmmHost\.create/, 'the host page must answer the SDK as the dzmm host');
   assert.equal(existsSync(join(SITE, 'game.html')), false, 'game.html was replaced by the upstream page');
 });
 

@@ -64,6 +64,7 @@
 
 <div id="note">非官方离线镜像 · UNOFFICIAL OFFLINE MIRROR — 游戏著作权归原作者所有（<a href="https://www.dzmm.ai/character/3738712" target="_blank" rel="noopener">官网页面</a>），本页面仅为镜像并附工具 · game © its author · not affiliated</div>
 
+<script src="dzmm-host.js"></script>
 <script>
 // The game runs in an iframe, like the official page: same-origin here, so the
 // host CAN reach into it.  Tools are NOT preloaded — the player presses 注入工具,
@@ -71,16 +72,51 @@
 // automatically).  Keeping injection explicit means a mirror page loads with no
 // autopilot attached to it.
 (function () {
-  var frame = document.createElement('iframe');
-  frame.id = 'game';
-  frame.title = '[TheSeed]';
-  frame.allow = 'autoplay; fullscreen';
-  // The frame is the VERBATIM upstream page, kept under upstream/ and served as
-  // saved (only its script paths were rewritten from [TheSeed]_files/x_auz1.js
-  // to ../js/x.js, which is the same content).  So what runs in this frame is the
-  // real game page, not a reduced loader.
-  frame.src = 'upstream/index.html';
-  document.getElementById('stage').appendChild(frame);
+  // BE THE DZMM HOST.  The upstream page runs the REAL SDK, and the SDK's whole
+  // data channel is postMessage to its host page (kv, identity, capabilities).
+  // With nobody answering, platform.js sits in the kv-load retry loop forever and
+  // the frame is a black rectangle from the very first paint (measured
+  // 2026-11-04: canvas rgb [0,0,0] already in the intro state, zero exceptions).
+  // dzmm-host.js answers the handshake and the kv methods from this origin's
+  // localStorage; a signed-in kvFetch can later forward to the real API.
+  var dzmmHost = DzmmHost.create({});
+
+  // The frame is the VERBATIM upstream page, kept under upstream/ (only its
+  // script paths were rewritten from [TheSeed]_files/x_auz1.js to ../js/x.js, the
+  // same content).  mount() builds exactly the frame the old hand-rolled code did
+  // AND owns the handshake: it keeps the child window handle — create() alone
+  // leaves send() pointed at null, so the dzmm:ready reply silently never fired
+  // (measured: kv.get hung with the listener registered) — and posts
+  // 'dzmm:parent-ready' on load.
+  var frame = dzmmHost.mount(document.getElementById('stage'), 'upstream/index.html', { id: 'game' });
+
+  // platform.js loads the game scripts a SECOND time from 'js/…' — a relative
+  // path that only works on the official layout (index.html beside js/).  Under
+  // upstream/ every one of those 404s, its Promise.all rejects, and EMBER_START —
+  // the render-loop kick — is skipped.  Nothing is actually missing: the verbatim
+  // page's own 77 static ../js/ tags already load every one of those files
+  // (launchRun existed while the screen stayed black).  So detect the
+  // boot-failure banner and fire the loop once from here; the guard keeps a
+  // healthy boot single-started (a second rAF loop would double the game speed).
+  frame.addEventListener('load', function () {
+    setTimeout(function () {
+      try {
+        var w = frame.contentWindow, d = w.document;
+        if (d && d.body && d.body.innerHTML.indexOf('加载失败') >= 0
+            && typeof w.EMBER_START === 'function' && !w.__emberKicked) {
+          w.__emberKicked = true;
+          w.EMBER_START();
+          // the banner was painted by platform.js before the kick; the loop is
+          // alive now, so take the stale notice down instead of leaving it on
+          // screen for the whole session
+          try {
+            var ps = d.querySelectorAll('p');
+            for (var i = 0; i < ps.length; i++) if ((ps[i].textContent || '').indexOf('加载失败') >= 0) ps[i].remove();
+          } catch (e2) { }
+        }
+      } catch (e) { }
+    }, 2500);
+  });
 
   var injected = false;
   var cta = document.getElementById('cta');

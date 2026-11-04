@@ -104,6 +104,9 @@
         const { id, method, params } = d;
         const fn = methods[method];
         if (!fn) {
+          // name the method in the console: the SDK calls a few host methods we
+          // have not tabled yet, and METHOD_NOT_SUPPORTED alone hides which one
+          console.warn('[dzmm-host] unsupported host request:', method);
           send('dzmm:response', { id, error: 'METHOD_NOT_SUPPORTED', errorCode: 'METHOD_NOT_SUPPORTED', errorPayload: { method } });
           return;
         }
