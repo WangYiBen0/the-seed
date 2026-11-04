@@ -13539,3 +13539,18 @@ PLAY          rgb[0,0,0] grid=0 launch   rgb[41,39,37] grid=17-19 play
 
 - `fn.invoke` 每次调用产生一条 SDK 侧 console.error（无服务器，正确失败）；
 - 真实账号云存档往返仍待用户授权（宿主已支持 `kvFetch` 转发）。
+#### 282½. 线上验证（2026-11-04）：**修复已部署并在生产环境生效**
+
+对 `https://wangyiben0.github.io/the-seed/` 跑同一探针：
+
+```
+BASE   rgb[3,2,2]   grid=0    state=menu   （循环已启动，intro→menu）
+PLAY   rgb[41,39,37] grid=19  state=play   ← 游戏在线上正常渲染
+KV     put+get 成功（宿主桥 localStorage）
+```
+
+部署链：`20db49f` 推送 → deploy job 推 gh-pages（`12450a3`）→ Pages 构建完成 → CDN 刷新
+（index.html 7683→9862 B，含 `DzmmHost.create`）。全程自动，仅被 GitHub 队列拥塞延迟约 30 分钟。
+
+已知残留（不阻塞）：`fn.invoke` 的 SDK 侧 console.error（离线无服务器，正确失败）、
+动态加载器 404 的 boot error（被补点火绕过，属预期）。
