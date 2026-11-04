@@ -34,6 +34,15 @@ on:
       # must re-run them.  Without these two, every edit to site/tools/** or
       # tests/** was pushed without any CI verification at all.
       - "site/tools/**"
+      # the hand-maintained entry files: a change here must re-run the gates AND
+      # redeploy.  Measured gap: the black-screen fix touched site/index.html and
+      # site/dzmm-host.js only, and the workflow silently never ran — the fix sat
+      # undeployed until a manual dispatch (2026-11-04).
+      - "site/index.html"
+      - "site/dzmm-host.js"
+      - "site/dzmm-shim.js"
+      - "site/inject.js"
+      - "site/auto.html"
       - "tests/**"
 
 permissions:
