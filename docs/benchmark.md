@@ -13554,3 +13554,33 @@ KV     put+get 成功（宿主桥 localStorage）
 
 已知残留（不阻塞）：`fn.invoke` 的 SDK 侧 console.error（离线无服务器，正确失败）、
 动态加载器 404 的 boot error（被补点火绕过，属预期）。
+### 283. 真实账号云存档契约（CI 日志，4+ 次运行一致）
+
+CI 每次同步都用 `DZMM_SIGN_IN_CODE` 登录并从登录页探测云存档端点（`KV_WRITE_PROBE=1`）。
+
+### 实测（最近 4 次运行完全一致）
+
+```
+列表端点  GET  /api/gamefy/<gid>/kv            → 200 {"data":[],"count":0}
+按键端点  GET  /api/gamefy/<gid>/kv/achroma_set → 200 {"value":null,"updated_at":null}
+写探测    PUT  …/__mirror_probe_delete_me      → 403
+写探测    POST …/__mirror_probe_delete_me      → 403
+```
+
+### 结论
+
+| 方向 | 真实账号 | 离线镜像（宿主桥） |
+|---|---|---|
+| 读 | ✅ 200（契约通；该账号云端当前为空） | ✅ §282（localStorage） |
+| 写 | ❌ **403 结构性拒绝**（PUT/POST 皆然） | ✅ §282（localStorage） |
+
+**写入 403 与 §155（6 种 body 全 403）一致**：即使签名会话，自建路由也写不进——
+真实写入只发生在官网页面内 SDK → 真宿主的正常保存流程里，那条路径无法从镜像侧复用
+（dzmm 的会话 cookie 绑定 dzmm.ai 源，不会带到 github.io 的宿主页）。
+
+### 因此云存档项的最终状态
+
+1. **离线镜像**：读写经宿主桥 localStorage，已验证（§282）；
+2. **真实账号**：读契约 200；写结构性 403——镜像的档与官网云档是**两个独立存储**，
+   不能互通（除非人工导出/导入，`cloud.js` 的 base64 编解码支持）；
+3. 「真实账号往返」以此为准：**读已验证，写不可行**——不再是「待授权」，是「结构性不可行」。
