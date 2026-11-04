@@ -89,3 +89,14 @@
 主动获取装备无效 → 锻造房仅 37.5% 楼层出现。
 
 **结论：五锁 1.67 房是当前约束下的真实上限。**
+
+## 进行中（2026-11-05 01:25 启动）
+
+### 基因训练首轮（evolve.js，目标里的「训练」正主）
+
+`node scripts/headless-bench.mjs --kind evolve --gens 4 --pop 6 --seeds 1,5,13 --seconds 420 --timeout 100 --speed 8 --diff despair --mods rage,deathfight,bulwark,rot,cyst --out .tmp/evolve.jsonl`
+
+后台作业 bash-4f035e4e0b334dbf，预计 80–90 分钟（~02:45）。提醒 schedule-444ef9b6 已设（03:00 前后触发收取）。
+
+**收结果后**：提取冠军 genome → `room-ab.mjs --b '{"genome":{...}}'`（6 种子 × 3 重复）→
+显著优于默认则设默认并更新基线；无差异则如实记录。**训练期间不要跑并行基准**（避免 CPU 竞争扰动 speed=8）。
