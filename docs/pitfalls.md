@@ -6,6 +6,7 @@
 | 症状 | 真因 |
 |---|---|
 | 全自动挂机黑屏（HUD 正常、画面全黑） | `Input.mx = clampM(v, window.W)` → `window.W` 是 undefined → NaN 进相机。用 `GW()/GH()` + NaN 防护 |
+| **整页黑屏（从加载起就没有画面，连 intro 都没有；零异常、零 NaN）** | 三层叠加：① 上游页是真 SDK，kv 走 postMessage 问宿主，镜像里没人应答 → `storeLoad` 无限重试；② `DzmmHost.create()` 之后必须用 `mount()`——否则宿主的 `send()` 指向 null，`dzmm:ready` 静默失效；③ `platform.js` 用相对路径 `js/…` 二次加载 45 个脚本，在 `upstream/` 布局下全 404 → `Promise.all` 拒绝 → **跳过 `EMBER_START()`**（渲染循环永不点火）。修法：入口页 `DzmmHost.create()+mount()` 当宿主，检测「加载失败」横幅后补调一次 `EMBER_START()`（`__emberKicked` 防双循环）。注意 77 个静态 `../js/` 标签早已把全部脚本载入——「launchRun 存在但屏幕全黑」即此症 |
 | 挂机完全不动 | `A._pickTries` 未初始化却在 drive 里访问 → 每帧抛错 |
 | 面板后半截功能全失效（AI 设置/指令台消失） | `bench.js` 语法错误（重复形参）→ 整个文件不加载 → `TSW.bench` undefined → `panel.js` 中途抛错 |
 | 面板按钮全点不动 | 事件拦截写在 **capture** 阶段；必须用冒泡 |
