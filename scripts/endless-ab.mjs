@@ -35,10 +35,12 @@ function runCell(seed, optJson, tag) {
   return new Promise((resolve) => {
     const out = join(OUTDIR, 's' + seed + '_' + tag + '.jsonl');
     rmSync(out, { force: true });
+    // per-arm boost: comparing BUILDS needs a different starting arsenal per arm
+    const boost = (tag === 'off') ? (args['boost-a'] || BOOST) : (args['boost-b'] || BOOST);
     const child = spawn(process.execPath, ['scripts/headless-bench.mjs', '--kind', 'fullrun',
       '--seed', String(seed), '--policy', 'rounded', '--goal-depth', '3', '--speed', '8',
       '--diff', 'classic', '--game-seconds', String(args['game-seconds'] || 400),
-      '--timeout', String(args.timeout || 400), '--boost', BOOST,
+      '--timeout', String(args.timeout || 400), '--boost', boost,
       '--autoOpts', optJson, '--out', out], { stdio: 'ignore' });
     child.on('exit', () => {
       let row = null;
