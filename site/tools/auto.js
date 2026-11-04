@@ -70,6 +70,12 @@
       // MUST be declared or the A/B is void. Probe the next path node for
       // walkability before steering at it (benchmark.md 274).
       wallGuard: true,                                       // explore: skip blocked path nodes
+      // MUST be declared or the A/B is void. Prefer cheap (shallow) combat rooms:
+      // waves-per-room and enemies-per-wave both grow with r.d (benchmark.md 285).
+      // measured neutral (rooms 1.50 vs 1.44, waves 3.61 vs 3.50 — benchmark.md
+      // 285): nearest-first already approximates shallow-first on a BFS floor, so
+      // the reordering buys nothing and stays off by default.
+      shallowFirst: false,                                   // explore: shallow rooms before deep ones
       forgeFirst: true,                                      // explore: visit a forge before combat when affordable
       specialsFirst: TSW.settings.get('autoSpecialsFirst', true),                                   // explore: detour to special rooms before combat
       powerupFirst: TSW.settings.get('autoPowerupFirst', true),                                    // explore: grab weapons/chips/serums before fights
@@ -3231,9 +3237,22 @@
       }
     }
     // 3) nearest unvisited combat room
+    // SHALLOW FIRST.  makeWaves prices a room by its graph depth r.d twice over:
+    // one more wave for r.d > 2 (game.js:184) AND a bigger per-wave budget that
+    // also grows with r.d (game.js:185).  The nearest-room rule used to ignore
+    // that, so the bot routinely walked into a d>=3 room (3-4 fat waves) while a
+    // d<=2 room (2-3 thin waves) sat one screen further away.  With
+    // opts.shallowFirst the walk distance is stretched by depth before comparing,
+    // which keeps nearest-first behaviour inside a depth class but prefers the
+    // cheap rooms across classes.  Wave-cost model predicted it; measured in
+    // benchmark.md 285.
     let best = null, bd = 1e9;
     for (const r of rooms) {
-      if (r.type === 'combat' && !r.cleared && !r.active && !unreachable(r)) { const d = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8); if (d < bd) { bd = d; best = r; } }
+      if (r.type === 'combat' && !r.cleared && !r.active && !unreachable(r)) {
+        const d = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
+        const eff = (A.opts.shallowFirst !== false && typeof r.d === 'number') ? d * (1 + 0.35 * Math.max(0, r.d - 2)) : d;
+        if (eff < bd) { bd = eff; best = r; }
+      }
     }
     if (best) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: 'fight', room: best };
     // 4) specials worth a detour (policy: shop on)
