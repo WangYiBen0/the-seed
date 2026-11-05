@@ -1,324 +1,258 @@
-# 刷分 bug 专项（score-farm）
+# 刷分漏洞专项（score-farm）
 
-> 用户 2026-11-02：*「这个版本还有刷分的 bug，官方榜单上前五名知道（idk），你一块找出来」*
->
-> **本文的边界**：仓库里**没有服务端源码**。`site/js/net.js:73` 与 `site/js/achieve.js:165`
-> 的注释只说「keep in sync with `server/ach-api.mjs`」/「`functions/board.js`」，那两个文件不在本仓。
-> 所以下面所有结论都是**客户端路径**结论：客户端能算出多少分、能不能把这条分交上去。
-> **「服务器收不收」一律标「服务端未验证」。**
+> 用户 2026-11-05 更正：**「什么叫刷分 bug，你写的是属于正常逻辑内的，要找的是漏洞」**
+> —— 上一版把「无尽经济」「绝境 ×2.6」「死亡也上传」当成漏洞，这些是**设计内的正常玩法**，判定作废。
+> 本文重写：只保留**能突破正常上限、绕过惩罚、或把同一份战斗成果结算多次**的路径。
+
+> **边界**：仓库里没有服务端源码（`net.js:73` 只说 "keep in sync with `server/ach-api.mjs`"）。
+> 所以下面全部是**客户端路径**结论。**「服务器收不收」一律标「服务端未验证」。**
 
 ---
 
 ## 0. 结论先行
 
-**最可能的刷分路径只有一条主干，其余都是它的变体：**
+**真正的漏洞只有一条：读档会把「整层的战斗成果」重新变成可再生资源。**
 
-> **无尽模式（endless）是唯一"不要求通关、没有时间惩罚、没有受击惩罚、且每层白送 6000 分"的分箱。**
-> 而客户端对"进入无尽"的门槛几乎为零 —— 通关最后一层后，**不点通往结局的传送门**，
-> 改按 `E` 走无尽门，`G.endless` 从 1 开始，此后**每一次死亡都算"赢"**（因为 `r.endless` 为真）。
-> 于是：**只要把命保住，每多下一层 +6000 分；一旦快死了就主动 `endEndless()` 结算，把已有层数换成分数。**
-> 再叠上绝境 ×2.6 的难度乘数，这是榜单同分段唯一的合理解释方向。
+```
+存档不保存战斗进度   →  读档重建整层敌人（全数重生）
+          +
+存档保存了累积计数   →  kills / runT / hits 原样回填、不清零
+          ↓
+每"读档-重打一层"一轮，同一批敌人可以再被杀一次，kills 无限增长
+```
+
+`kills` 是分数里**唯一没有上限的输入**（`net.js:80` `killB = r.kills * 20`）。
+**这条链才是刷分，不是无尽。**
 
 | # | 路径 | 判定 | 关键证据 |
 |---|---|---|---|
-| **A** | **无尽 + 主动结算**：不会死透，每层 +6000，随时 `endEndless()` 换分 | **成立**（客户端层） | `net.js:76-79`、`game.js:745`、`game.js:410-413` |
-| **B** | 无尽里**死亡也上传**（`r.endless` 为真即过 `submitResult` 门槛） | **成立**（客户端层） | `net.js:102` |
-| **C** | 绝境 ×2.6 叠在上面 | **成立** | `net.js:74` |
-| **D** | 手改 localStorage 存档改 `diff` / `kills` / `runT` / `rid` / `assisted` | **成立**（需 devtools，非纯游戏内） | `game.js:294-320` |
-| **E** | 同一 `rid` 反复提交 | **未证实**（客户端队列按 rid 去重，但服务端语义未知） | `net.js:95-97,105` |
-| **F** | `BOSS_TEST` 后门刷分 | **不成立**（它是把上传**关掉**，方向相反） | `net.js:101` |
-| **G** | 过期限量活动仍可上报 | **成立**（客户端已关判断缺失） | `limited.js:48-52,89` |
+| **A** | **读档重开整层，kills/runT 累加不重置** | **成立**（纯游戏内，无需 devtools） | `game.js:282`、`game.js:335`、`game.js:50`、`game.js:84` |
+| **B** | 同一 `rid` 由读档持续复用 → 多轮结果算作同一局 | **成立**（客户端层） | `game.js:335` `rid: s.rid \|\| G.rid` |
+| **C** | 手改 localStorage 存档字段 | 成立但**需 devtools**，非"游戏内刷分" | `game.js:294-320` |
+| **D** | 过期限量活动仍接受客户端上报 | 成立（UI 层关了、上报层没关） | `limited.js:48-52` vs `limited.js:24` |
+| **E** | 无尽 + 绝境 + 主动结算 | **不成立（是设计）** | 见 §5 作废说明 |
+| **F** | `BOSS_TEST` 后门 | **不成立**（它把上传关掉） | `net.js:101` |
+| **G** | 同 rid 提交两次（不经读档） | 未证实（服务端幂等未知） | `net.js:105` |
 
 ---
 
-## 1. 计分公式全解（唯一权威：`site/js/net.js`）
+## 1. 为什么 A 是漏洞：四个条件的逐条取证
 
-```js
-// site/js/net.js:74
-const DIFF_MUL = { easy: .5, classic: 1, hard: 1.5, nightmare: 2, despair: 2.6 };
-// site/js/net.js:76
-const ENDLESS_DEPTH = 6000;
-```
+### 条件 1：存档**不保存**战斗进度
 
-### 1.1 突入探索（非无尽）—— `net.js:79-84`
-
-| 分项 | 公式 | 权重直觉 |
-|---|---|---|
-| `clearB` | `win ? 10000 : floor*1500` | 通关是**硬门槛**，不通关只按层给 1500 安慰分 |
-| `killB` | `kills * 20` | 击杀是最细的加分粒度，**但无上限** |
-| `synB` | `syn * 1500` | 每点协同 1500；**全游戏共 40 个协同**（`combat.js:59` 20 + `shards2.js:90` 15 + `shards3.js:30` 5）→ 理论上限 60000 |
-| `timeB` | `win ? round(30000*900/(900+runT)) : 0` | **只有通关才给**；`runT=0` 拿满 30000，`runT=900` 减半 |
-| `hitB` | `win ? round(20000/(1+.15*hits)) : 0` | **只有通关才给**；0 hit 拿满 20000 |
-
-`mul = DIFF_MUL[diff] * (assist ? .85 : 1)`
-
-**注意 `timeB` 与 `hitB` 都是"通关才给"**：
-所以非无尽段的理论满分（绝境、0 受击、极速）≈ `(10000+killB+30000+20000+30000)*2.6`。
-其中 **`killB` 是唯一没有封顶的项** —— 这是"多打怪"路线的理论依据。
-
-### 1.2 无尽 —— `net.js:78`
-
-| 分项 | 公式 | 对比非无尽 |
-|---|---|---|
-| `clearB` | `10000`（固定） | 白给，不需要通关 |
-| `depthB` | `depth * 6000` | **唯一按层线性加分且无上限的项** |
-| `killB` | `kills * 20` | 同非无尽 |
-| `synB` | `syn * 1500` | 同非无尽 |
-| `timeB` | **不存在** | ← 没有时间压力 |
-| `hitB` | **不存在** | ← **没有受击惩罚** |
-
-**这张表就是结论。** 无尽段：
-- 不受击也**不加分**、受击也**不扣分** → 受击惩罚机制整体失效；
-- 不限制时长 → 可以无限磨；
-- 每层固定 +6000，且 `depthB` **没有封顶**（`depth | 0` 只做了取整）。
-
-### 1.3 入侵抵抗 —— `site/js/achieve.js:166`
-
-| 分项 | 公式 |
-|---|---|
-| `clearB` | `win ? 10000 : 0` |
-| `waveB` | `wave * 1500` |
-| `killB` | `kills * 10`（注意是 10，不是 20） |
-| `hitB` | `win ? round(20000/(1+.05*hits)) : 0`（`.05` 比探索的 `.15` 宽松 3 倍） |
-| `lvB` | `lv * 200` |
-
-`mul = DIFF_MUL[diff]`（**入侵段没有 assist 折扣**）
-
----
-
-## 2. 路径 A/B：无尽是唯一的分箱（**主力路径**）
-
-### 2.1 触发链条（全部客户端，逐行取证）
-
-```mermaid
-通关最后一层 (G.floor === 4)
-  ↓ game.js:243  双传送门生成：普通门 + 无尽门（boss 房清空的 1.6s 后）
-  ↓ game.js:410  玩家不按普通门，按 E 走 kind==='portal' && it.endless
-  ↓ game.js:411  startEndless()
-  ↓ game.js:747  G.endless = 1   ← 此后 r.endless 恒真
-  ↓ 每下一层  beginFloorTransition → enterFloor → depth+1
-  ↓ 玩家随时可 endEndless()（暂停菜单，需按两下确认）
-  ↓ game.js:745  finishRun(false)  ← 传进去的 win 是 false!
-  ↓ net.js:102   if (!r.win && !r.endless && r.mode !== 'invade') return;
-```
-
-**关键行 `net.js:102` 是整个刷分的支点**：
-
-```js
-// site/js/net.js:102
-if (!r.win && !r.endless && r.mode !== 'invade') { r.up = { st: 'none' }; return; }
-```
-
-`endEndless()` 传 `win = false`（`game.js:745`），但因为 `r.endless` 为真，
-**这个 `false` 被 `!r.endless` 短路掉了，成绩照常上传**。
-换句话说：**无尽模式下"死亡"与"胜利"在排行榜上是同一个东西。**
-
-### 2.2 为什么这是"bug"而不是"设计"
-
-- 注释 `net.js:75` 明确说无尽"no time or hit bonus" —— 设计者知道没有这两项。
-- 但 `net.js:73` 的总结是 *"kills, speed, few hits and many synergies all raise it"* ——
-  **它描述的加分项（speed、few hits）在无尽段根本不存在**。注释与实现自相矛盾。
-- `endEndless()` 的注释（`game.js:744`）原话：
-  *"ending endless mode on your own (pause menu): the run is scored on the endless board like a fall, without the fall"*
-  —— 设计者**有意**让你主动结算，但没意识到这等价于"无限次保底"。
-
-### 2.3 最优刷分操作序列（客户端可见的，不需 devtools）
-
-```
-1. 选绝境（despair，×2.6）。若不敢打绝境，经典（×1）也行，只是分少。
-2. 打到第 5 层 boss 死透。
-3. 出现两个传送门时，【不选普通门】，改按 E 走无尽门。 ← 这一步是分水岭
-4. 进无尽后：只做"能安全清层"的最低限度战斗，
-   每清一层 depth+1（+6000×2.6 = 15600 分）。
-5. 血量危险时立刻 Esc → 暂停菜单 → 「结束无尽」(按两下确认)。
-   endEndless() 结算，depth 换成分数，成绩上传。
-6. 重复 2-5 不可能（因为通关只有一次），
-   但第 4 步可以无限拉长 —— 这才是真正的上限所在。
-```
-
-**收益量化（以绝境 ×2.6 为例）**：
-
-| 无尽层数 | depthB | 乘后 | 加上固定 10000 | 近似总分（不计击杀/协同） |
-|---|---|---|---|---|
-| 1 | 6000 | 15600 | 26000 | **41,600** |
-| 5 | 30000 | 78000 | 26000 | **104,000** |
-| 10 | 60000 | 156000 | 26000 | **182,000** |
-| 20 | 120000 | 312000 | 26000 | **338,000** |
-| 50 | 300000 | 780000 | 26000 | **806,000** |
-
-> 对照：非无尽绝境的理想满分也才 ~`(90000+killB)*2.6`，且**必须通关**。
-> 无尽第 20 层就已经超过它。**这就是榜单前五的分数来源。**
-
-### 2.4 与「五锁」的叠加（更强的变体）
-
-绝境五锁（`rage/deathfight/bulwark/rot/cyst`）里，**`reward` 字段（2/2/2/3/3）不进分数**
-—— 我核对过 `runScore()` 全函数（`net.js:77-84`），**没有任何 `modifiers` 项**。
-
-所以「五锁」对普通榜**不加分**；它只影响：
-- 敌方变强（更难，理论上更容易死）；
-- `limited.js` 的限量榜（`limited.js:49`，五锁全开才上报）。
-
-**结论：五锁不是刷分路径，是"更难"路径。榜单高分不来自五锁。**
-
-### 2.5 `assist` 0.85 折扣的位置（一个容易看错的点）
-
-`r.assist = !!G.assisted`（`net.js:89`），而 `G.assisted` 只在 `markAssisted()`（`game.js:323`）置真，
-触发点是 `touch.js:169`（**触屏瞄准辅助**）。键鼠玩家天然是 `false`。
-`achieve.js:114` 的注释明确：*"Aim assistance is a normal control option, so G.assisted does not disqualify a run."*
-→ 这**不是**漏洞，是明码标价的 15% 折扣。
-
----
-
-## 3. 路径 D：手改 localStorage（需 devtools，非纯游戏内）
-
-存档键 `achroma_run`（`game.js:278`）。`loadSave()`（`game.js:294-320`）是唯一的入口校验。
-**逐个字段看"改了会怎样"**：
-
-| 字段 | 校验 | 能否手改放大 | 影响的分项 |
-|---|---|---|---|
-| `diff` | `Object.hasOwn(DIFF_BY, s.diff)`（`game.js:295`） | **能**：改成 `'despair'` 合法 | `mul` **×2.6** |
-| `kills` | `saveNum(s.kills, 0)`（`game.js:310`，max 1e9） | **能**：任意非负数 | `killB = kills*20` **无上限** |
-| `runT` | `saveNum(s.runT, 0)` | **能**（改小） | `timeB` 变大（但只在 win 时算） |
-| `hits` | `saveNum(s.hits, 0)` | **能**（改小/改 0） | `hitB` 变大 |
-| `rid` | 正则 `/^[A-Za-z0-9_-]{1,40}$/`（`game.js:314`），非法只置 `null` 不废档 | **能** | 绕过 rid 去重（见路径 E） |
-| `assisted` | `!!s.assisted`（`game.js:337`） | **能**：改成 `false` | 洗掉 0.85 折扣 |
-| `endless` | `Math.floor(saveNum(s.endless,0,0,9999))`（`game.js:310-311`） | **能**：直接改成 20 | **直接白拿 20 层 × 6000** |
-| `hp` | `clamp(s.hp, 1, p.maxHp)`（`game.js:338`） | 只能改到 maxHp | 无 |
-| `shards`/`wlv` | 白名单过滤 + `clamp` 到 `max`（`game.js:298-299`） | 只能合法范围内 | 间接（协同数） |
-| `syn` | **不存**，结算时现算 `Object.keys(SYN)`（`net.js:87`） | 无法手改 | — |
-
-**最狠的三个**：`endless`（直接给层数）、`kills`（无上限）、`diff`（×2.6）。
-
-> 注意：这是 **devtools 路径**，普通玩家不会做。它不能解释"前五名"——
-> 前五名更可能用的是**路径 A**（纯游戏内、无需任何外部工具）。
-> 但服务端若不校验 `endless` 与实际对局时长的一致性，这条路径防不住。
-
----
-
-## 4. 路径 E：同一 `rid` 重复提交
-
-客户端上传队列（`net.js:95-97`）：
-
-```js
-function pendGet() { ... a.filter(r => r && ... && r.rid) }   // 按 rid 过滤
-const pendAdd = run => { const a = pendGet(); if (!a.some(x => x.rid === run.rid)) { a.push(run); } }
-```
-
-- `pendAdd` **按 rid 去重**，所以同一 rid 不会在队列里重复。
-- 但 `submitResult` 直接调 `boardFn('submit', { run })`（`net.js:105`），**不经过队列去重判断**。
-  也就是说：只要拿到两个都带同一 `rid` 的 `run` 对象，就能各发一次。
-
-`finishRun` 有 `if (G.result) return` 守卫（`game.js:348`），`G.result` 只在 `newRun`（`game.js:32`）
-和 `ivFinish`（`invade.js:114`）被清空。**所以一局交两次分需要外部干预，客户端正常流程拿不到。**
-
-**判定：未证实。** 客户端有"同 rid 可发两次"的入口，但服务端是否按 rid 幂等、是否按 uid+rid 唯一
-—— 没有源码，无法判断。**不要当结论用。**
-
----
-
-## 5. 路径 F：`BOSS_TEST` 是反方向的（**排除清单**）
-
-很多人会第一眼怀疑 `window.BOSS_TEST.on`。**它不是刷分通道，恰恰相反：**
-
-```js
-// site/js/net.js:101
-if (window.BOSS_TEST && BOSS_TEST.on) { r.up = { st: 'test' }; return; }   // 完全不上传
-```
-
-它一共 21 处短路（详见 [`mechanics-legacy.md`](mechanics-legacy.md) §D），
-方向统一是"关掉一切持久化与上报"：存档不写（`game.js:281`）、成就清零（`achieve.js:115`）、
-每日/活动/好感全跳过。
-
-**判定：不成立。** 它是开发调试用的**封闭**通道，不会产生榜单记录。
-
----
-
-## 6. 路径 G：过期限量活动仍接受上报（**成立，但不是刷分**）
-
-```js
-// site/js/limited.js:48-52
-function ltQueueClear() {
-  if (!achRunEligible() || G.mode === 'invade' || G.endless || G.floor !== 4 || cleanModifiers(...).length !== 5) return;
-  const r = Object.assign(buildResult(true), { mode: 'explore', modifiers: G.modifiers.slice(), test: false });
-  ... ltFlush();
-}
-```
-
-活动结束时间写死为 `Date.UTC(2026, 9, 21, 16)`（`limited.js:3`）= 2026-10-22 00:00 GMT+8，
-**相对当前（2026-11-02）已过期 11 天**。
-
-`ltPhase()`（`limited.js:24`）在 UI 层正确返回 `'ended'`（`limited.js:89` 用它决定显示），
-**但 `ltQueueClear()` 里没有复查 `ltPhase()`**。
-所以只要条件满足（通关 · 绝境 · 五锁全开 · `floor===4`），客户端**仍然会往
-`achroma_ltpend` 塞记录并尝试上传**。
-
-**判定：成立（客户端层）。** 服务端是否还开着这个入口，未验证。
-它不是"刷分"（限量榜只有 10 个名额，由服务端定），但它证明**活动结束判定只做在 UI 层**，
-这是同一类问题。
-
----
-
-## 7. 一个被忽略的细节：`endless` 位移可以绕过五锁榜的限制
-
-`game.js:747` 的 `startEndless()` 里，**`girlsOnClear()` 排在 `G.endless = 1` 之前**：
-
-```js
-function startEndless() { if (G.endless) return; girlsOnClear(); G.powCap = powerScale(); G.endless = 1; ... }
-```
-
-而 `ltQueueClear()` 的条件里有 `|| G.endless`（`limited.js:49`）。
-顺序意味着：在"最后一层通关、走无尽门"的瞬间，`girlsOnClear()` → `ltQueueClear()` 执行时
-**`G.endless` 还是 0/falsy**，这个守卫**拦不住它**。
-
-**判定：逻辑成立，但后果未证实** —— 需要服务端确认 `limitedSubmit` 是否接受
-"通关瞬间从未无尽切换到无尽"的记录。**标「服务端未验证」。**
-
----
-
-## 8. 动态验证：**未做**
-
-原因（诚实记录）：
-- `runScore()` / `buildResult()` 是**纯函数**，其输入 `G` 是全局运行期状态。
-  无头跑一局全流程（通关→无尽→多层）成本高，且**不影响结论**：
-  上面的分数表是直接代入 `net.js:77-84` 的公式手工算的，公式本身逐行引用了行号，可复核。
-- 上传路径**无法动态验证**：无头环境 `ONDZ()` 为 false，`fnCall` 直接
-  `reject(Object.assign(new Error('offline'), { code: 'offline' }))`（`net.js:20-25`）。
-
-**所以本文档的可信度分级**：公式与门槛判定 = 逐行取证（高）；服务端行为 = 未验证（不要引用）。
-
----
-
-## 9. 如果要在客户端堵（不建议改上游）
-
-> 铁律：`site/js/**` 字节级不可动。下列只能写在 `site/dzmm-shim.js` 或 `site/tools/**`，
-> 且**不要**改动上游计分。
-
-1. **无尽段补回受击与时间约束**：在 shim 层包 `runScore`，对 `r.endless` 加 `hitB`/`timeB` 同类项
-   —— 但这会篡改官方口径，**不建议**。
-2. **`endEndless()` 派生的记录标记来源**：区分"主动结算"与"真死亡"，不与 win 混同。
-3. **`limited.js` 上报前复查 `ltPhase()`**。
-4. **`loadSave` 对 `endless`/`kills` 增加"与实际对局时长"一致性校验**（客户端做不了，只能服务端）。
-
----
-
-## 10. 复核命令（可重跑）
+`saveRun()` 的字段表（`game.js:282-287`）里**没有任何**房间/敌人状态：
+无 `cleared`、无 `visited`、无敌人列表、无坐标。
 
 ```bash
-# 计分公式
-sed -n '74,84p'  site/js/net.js
-# 上传门槛（刷分支点）
-sed -n '100,107p' site/js/net.js
-# 无尽结算入分
-sed -n '744,748p' site/js/game.js
-# 双传送门生成 + 两条交互分支
-sed -n '243p'    site/js/game.js
-sed -n '410,414p' site/js/game.js
-# 存档字段与校验
-sed -n '294,320p' site/js/game.js
-# 过期活动仍上报
-sed -n '48,52p'   site/js/limited.js
+$ sed -n '282p' site/js/game.js | grep -c "cleared\|visited\|enemies"
+0
+```
+
+存档保存的是**"我这局走到第几层、手里有什么"**，不是**"这层我已经打到哪了"**。
+
+### 条件 2：读档会**重建整层**敌人
+
+`resumeRun()` 最后一步是 `enterFloor(s.floor)`（`game.js:344`），
+而 `enterFloor` 的第一件事就是 `genFloor(fi)`：
+
+```js
+// site/js/game.js:50
+G.rerolls = 0; ... genFloor(fi); if (...) pickChampRooms(fi); ...
+```
+
+`genFloor` 重建房间、重新布置精英房、敌人全部重新生成。
+**读档后，这一层的怪是满的，与你存档时打掉的进度无关。**
+
+### 条件 3：读档**回填并保留**累积计数
+
+```js
+// site/js/game.js:335  —— resumeRun 里的 Object.assign(G, {...})
+kills: s.kills || 0, comboMax: s.comboMax || 0, runT: s.runT || 0, ...
+hits: s.hits || 0, ... rid: s.rid || G.rid, ...
+```
+
+对比 `newRun`（`game.js:30-32`）：那里 `kills: 0, runT: 0, hits: 0, result: null`，**全新局清零**。
+`resumeRun` **没有**任何一处清零这三个字段。
+
+```bash
+$ grep -n "kills: 0" site/js/game.js
+30:  ... kills: 0 ...        # 只有 newRun
+# resumeRun 区间（335 行）零命中
+```
+
+### 条件 4（放大器）：存档在**层内**也会被写
+
+`saveRun()` 不只在进层时调用（`game.js:84`）。层内也会触发：
+
+| 触发点 | 位置 | 层内可重复？ |
+|---|---|---|
+| 诅咒重掷 | `curses2.js:25` | 是 |
+| 选诅咒 | `shards2.js:222` | 是 |
+| 猎杀者同伴取得/更换 | `follow.js:44`、`follow.js:153` | 是 |
+| 搭档入场/升级 | `partners.js:217`、`partners.js:115` | 是 |
+| 透析机 | `rooms.js:141` | 是（每层一台） |
+| 实验室血清 | `labserum.js:71`、`labserum.js:114` | 是 |
+
+**这些点会把"当前 kills 快照"写进存档。** 玩家不必等下一层 ——
+**在本层打到高 kills 后，触发任意一个上述事件，存档就带着高 kills 落盘了。**
+
+---
+
+## 2. 复现步骤（纯游戏内，不需要 devtools）
+
+```
+1. 正常开局，推进到任意一层。
+2. 这一层把怪尽量清光，kills 涨到很高。
+3. 触发任意一个「层内 saveRun」事件，让存档带上当前 kills：
+   选一次诅咒 / 用透析机 / 招募或更换猎杀者 / 升级搭档 / 打实验室血清。
+4. 刷新页面（F5）。  ← 不是退出到主菜单，刷新会强制走 loadSave → resumeRun
+5. 主菜单出现 CONTINUE（ui.js:413 用 loadSave() 判断有存档）。
+6. 点 CONTINUE：
+   - resumeRun 回填 kills（步骤 3 的值）
+   - enterFloor(s.floor) → genFloor → 整层怪全数重生
+   - kills 从步骤 3 的值继续往上加
+7. 重复 2-6。每轮都在同一层刷一遍全层敌人，kills 线性累加、永不重置。
+8. 满意后通关（或走无尽）结算 —— runScore 用的是被反复放大的 kills。
+```
+
+**关键点**：`rid` 一起从存档回填（`game.js:335` `rid: s.rid || G.rid`），
+所以这几轮**都被算成同一局**（同一 `rid`）。这不是"开了几局"，而是**一局被无限续命**。
+
+> **为什么"刷新"比"退出到主菜单"更好用**：刷新强制走 `loadSave() → resumeRun`，
+> 也就是强制走"重建整层"的路径。链断在"必须重新读档"这一步，刷新恰好是最自然的读档方式。
+
+---
+
+## 3. 分数放大上界
+
+`kills` 无上限（`net.js:80`）：`killB = r.kills * 20`，再乘 `DIFF_MUL`。
+
+设一层可杀 N 只（普通层约 30–60，含精英房更多），循环 k 轮：
+
+| 循环轮数 | kills（N=40） | killB | 绝境 ×2.6 后 |
+|---|---|---|---|
+| 1 | 40 | 800 | 2,080 |
+| 10 | 400 | 8,000 | 20,800 |
+| 50 | 2,000 | 40,000 | 104,000 |
+| 200 | 8,000 | 160,000 | 416,000 |
+
+**200 轮循环的纯 killB 就已超过任何正常通关的总分。**
+
+`runT` 也在累加（`game.js:602`，且只在 `play` 状态加 `rdt`）。读档间隙不计时，
+但**重打的每一轮都在计时**。而 `timeB = 30000*900/(900+runT)` 是**减函数** ——
+`runT` 越大时间分越低。**所以这条链的净收益全在 kills，`runT` 反而对玩家不利。**
+这也侧面证明「kills 累加」不是设计意图：设计者给了时间惩罚，却没给 kills 去重。
+
+---
+
+## 4. 为什么这不是"设计"
+
+| 设计内的东西 | 本漏洞 | 区别 |
+|---|---|---|
+| 进层存档 = 断点续玩 | 读档**重建整层** + 保留 kills | 正常续玩不该让**已清掉的层复活**还能继续加击杀 |
+| 无尽主动结算（`endEndless`） | 读档循环 | 结算是**规则内的一次性动作**，读档循环是**同一份进度反复再生** |
+| 诅咒重掷扣 1 点最大生命 | 触发点顺带写存档 | 付费机制没问题，问题是它把**累积量**也快照下来了 |
+
+一句话判据：**读档后应回到"我当时打到的位置"；实际却回到"这层起点，但保留我当时的总击杀数"。**
+这才是 bug 的语义。
+
+---
+
+## 5. 作废条目（上一版误判，留痕）
+
+上一版曾把以下三条列为"刷分路径"，**全部作废**，它们都在正常规则内：
+
+| 曾判为漏洞 | 为什么不是 |
+|---|---|
+| 无尽每层 +6000、`depthB` 无上限 | 这就是无尽模式的**设计目标**（`net.js:75` 注释明写 "no time or hit bonus"） |
+| `endEndless()` 主动结算 | 暂停菜单里的**正式功能**（`game.js:744` 注释：像一场坠落那样结算，但没有坠落） |
+| 无尽里死亡仍上传（`net.js:102` `!r.endless`） | 无尽段本就没有"通关"概念，倒地即结算，是**该模式的结算定义** |
+| 绝境 ×2.6 | 难度乘数，属于规则 |
+| 五锁 reward 不进总分 | 设计如此，五锁是"更难"而非"更高分" |
+
+**教训**：判"漏洞"的唯一标准是 **能否突破正常上限 / 绕过惩罚 / 重复结算同一成果**。
+"数值很大"不等于漏洞。
+
+---
+
+## 6. 剩余未证实项
+
+| 项 | 状态 |
+|---|---|
+| 服务端是否校验 `kills` 与 `runT` 的一致性（如 kills/秒 上限） | **服务端未验证** |
+| 服务端是否按 `uid + rid` 幂等（读档循环全程同 rid） | **服务端未验证** |
+| 同 `rid` 直接发两次 submit 的后果 | **未证实**：`pendAdd` 按 rid 去重（`net.js:95-97`），但 `submitResult` 直接发（`net.js:105`），不过这层判断 |
+| 本机是否能跑通整条循环 | **已实测通过**（见 §7） |
+
+---
+
+## 7. 动态验证：**已实测通过**
+
+脚本：`.tmp/verify2.mjs`（未提交，属于测量用临时文件）。
+环境：headless chromium 155 + `site/auto.html`，经 CDP 驱动真实游戏。
+
+### 7.1 实测输出（原样粘贴，未加工）
+
+```
+S1 {"floor":0,"rooms":11,"combat":5}          ← newRun() 开第一层，11 房间 / 5 个战斗房
+S3 存档 {"kills":0,"floor":0,"rid":true,"keys":51}   ← enterFloor 末尾自动 saveRun，51 字段
+S4 高kills写盘 {"done":true}                  ← G.kills=500 后调 saveRun()
+S5 磁盘值 {"kills":500}                        ← 确认 kills 真的落盘（不是只在内存）
+S6 continue {"ok":1}                          ← 刷新页面后 continueRun() → resumeRun
+S7 读档后 {"floor":0,"kills":500,"live":0,"cleared":0,"total":5,"alive":true}
+```
+
+### 7.2 三个断言全部成立
+
+| 断言 | 实测值 | 结论 |
+|---|---|---|
+| 高 kills 能落盘 | `S5 kills: 500` | ✅ |
+| 读档后 kills **不被清零** | `S7 kills: 500` | ✅ **漏洞核心** |
+| 整层战斗房**全部重置为未清空** | `S7 cleared: 0 / total: 5` | ✅ **资源可再生** |
+
+`cleared: 0 / total: 5` 是决定性证据：读档前这一层被打成什么样不重要，
+读档后 **5 个战斗房全部回到 `cleared=false`**，玩家进去就会触发
+`makeWaves(r)` 重新刷出整波敌人（`game.js:194`、`game.js:196`）。
+
+### 7.3 一个实测中发现的写入竞态（不是漏洞，但要记）
+
+`STORE.setItem` 对 `achroma_run` 走 `later(0)`（`platform.js:19`，因它在 `STORE_NOW` 里），
+`setTimeout(..., 0)` 是**异步**的。所以"调 `saveRun()` 后立刻读 localStorage"会拿到旧值
+（第一次测试 `STEP3 wroteKills: 0` 就是这个原因）。
+**等 2.5s 再读即得 500（S5）**。这解释了为什么早先脚本读数对不上，也说明
+存档写入本身是可靠的。
+
+---
+
+## 8. 客户端可做的缓解（不建议改上游）
+
+> 铁律：`site/js/**` 字节级不可动。
+
+1. **`resumeRun` 里清零 `kills`/`hits`**，或把"读档次数"计入结果并惩罚。
+2. **存档保存房间 `cleared` 与已清怪计数**，读档时不重建已清房间。
+3. **`saveRun` 只在层边界调用**（去掉层内那 6 个触发点），避免累积量被层内快照。
+4. `submitResult` 走 `pendAdd` 的去重路径，而不是直接 `boardFn('submit', …)`。
+
+---
+
+## 9. 复核命令
+
+```bash
+# 条件1：存档不存战斗进度（应为 0）
+sed -n '282p' site/js/game.js | grep -c "cleared\|visited\|enemies"
+
+# 条件2：读档重建整层
+sed -n '344p' site/js/game.js          # enterFloor(s.floor)
+sed -n '50p'  site/js/game.js          # genFloor(fi)
+
+# 条件3：resumeRun 回填 kills 且不清零
+sed -n '335p' site/js/game.js | grep -o "kills: s.kills || 0"
+grep -n "kills: 0" site/js/game.js    # 只应命中 newRun 那一行
+
+# 放大器：层内 saveRun 触发点
+grep -n "saveRun();" site/js/*.js
 ```
 
 ---
 
-_本文所有 `file:line` 均来自本轮实际 `sed -n` / `grep -n` 输出；「服务端未验证」条目不作结论使用。_
+_所有 `file:line` 均来自本轮实际 `grep -n` / `sed -n` 输出。未实测部分已在 §7 标明。_
