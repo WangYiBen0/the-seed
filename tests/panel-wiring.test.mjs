@@ -32,6 +32,24 @@ test('every detail option maps to a real opts key', () => {
   }
 });
 
+test('the learner panel row reads and writes TSW.auto.learn, not opts', () => {
+  // The learner lives on TSW.auto.learn rather than A.opts, so a control bound to
+  // the generic opts path would write a key nothing reads — the same shape as the
+  // setOpt(label, sk) bug above, which left every checkbox non-functional.
+  assert.match(PANEL, /TSW\.auto\.learn\.on/, 'the switch must read the learner state');
+  assert.match(PANEL, /TSW\.auto\.learn\.set\('on', v\)/,
+    'the switch must write through the learner setter so it persists');
+  assert.match(PANEL, /TSW\.auto\.learn\.reset\(true\)/, 'reset must clear the stored genome');
+  assert.match(PANEL, /TSW\.auto\.learn\.dump\(\)/, 'the row must paint live learner state');
+  // It must refresh on the events that change it, or the line goes stale.
+  assert.match(PANEL, /TSW\.bus\.on\('auto', paintLearn\)/, 'the row must repaint on auto changes');
+  assert.match(PANEL, /TSW\.bus\.on\('newRun', paintLearn\)/, 'the row must repaint on a new run');
+  // And the API it calls must actually exist on the learner.
+  assert.match(AUTO, /A\.learn\.set = /, 'A.learn.set must exist');
+  assert.match(AUTO, /A\.learn\.dump = /, 'A.learn.dump must exist');
+  assert.match(AUTO, /A\.learn\.reset = /, 'A.learn.reset must exist');
+});
+
 test('localised names never leak [object Object]', () => {
   // the only remaining mention is the explanatory comment, so strip comments first
   const code = PANEL.replace(/\/\/[^\n]*/g, '');
