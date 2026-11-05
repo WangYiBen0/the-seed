@@ -1375,10 +1375,18 @@
     // own hit counter for the window: immune to any reset elsewhere
     let localHits = 0; const _hp = window.hurtPlayer;
     try { window.hurtPlayer = function (...a) { const r = _hp.apply(this, a); if (r === true) localHits++; return r; }; } catch (e) { }
+    // ---- survival clock (benchmark 292) --------------------------------------
+    // 22 of 24 rows in the learn A/B ended in `death` at 19-37s, i.e. they never
+    // reached the 45s cut.  `hpLeft` therefore reads 0 for EVERY configuration and
+    // has no gradient — an A/B judged on it is judged on a constant.  The quantity
+    // that carries information is how long the bot lasted, so record the tick at
+    // which the run entered 'dead'.
+    let deathTick = -1, aliveTicks = 0;
     // keep the arena populated with ranged enemies so the barrage never dries up
     let spawnAcc = 0, spawned = 0;
     const off = TSW.hooks.beforeTick(() => {
       const g = window.__achroma.G; if (!g || !g.p) return;
+      if (deathTick < 0) { if (g.state === 'dead' || g.p.alive === false) deathTick = aliveTicks; else aliveTicks++; }
       // Diagnose why the arena stays empty: record what the hook actually sees.
       const dbg = (window.__dodgeDbg = window.__dodgeDbg || { ticks: 0, states: {}, sawPlay: 0 });
       dbg.ticks += 1;
@@ -1434,6 +1442,11 @@
       kind: 'dodge', at: Date.now(), depth, seconds, policy, seed, speed,
       diff: diff || 'classic',
       end: g.state === 'dead' ? 'death' : 'alive',
+      // the metric that actually moves (see the survival-clock comment above):
+      // ticks survived, capped at the 45s cut so an untouched run reads the ceiling
+      survivedTicks: (deathTick >= 0 ? deathTick : aliveTicks),
+      survivedS: +((deathTick >= 0 ? deathTick : aliveTicks) / 60).toFixed(2),
+      diedAtTick: deathTick,
       gameS: +gameS.toFixed(1),
       hits, hitsPerMin: +(hits / mins).toFixed(2), hpLeft: Math.round(g.p ? g.p.hp : 0), gameMinutes: +mins.toFixed(2),
       dangerAvg: +(A.ticks ? A.dangerSum / A.ticks : 0).toFixed(3),
@@ -1449,7 +1462,13 @@
       learnMeanReward: +learnMean.toFixed(4),
       learnGenes: learnGenes,
       learnFrozen: wasFrozen || !!(autoOpts && autoOpts.noLearn === true),
-      spawned, ticks: A.ticks, hitsMetric: M.hitsTaken | 0, hitsGame: (g.hits | 0) - h0,
+      spawned, ticks: A.ticks,
+      // hitsMetric used to read `M.hitsTaken`, the counter owned by hud.js:34
+      // (`wrap(window,'hurtPlayer', a => if (r===true) M.hitsTaken++)`).  The dodge
+      // bench never loads the HUD, so that counter stayed 0 in ALL 24 rows of the
+      // learn A/B while the bench's own wrapper was counting correctly.  Bind it to
+      // the bench's counter instead, and keep the old value for the record.
+      hitsMetric: localHits | 0, hitsMetricHud: M.hitsTaken | 0, hitsGame: (g.hits | 0) - h0,
       // a run that never got into combat measures nothing: 0 hits would be a
       // false win, so such a sample is flagged invalid and retried by runDodge.
       valid: A.ticks >= 600,

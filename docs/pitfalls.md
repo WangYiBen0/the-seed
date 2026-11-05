@@ -51,6 +51,10 @@
 | `hp` 传 15/25/40 结果完全一样 | 存档 `s.hp` 上限 30，且最后被 `p.maxHp` 截断，而 `maxHp = 5 + S.maxHp`；唯一来源是 `vital` shard（`combat.js:45`，不在 `shards*.js`） |
 | `startEndless()` 调了没反应 | 函数第一行 `if (G.endless) return;`，而 boost 存档里写了 `endless: 1`——**自己把入口关掉了** |
 | 固定 `setTimeout` 等游戏就绪后仍偶发失败 | 冷页面上 `G` 不存在时调用会**静默失效**。要等具体状态（`g.state === 'play' && g.p`），不要等固定时间 |
+| 结果行里的 `hitsMetric` 永远是 0 | 它读的是 **`hud.js` 的 `M.hitsTaken`**（`hud.js:34` 包 `hurtPlayer`），而躲弹幕 bench **根本不加载 HUD**。131 条历史行全是 0。已改为读 bench 自己的计数器，旧值留作 `hitsMetricHud`（§292） |
+| 判据用 `hpLeft` 却两臂都是 0 | 45s 的躲弹幕局**在 19–37s 就死了**（22/24 行 `end=death`），`hpLeft` 是**地板值不是梯度**。要用**存活时长**做判据，先确认指标有分辨率再定阈值（§291/§292） |
+| 短时长样本得出与长时长相反的结论 | 同一 seed 11：20s 时 learn 得 `hp 6 / dangerAvg 5.76`，45s 时 learn 得 `hp 0 / 7.73`（比对照更差）。**预注册的时长不能事后改**，短样本不能外推（§291） |
+| 新加的选项让 A/B 被静默作废 | learn 类开关挂在 `TSW.auto.learn` 而非 `A.opts`，通用成员检查把它记为 `autoOptsUnknown`。躲弹幕 bench 单独跑**不会报错**，只会把同一臂测两遍。受控开关必须显式声明（§291） |
 
 ## 下结论前的自检
 

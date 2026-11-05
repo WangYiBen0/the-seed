@@ -107,6 +107,32 @@ test('the in-run learner is declared, evidenced, and ablatable', () => {
   assert.match(PANEL, /TSW\.auto\.learn\.reset\(true\)/, 'the panel must expose a reset control');
 });
 
+test('dodge rows carry a metric with resolution, not just a floor', () => {
+  // 36 dodge rows showed that hpLeft is 0 for essentially every configuration: the
+  // runs die at 19-37s, long before the 45s cut, so an A/B judged on hpLeft is an
+  // A/B judged on a constant. The quantity that actually varies is survival time.
+  assert.match(BENCH, /survivedTicks/, 'dodge rows must record ticks survived');
+  assert.match(BENCH, /survivedS/, 'dodge rows must record seconds survived');
+  assert.match(BENCH, /diedAtTick/, 'dodge rows must record when death happened');
+  assert.match(BENCH, /deathTick = -1/, 'the survival clock must be tracked as it happens');
+  // The clock must be updated in the tick hook, and must stop once the player is
+  // dead — otherwise every run would read the full duration and look identical.
+  assert.match(BENCH, /if \(deathTick < 0\) \{ if \(g\.state === 'dead'/,
+    'the survival clock must freeze at the death tick');
+});
+
+test('hitsMetric is bound to a counter the dodge bench actually populates', () => {
+  // hitsMetric read M.hitsTaken, the counter owned by hud.js:34. The dodge bench
+  // never loads the HUD, so the field was 0 in all 131 recorded rows while the
+  // bench's own wrapper counted correctly. Bind it to the bench's counter.
+  assert.match(BENCH, /hitsMetric: localHits \| 0/,
+    'hitsMetric must read the bench-local hit counter');
+  assert.doesNotMatch(BENCH, /hitsMetric: M\.hitsTaken/,
+    'hitsMetric must not read the HUD-owned counter again');
+  assert.match(BENCH, /hitsMetricHud: M\.hitsTaken \| 0/,
+    'the old value must stay visible in the row for the record');
+});
+
 test('the measurement log keeps every recorded section', () => {
   // The log grew past 13000 lines and a single whole-file rewrite silently cut it
   // to 1093 (benchmark.md), because the rewrite was based on a partial read. Every
