@@ -84,6 +84,29 @@ test('the summoner and pickup switches stay declared so they can be A/B-ed', () 
   assert.match(AUTO, /focusFire:/);
 });
 
+test('the in-run learner is declared, evidenced, and ablatable', () => {
+  // The first smoke run of the learn A/B reported autoOptsUnknown: ["learn"] —
+  // the learner controls live on TSW.auto.learn, not A.opts, so the generic
+  // "is this key in TSW.auto.opts" check voided the experiment.  A real runAB
+  // would have thrown REQUESTED OPTIONS WERE OVERRIDDEN, but the dodge bench on
+  // its own just quietly measured the same arm twice.
+  assert.match(BENCH, /LEARN_KEYS/, 'learner keys must be declared explicitly');
+  for (const k of ['learn', 'noLearn', 'learnRate', 'keepLearn']) {
+    assert.ok(BENCH.includes("'" + k + "'"), 'learner key ' + k + ' must be declared');
+  }
+  // Rows must prove the learner ran: an option being set is not evidence.
+  assert.match(BENCH, /learnUpdates/, 'rows must record how many updates were applied');
+  assert.match(BENCH, /learnGenes/, 'rows must record the genome it converged to');
+  assert.match(BENCH, /learnFrozen/, 'rows must say whether the ablation arm was used');
+  // The learner itself must be off by default and must be reachable from the panel.
+  assert.match(AUTO, /A\.learn = \{/, 'the learner object must exist');
+  assert.match(AUTO, /on: TSW\.settings\.get\('autoLearn', false\)/, 'learning must default OFF');
+  assert.match(AUTO, /A\.learn\.reset = /, 'the learner must be resettable to a clean baseline');
+  const PANEL = readFileSync(join(ROOT, 'site', 'tools', 'panel.js'), 'utf8');
+  assert.match(PANEL, /TSW\.auto\.learn\.set\('on'/, 'the panel must expose the learner switch');
+  assert.match(PANEL, /TSW\.auto\.learn\.reset\(true\)/, 'the panel must expose a reset control');
+});
+
 test('the measurement log keeps every recorded section', () => {
   // The log grew past 13000 lines and a single whole-file rewrite silently cut it
   // to 1093 (benchmark.md), because the rewrite was based on a partial read. Every

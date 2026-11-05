@@ -449,6 +449,34 @@
   iRow.appendChild(iSel);
   const iNote = el('div', 'color:#57534c', sAuto);
   iNote.textContent = 'tank 为实测最优（4 对 A/B，波数 4.75 → 6.25）；dps 与 growth 均更差。';
+  // ---- 局内在线学习（自我进化 v2，benchmark 291） ----
+  // 有意放在挂机主开关之外：它改的是挂机行为本身，属于有副作用的选项，
+  // 所以默认关闭，且必须手动打开。
+  const lRow = row(sAuto);
+  const lLab = el('span', 'color:#8d867a', lRow);
+  lLab.textContent = '局内在线学习';
+  const lChk = check('开启', () => TSW.auto.learn.on, (v) => { TSW.auto.learn.set('on', v); note('局内在线学习 → ' + (v ? '开' : '关')); });
+  lRow.appendChild(lChk);
+  const lRst = el('button', 'margin-left:6px', lRow);
+  lRst.textContent = '重置';
+  lRst.onclick = () => { TSW.auto.learn.reset(true); note('已重置学习到的基因'); };
+  const lInfo = el('div', 'color:#57534c', sAuto);
+  lInfo.textContent = '让它在一局之内自己调基因：按「这一步是否真的离开了危险、有没有掉血」给学分，'
+    + '默认关闭。重置后回到与从未学习一致的行为。';
+  const lStat = el('div', 'color:#57534c', sAuto);
+  lStat.textContent = '（未开启）';
+  const paintLearn = () => {
+    const d = TSW.auto.learn.dump();
+    const g = d.genes || {};
+    const n = Object.keys(g).length;
+    lStat.textContent = d.on
+      ? ('已学 ' + d.nTotal + ' 步 · 本局 ' + d.n + ' 步 · 均值奖励 ' + d.meanReward.toFixed(3)
+         + (n ? ' · 偏离默认的基因 ' + n + ' 个' : ' · 基因尚未漂移'))
+      : ('未开启' + (n ? '（存档里有 ' + n + ' 个已学基因，开启后生效）' : ''));
+  };
+  paintLearn();
+  TSW.bus.on('auto', paintLearn);
+  TSW.bus.on('newRun', paintLearn);
   const autoNote = el('div', 'color:#57534c', sAuto);
 
   // ---------------- 测评（无尽探索） ----------------

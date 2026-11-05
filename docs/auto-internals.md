@@ -82,8 +82,31 @@
 
 ## 基因组
 
-`GENE_DEF`（12 个可调参数）经 `gene(k)` 读取；未提供 `A.opts.genome` 时取默认值
-（等于手工调参）。进化循环见 `docs/evolution.md`。
+`GENE_DEF`（12 个可调参数）经 `gene(k)` 读取，优先级：
+
+1. `A.opts.genome[k]`（离线 GA 注入的候选）——**最高优先**，保证历史 A/B 逐位可复现；
+2. `A.learn.genes[k]`（**局内在线学习**到的偏移）——见下节；
+3. `GENE_DEF[k].def`（手工调参的默认值）。
+
+三者都会按 `GENE_DEF` 的 `min/max` 重新夹紧，所以任何来源都出不了已验证的区间。
+离线进化循环见 `docs/evolution.md`。
+
+## 局内在线学习（自我进化 v2）
+
+与离线 GA 的区别：**没有人类写的适应度函数**、**不需要跑一批再回填**、**每 tick 更新**。
+
+- 观测：`auto.js` 每 play tick 本来就在算 `spotDanger(p.x,p.y,p)`（危险场在玩家自身位置的读数）；
+- 学分：`reward = (dPrev - dNow) + 1.2 * 掉血量`，掉血再额外扣 1.6，最后裁剪到 ±3；
+- 归因：按每个基因**偏离默认值的程度**加权把学分分摊下去——加分就把它推向已偏向的那端，扣分拉回默认；
+- 学习率 `lr=0.008`（可调），每 tick 的位移很小，所以是**慢漂移**而非被单局带偏；
+- 持久化：`localStorage['theseed.auto.learn.v1']`，读入时逐项夹进 `min/max`；
+- **默认关闭**（改挂机行为 = 有副作用），面板「挂机 → 局内在线学习」可开关与重置；
+- 进新局清空危险基线（否则新局第一 tick 会拿上一局的坐标算学分，注入假奖励）。
+
+消融与证据：bench `--autoOpts '{"learn":true}'` / `'{"noLearn":true}'`；
+结果行必须看 `learnUpdates > 0`（**开了选项不等于跑了**）、`learnGenes`、`learnFrozen`。
+`tests/measurement-discipline.test.mjs` 会强制这些字段与默认关。
+实测与预注册判据见 `docs/benchmark.md` 291。
 
 ## 搭档技能
 
