@@ -1297,9 +1297,15 @@
     // Dodge runs must accept autopilot flags too, otherwise an A/B of the dodge
     // logic cannot be expressed at all: the first attempt produced twelve rows
     // that were indistinguishable from each other.
+    // The learner controls are NOT autopilot options (they live on TSW.auto.learn),
+    // so they are declared here or every learn A/B would be voided as an unknown
+    // option — which is exactly what the first smoke run reported (autoOptsUnknown
+    // = ["learn"]).  Keep this list explicit; a typo must still be caught.
+    const LEARN_KEYS = ['learn', 'noLearn', 'learnRate', 'keepLearn'];
     const optSavedD = {}, optUnknownD = [];
     if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
       if (k in TSW.auto.opts) { optSavedD[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
+      else if (LEARN_KEYS.indexOf(k) >= 0) { /* handled below; declared, not unknown */ }
       else { optUnknownD.push(k); TSW.err('dodge: unknown autoOpts ignored → ' + k); }
     }
     const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
@@ -1313,6 +1319,21 @@
     // autopilot, which is correct for a human and wrong here: the bench must
     // exercise the movement tools it is measuring.
     TSW.auto.opts.dash = true;
+    // ---- in-run online learning (self-evolution v2, benchmark 291) -----------
+    // `learn` turns the learner on for THIS run; `noLearn` is the ablation arm:
+    // it records the same per-tick danger readings but never applies an update, so
+    // a difference between the arms proves the updates (not the measurement) did
+    // the work.  A dodge test always starts from a clean slate unless `keepLearn`
+    // is set, so a previous seed cannot leak into this one.
+    const wasLearn = (TSW.auto.learn && TSW.auto.learn.on) || false;
+    const wasFrozen = (TSW.auto.learn && TSW.auto.learn.frozen) || false;
+    const wasLR = TSW.auto.learn ? TSW.auto.learn.lr : 0;
+    if (TSW.auto.learn) {
+      TSW.auto.learn.on = !!autoOpts && autoOpts.learn === true;
+      TSW.auto.learn.frozen = !!autoOpts && autoOpts.noLearn === true;
+      if (autoOpts && typeof autoOpts.learnRate === 'number') TSW.auto.learn.lr = autoOpts.learnRate;
+      if (!(autoOpts && autoOpts.keepLearn)) TSW.auto.learn.reset(false);
+    }
     const M = TSW.metrics; M.reset(); TSW.auto.metrics.reset();
     const save = {
       v: 1, at: Date.now(), floor: 4, diff: diff || 'classic', hp, armor: 3,
@@ -1381,6 +1402,12 @@
     TSW.speed.set(wasSpeed, true); TSW.auto.setPolicy(wasPolicy);
     TSW.auto.opts.noFire = wasNoFire;
     for (const k of Object.keys(optSavedD)) TSW.auto.opts[k] = optSavedD[k];   // restore dodge overrides
+    // the learner is process- wide state, so it must be restored even though the
+    // run itself is over; otherwise the NEXT seed silently inherits this one's genes
+    const learnN = TSW.auto.learn ? TSW.auto.learn.n : 0;
+    const learnMean = (TSW.auto.learn && TSW.auto.learn.n) ? TSW.auto.learn.rewards / TSW.auto.learn.n : 0;
+    const learnGenes = (TSW.auto.learn && TSW.auto.learn.n) ? Object.assign({}, TSW.auto.learn.genes) : {};
+    if (TSW.auto.learn) { TSW.auto.learn.on = wasLearn; TSW.auto.learn.frozen = wasFrozen; TSW.auto.learn.lr = wasLR; }
     if (wasMode !== 'off') TSW.auto.setMode(wasMode);
     try { window.hurtPlayer = _hp; } catch (e) { }
     TSW.rng.clear();
@@ -1414,6 +1441,14 @@
       clearAvg: +(A.ticks ? A.clearSum / A.ticks : 0).toFixed(2),
       clearP5: pct(.05), clearP1: pct(.01), clearMin: A.clearMin === 1e9 ? 0 : +A.clearMin.toFixed(2),
       dashes: A.dash, dashesPerMin: +(A.dash / mins).toFixed(2),
+      // in-run learning evidence: `learnUpdates` > 0 proves the learner actually
+      // ran (mirrors forgeRoomsSeen — never conclude from an option being set),
+      // `learnMeanReward` is its own view of whether it was doing well, and
+      // `learnGenes` is the genome it converged to on this seed.
+      learnUpdates: learnN | 0,
+      learnMeanReward: +learnMean.toFixed(4),
+      learnGenes: learnGenes,
+      learnFrozen: wasFrozen || !!(autoOpts && autoOpts.noLearn === true),
       spawned, ticks: A.ticks, hitsMetric: M.hitsTaken | 0, hitsGame: (g.hits | 0) - h0,
       // a run that never got into combat measures nothing: 0 hits would be a
       // false win, so such a sample is flagged invalid and retried by runDodge.

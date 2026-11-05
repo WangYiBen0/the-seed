@@ -184,6 +184,72 @@
     metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0 },
     status: { note: '', target: null },
   };
+  // ---------------- in-run online learning (self-evolution v2) ----------------
+  // See .tmp/online-learn-design.md (pre-registered) and docs/benchmark.md 291+.
+  // The difference from the earlier out-of-run GA loops: nothing here is scored by
+  // a fitness function written on the outside.  The learner reads the SAME danger
+  // field the autopilot already steers by (spotDanger at the player's own position)
+  // plus the hp it lost, and nudges the genome whenever the last decision actually
+  // reduced that danger.  It is a slow drift, not a batch optimisation.
+  //
+  // DEFAULT OFF: it changes how the autopilot plays, so it is an option with side
+  // effects (AGENTS.md 6).  Turn it on from the panel.
+  const LEARN_KEY = 'theseed.auto.learn.v1';
+  const LEARN_LR = 0.008;          // per-tick learning rate (small on purpose)
+  A.learn = {
+    on: TSW.settings.get('autoLearn', false),
+    lr: TSW.settings.get('autoLearnRate', LEARN_LR),
+    n: 0,                      // updates applied this run
+    nTotal: 0,                 // lifetime updates
+    rewards: 0,                // running sum (for the panel's mean)
+    lastReward: 0,
+    cum: {},                   // cumulative delta per gene (in gene units)
+    genes: {},                 // LEARNED OFFSET per gene, in gene units
+    frozen: false,             // ablation: keep learning off even if `on`
+    dPrev: null, hpPrev: null, loaded: false, saved: 0,
+  };
+  A.learn.adopt = (obj) => {
+    // clamp every loaded value into its declared range so a stale/corrupt blob
+    // can never push a gene outside the band the GA validated
+    for (const k in GENE_DEF) {
+      const v = obj && obj[k];
+      if (typeof v === 'number' && isFinite(v)) {
+        A.learn.genes[k] = Math.min(GENE_DEF[k].max, Math.max(GENE_DEF[k].min, v));
+        A.learn.cum[k] = A.learn.genes[k] - GENE_DEF[k].def;
+      }
+    }
+  };
+  A.learn.load = () => {
+    if (A.learn.loaded) return;
+    A.learn.loaded = true;
+    try {
+      const raw = localStorage.getItem(LEARN_KEY);
+      if (raw) { const o = JSON.parse(raw); A.learn.adopt(o.genes); A.learn.nTotal = o.n | 0; }
+    } catch (e) { if (TSW.err) TSW.err('learn-load', e); }
+  };
+  A.learn.save = () => {
+    try {
+      localStorage.setItem(LEARN_KEY, JSON.stringify({
+        v: 1, n: A.learn.nTotal, at: Date.now(),
+        genes: A.learn.genes, cum: A.learn.cum, lr: A.learn.lr,
+      }));
+      A.learn.saved++;
+    } catch (e) { if (TSW.err) TSW.err('learn-save', e); }
+  };
+  A.learn.reset = (persist) => {
+    A.learn.genes = {}; A.learn.cum = {}; A.learn.n = 0; A.learn.nTotal = 0;
+    A.learn.rewards = 0; A.learn.lastReward = 0; A.learn.dPrev = null; A.learn.hpPrev = null;
+    if (persist !== false) { try { localStorage.removeItem(LEARN_KEY); } catch (e) { } A.learn.saved++; }
+    TSW.bus.emit('auto');
+  };
+  A.learn.dump = () => ({ on: A.learn.on, n: A.learn.n, nTotal: A.learn.nTotal,
+    meanReward: A.learn.n ? A.learn.rewards / A.learn.n : 0, genes: Object.assign({}, A.learn.genes) });
+  A.learn.load();
+  // A new run must not inherit the previous run's danger reading: the position and hp
+  // of the fresh run have nothing to do with the old one, and crediting the first tick
+  // against them would inject a large fake reward.
+  TSW.bus.on('newRun', () => { A.learn.dPrev = null; A.learn.hpPrev = null; A.learn.n = 0; A.learn.save(); });
+  A.learn.set = (k, v) => { A.learn[k] = v; TSW.settings.set(k === 'lr' ? 'autoLearnRate' : 'autoLearn', v); TSW.bus.emit('auto'); };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
   A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
@@ -284,13 +350,18 @@
     hazardPad:    { def: 1,    min: .4,  max: 2.4 },   // risky-by-this-much pad
     aimLead:      { def: 1,    min: .4,  max: 1.8 },   // target leading factor
   };
+  // When a genome is injected (the offline GA loop), it wins outright: that keeps
+  // every historical A/B reproducible byte-for-byte.  Otherwise the IN-RUN learned
+  // offset is added on top of the hand-tuned default and re-clamped.
   function gene(k) {
+    const d = GENE_DEF[k];
     const g = A.opts && A.opts.genome;
     if (g && typeof g[k] === 'number' && isFinite(g[k])) {
-      const d = GENE_DEF[k];
       return Math.min(d.max, Math.max(d.min, g[k]));
     }
-    return GENE_DEF[k].def;
+    const lv = A.learn && A.learn.genes[k];
+    if (typeof lv === 'number' && lv === lv) return Math.min(d.max, Math.max(d.min, lv));
+    return d.def;
   }
   A.geneDef = GENE_DEF; A.gene = gene;
   A._keyN = 0;              // per-object key source (enemies have no .id)
@@ -1000,6 +1071,49 @@
     return false;
   }
 
+  // ---- online learning: one credit-assignment step, called once per play tick --
+  // Credit goes to the genes by how far they currently sit from their default, so
+  // the drift stays bounded and a gene nobody is moving never wanders.  This is a
+  // (1+1)-style online search: reward pushes each gene toward the extreme it is
+  // already leaning to, punishment pulls it back toward the default.
+  function learnTick(p, dg0, M) {
+    const L = A.learn;
+    if (!L || (!L.on && !L.dPrev && L.n === 0)) { /* still record the baseline */ }
+    const hp = p.hp;
+    if (L.dPrev === null) { L.dPrev = dg0; L.hpPrev = hp; return; }
+    const dPrev = L.dPrev, hpPrev = L.hpPrev;
+    L.dPrev = dg0; L.hpPrev = hp;
+    if (!L.on || L.frozen) { M.learnOff = (M.learnOff | 0) + 1; return; }
+    const lost = hpPrev - hp;
+    // reward: did we walk out of danger, and did we keep our hp?
+    let r = (dPrev - dg0) + 1.2 * (lost < 0 ? -lost : 0);
+    if (lost < 0) r -= 1.6;                       // each hit is a strong negative
+    if (r > 3) r = 3; else if (r < -3) r = -3;    // clip: no single tick may dominate
+    L.lastReward = r; L.rewards += r;
+    let wsum = 0;
+    for (const k in GENE_DEF) {
+      const d = GENE_DEF[k];
+      const cur = gene(k);
+      const pos = (cur - d.def) / (d.max - d.min);   // signed, ~-.5..+.5
+      const w = Math.abs(2 * pos - (2 * (d.def - d.min) / (d.max - d.min))) + 0.15;
+      L._w = L._w || {}; L._w[k] = w; wsum += w;
+    }
+    const lr = Math.min(0.05, Math.max(0.002, L.lr));
+    for (const k in GENE_DEF) {
+      const d = GENE_DEF[k];
+      const cur = gene(k);
+      const span = d.def - d.min, range = d.max - d.min;
+      const rel = (cur - d.min) / range;                 // 0..1 position in range
+      const lean = rel - (span / range);                 // >0 above default
+      const wnorm = (L._w[k] || 1) / (wsum || 1);
+      const delta = lr * r * (lean >= 0 ? 1 : -1) * (Math.abs(lean) + 0.12) * wnorm * range * 8;
+      const next = Math.min(d.max, Math.max(d.min, cur + delta));
+      L.genes[k] = next;
+      L.cum[k] = next - d.def;
+    }
+    L.n++; L.nTotal++;
+  }
+  A.learn.tick = learnTick;
   function pickDir(p, wx, wy) {
     // local "openness" gradient: average of 8 rays tells us which way leads away
     // from nearby walls.  Recomputed once per tick (cheap: 8 collides calls).
@@ -2290,6 +2404,12 @@
         M.ticks++; M.dangerSum += dg; if (dg >= 1.2) M.hazard++;
         const cl = laneClear(p, mx, my); M.clearSum += cl; if (cl < M.clearMin) M.clearMin = cl;
         if (M.samples.length < 4000) M.samples.push(cl);
+        // ---- online learning: score the decision we just took ----------------
+        // `dg` is measured at the position we are AT; `dPrev` is the danger at the
+        // position we were at one tick ago.  A drop means the tick's steering
+        // actually moved us out of trouble, which is the only signal the learner
+        // gets.  hp loss is a hard negative (the whole point is not getting hit).
+        learnTick(p, dg, M);
       }
       // dash out when the current spot is about to hurt and the dash is up (never into a pit)
       const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
