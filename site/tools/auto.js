@@ -26,6 +26,23 @@
       shop: TSW.settings.get('autoShop', false),
       forge: TSW.settings.get('autoForge', false),
       dash: TSW.settings.get('autoDash', false),
+      // The combat dash threshold was a hardcoded 1.8 (1.3 on hard), which is why
+      // it is now an option: the death trace showed hits landing at 44px from a
+      // turret, where the CURRENT-position danger never reaches 1.8, so the escape
+      // never fired even though `dash` read ready at 15 of 15 landed hits (benchmark
+      // 293).  Declared here or the A/B would be voided as an unknown option.
+      dodgeDashAt: 1.8,
+      // Overlap escape: when a damaging body is actually touching the player, replace
+      // the steering with the shortest exit vector.  The seed-41 death trace had the
+      // player pinned inside a splitter for ten frames on i-frames alone (benchmark
+      // 293).  Declared here so it can be A/B-ed.
+      overlapEscape: true,
+      // Gate for the widened combat guard.  The block used to require an active ROOM
+      // (`active || G.trial || near`), so a roomless arena ran none of it and the bot
+      // stood in the barrage.  Widening it to `foes.length` is a behaviour change for
+      // any foe-without-room situation, so it is declared and switchable and must be
+      // proven neutral in explore mode.
+      roomlessCombat: true,
       noFire: false,                                       // dodge-bench stress mode: never shoot
       // ---- fine-grained "wire it up" switches (panel: 挂机 → 细项) ----
       chest: TSW.settings.get('autoChest', true),          // open chests
@@ -181,7 +198,7 @@
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
-    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0 },
+    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0 },
     status: { note: '', target: null },
   };
   // ---------------- in-run online learning (self-evolution v2) ----------------
@@ -251,7 +268,7 @@
   TSW.bus.on('newRun', () => { A.learn.dPrev = null; A.learn.hpPrev = null; A.learn.n = 0; A.learn.save(); });
   A.learn.set = (k, v) => { A.learn[k] = v; TSW.settings.set(k === 'lr' ? 'autoLearnRate' : 'autoLearn', v); TSW.bus.emit('auto'); };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
-  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; };
+  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
   A.setPolicy = (p) => { A.policy = p; TSW.settings.set('autoPolicy', p); TSW.bus.emit('auto'); };
 
@@ -2040,7 +2057,13 @@
 
     // ---------- combat target & kite ----------
     let mx = 0, my = 0, wantFire = false;
-    if (active || G.trial || near) {
+    // `near` is nearestEnemy(p, 900) and `active` is the current ROOM — so in a
+    // roomless arena (the dodge rig builds one walled rectangle, no rooms) BOTH are
+    // falsy and the entire combat block below never executes: no targeting, no
+    // spacing band, and no kite state machine (measured: fightState 'none' while
+    // statusMode held a stale 'RETREAT' nobody acted on).  That is why the bot
+    // simply stood in the barrage.  Any live foe is a fight, whatever the map is.
+    if (active || G.trial || near || (A.opts.roomlessCombat !== false && foes.length)) {
       // In a boss room, phase changes summon two rings (bring(..., dn(22), ...),
       // boss.js:44).  Chasing the boss while 22 adds are alive means taking
       // contact damage from every direction, and several runs died with the boss
@@ -2413,7 +2436,8 @@
       }
       // dash out when the current spot is about to hurt and the dash is up (never into a pit)
       const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
-      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? 1.3 : 1.8)) {
+      const dashAt = (A.opts.dodgeDashAt === undefined ? 1.8 : +A.opts.dodgeDashAt);
+      if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? Math.min(1.3, dashAt) : dashAt)) {
         const dd = dashDir(p, [mx, my]);                 // escape toward the calmest arc
         if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
         else if (dirdash()) { tap('Space'); A.metrics.dash++; }
@@ -2545,6 +2569,45 @@
         }
       }
     }
+
+    // ---- OVERLAP ESCAPE (benchmark 293) ---------------------------------------
+    // This has to sit OUTSIDE the `if (active || G.trial || near)` block above.
+    // It was written inside it first, and in the dodge arena `active` and `near`
+    // are never set (there are no rooms), so the branch never executed at all:
+    // 24 runs reported overlapTicks 0 on BOTH arms while their survival numbers
+    // still differed, i.e. a void A/B dressed up as a 3/4 win.  That is the
+    // forgeRoomsSeen trap again — check the mechanism fired, not the option.
+    
+    // The seed-41 death trace had the player pinned at hp 1 with a `splitter` at
+    // nd -10 (INSIDE the hitbox) for ten consecutive frames, alive only on
+    // i-frames, having used zero dashes.  spotDanger prices contact as a single
+    // flat 2.6 at the sampled point, so being inside a body does not outrank
+    // ordinary bullet noise and the steering never leaves.  When a damaging body
+    // actually overlaps us, the only correct move is out — so replace the whole
+    // steering vector with the shortest exit direction.
+    let overlapPush = null, overlapDeep = 0;
+    if (A.opts.overlapEscape !== false) {
+      try {
+        for (const e of G.enemies || []) {
+          if (e.dead || e.spawnT > 0) continue;
+          if (!e.contact && !e.melee) continue;
+          const rr = (e.r || 6) + p.r;
+          const dx = p.x - e.x, dy = p.y - e.y;
+          const dd = Math.hypot(dx, dy) || .001;
+          if (dd >= rr + 2) continue;                    // not actually touching
+          const deep = (rr + 2) - dd;                    // how far inside we are
+          if (!overlapPush || deep > overlapDeep) {
+            overlapDeep = deep;
+            overlapPush = [dx / dd, dy / dd];            // straight out of the body
+          }
+        }
+      } catch (e) { }
+    }
+    if (overlapPush) {
+      A.metrics.overlap = (A.metrics.overlap | 0) + 1;
+      A.status.note = '脱离贴脸';
+      A._overlapDir = overlapPush;
+    } else { A._overlapDir = null; }
 
     // debug mirror: what the bot *thinks* the world looks like this tick
     try {
@@ -2891,6 +2954,11 @@
       } catch (e) { }
       if (A._dodgeDashCD && G.time > A._dodgeDashCD) A._dodgeDashCD = 0;
     }
+    // Apply the overlap escape LAST so nothing downstream can water it down.  The
+    // whole steering vector is replaced, not nudged: while a body is inside us,
+    // every other consideration (which room to walk to, which enemy to shoot) is
+    // subordinate to simply not being there.
+    if (A._overlapDir) { mx = A._overlapDir[0]; my = A._overlapDir[1]; }
     moveKeys(mx, my);
     A._dbg = [mx, my];
     // In invade, driveInvade has already decided whether to hold the trigger

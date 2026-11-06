@@ -84,6 +84,43 @@ test('the summoner and pickup switches stay declared so they can be A/B-ed', () 
   assert.match(AUTO, /focusFire:/);
 });
 
+test('combat options are declared, and the roomless guard is switchable', () => {
+  // The whole combat/kite block was gated on `active || G.trial || near`, where
+  // `active` is the current ROOM.  In a roomless arena all three are falsy, so none
+  // of that logic ran and the bot stood in the barrage.  The widened guard must stay
+  // declared so it can be A/B-ed, and its neutrality in explore mode was verified
+  // (0/3 seeds differed) rather than assumed.
+  assert.match(AUTO, /roomlessCombat: true/, 'the widened guard must be a declared option');
+  assert.match(AUTO, /A\.opts\.roomlessCombat !== false && foes\.length/,
+    'the guard must consult the option so it can be switched off');
+  assert.match(AUTO, /overlapEscape: true/, 'overlap escape must be declared');
+  assert.match(AUTO, /dodgeDashAt: 1\.8/, 'the dash threshold must be declared, not hardcoded');
+  // The overlap escape has to live OUTSIDE the room guard, or it never runs in an
+  // arena: it was written inside it first and reported overlapTicks 0 on both arms.
+  const guardAt = AUTO.indexOf('roomlessCombat !== false && foes.length');
+  const escapeAt = AUTO.indexOf('A._overlapDir = overlapPush');
+  assert.ok(guardAt > 0 && escapeAt > guardAt,
+    'the overlap escape must be defined after the combat guard so it always runs');
+  assert.match(AUTO, /if \(A\._overlapDir\) \{ mx = A\._overlapDir\[0\]/,
+    'the escape direction must actually be applied to the steering');
+});
+
+test('dodge rows prove the combat path and the overlap escape ran', () => {
+  // The overlap A/B reported a 3/4 seed win while overlapTicks was 0 on BOTH arms:
+  // the branch never executed, so the win was noise.  A guard needs a row field,
+  // not just an option.
+  assert.match(BENCH, /overlapTicks: A\.overlap/, 'rows must record overlap-escape ticks');
+  assert.match(AUTO, /overlap: 0 \}/, 'the metric must be declared in A.metrics');
+  assert.match(AUTO, /m\.overlap = 0/, 'the metric must be cleared by metrics.reset()');
+  assert.match(BENCH, /fightState:/, 'rows must record which fight state the bot was in');
+  // Death attribution: installHurtLog ran for fullrun and invade only, so the dodge
+  // rig recorded no cause for any of its deaths.  Every hit must be attributable.
+  const dodge = BENCH.slice(BENCH.indexOf('async function runDodgeOne'));
+  assert.match(dodge, /installHurtLog\(\)/, 'the dodge path must install death attribution');
+  assert.match(BENCH, /nearDistMin:/, 'rows must record how close the nearest enemy was');
+  assert.match(BENCH, /hitsDashReady:/, 'rows must record whether a dash was available');
+});
+
 test('the in-run learner is declared, evidenced, and ablatable', () => {
   // The first smoke run of the learn A/B reported autoOptsUnknown: ["learn"] —
   // the learner controls live on TSW.auto.learn, not A.opts, so the generic

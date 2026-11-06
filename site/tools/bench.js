@@ -1373,6 +1373,12 @@
     const g1 = window.__achroma.G;
     const runT0 = g1.runT || 0, h0 = g1.hits | 0;
     // own hit counter for the window: immune to any reset elsewhere
+    // Death attribution was never installed on this path: installHurtLog() ran for
+    // fullrun and invade only, so the dodge arena recorded no cause for any of its
+    // deaths.  Install it FIRST, then wrap its result for the local counter, so the
+    // chain is installHurtLog -> localHits -> game and the log sees every call.
+    installHurtLog();
+    window.__hurtLog = [];
     let localHits = 0; const _hp = window.hurtPlayer;
     try { window.hurtPlayer = function (...a) { const r = _hp.apply(this, a); if (r === true) localHits++; return r; }; } catch (e) { }
     // ---- survival clock (benchmark 292) --------------------------------------
@@ -1469,6 +1475,36 @@
       // learn A/B while the bench's own wrapper was counting correctly.  Bind it to
       // the bench's counter instead, and keep the old value for the record.
       hitsMetric: localHits | 0, hitsMetricHud: M.hitsTaken | 0, hitsGame: (g.hits | 0) - h0,
+      // DEATH-CAUSE TRACE.  The dodge row never carried the shared hurtLog, so 34
+      // deaths in this arena were never attributed: was it a bullet, contact, or a
+      // mechanism?  The log records nearest-enemy distance (nd), its type (nt),
+      // whether it was ranged (nr), and the pre-hit hp/armor/inv/dash state, so the
+      // last few entries before death say what actually ended the run.
+      hurtTrace: (function () { try { return (window.__hurtLog || []).slice(-10); } catch (e) { return []; } })(),
+      hurtsTotal: (function () { try { return (window.__hurtLog || []).length; } catch (e) { return 0; } })(),
+      hurtPlain: (function () { try { return (window.__hurtLog || []).filter((x) => !x.p && !x.m).length; } catch (e) { return 0; } })(),
+      hurtPierce: (function () { try { return (window.__hurtLog || []).filter((x) => x.p && !x.m).length; } catch (e) { return 0; } })(),
+      hurtMech: (function () { try { return (window.__hurtLog || []).filter((x) => x.m).length; } catch (e) { return 0; } })(),
+      // nearest-enemy distance at each landed hit: if this is small, contact is
+      // killing us; if it is large, it is ranged fire we failed to dodge
+      nearDistMean: (function () { try { const L = (window.__hurtLog || []).filter((x) => x.res); if (!L.length) return -1; return +(L.reduce((a, x) => a + (x.nd || 0), 0) / L.length).toFixed(1); } catch (e) { return -1; } })(),
+      nearDistMin: (function () { try { const L = (window.__hurtLog || []).filter((x) => x.res); if (!L.length) return -1; return Math.min.apply(null, L.map((x) => x.nd || 999)); } catch (e) { return -1; } })(),
+      hitRangedPct: (function () { try { const L = (window.__hurtLog || []).filter((x) => x.res); if (!L.length) return -1; return +(L.filter((x) => x.nr).length / L.length * 100).toFixed(1); } catch (e) { return -1; } })(),
+      // how many hits landed while the dash was off cooldown: those were dodges we
+      // had available and did not use
+      hitsDashReady: (function () { try { return (window.__hurtLog || []).filter((x) => x.res && (x.dash || 0) <= 0).length; } catch (e) { return 0; } })(),
+      // invulnerability was active: these should not exist, a nonzero value is a bug
+      hitsDuringInv: (function () { try { return (window.__hurtLog || []).filter((x) => x.res && (x.inv || 0) > 0).length; } catch (e) { return 0; } })(),
+      // Did the overlap escape actually engage?  Without this the whole A/B rests on
+      // the option being set, which is the forgeRoomsSeen mistake: the treatment may
+      // simply never have triggered.
+      overlapTicks: A.overlap | 0,
+      // Which fight state did the autopilot actually think it was in?  The whole
+      // kite state machine sits inside the same `active || near` guard as the rest
+      // of the combat block, so in a roomless arena it may never have run at all —
+      // and 'the bot does not kite' would then be an artefact of the harness.
+      fightState: (A._fightState || 'none'),
+      statusMode: ((TSW.auto.status && TSW.auto.status.mode) || 'none'),
       // a run that never got into combat measures nothing: 0 hits would be a
       // false win, so such a sample is flagged invalid and retried by runDodge.
       valid: A.ticks >= 600,
