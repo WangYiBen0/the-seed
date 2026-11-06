@@ -94,7 +94,7 @@ test('combat options are declared, and the roomless guard is switchable', () => 
   assert.match(AUTO, /A\.opts\.roomlessCombat !== false && foes\.length/,
     'the guard must consult the option so it can be switched off');
   assert.match(AUTO, /overlapEscape: true/, 'overlap escape must be declared');
-  assert.match(AUTO, /dodgeDashAt: 1\.8/, 'the dash threshold must be declared, not hardcoded');
+  assert.match(AUTO, /combatDashAt: 1\.8/, 'the combat dash threshold must be declared, not hardcoded');
   // The overlap escape has to live OUTSIDE the room guard, or it never runs in an
   // arena: it was written inside it first and reported overlapTicks 0 on both arms.
   const guardAt = AUTO.indexOf('roomlessCombat !== false && foes.length');
@@ -110,7 +110,7 @@ test('dodge rows prove the combat path and the overlap escape ran', () => {
   // the branch never executed, so the win was noise.  A guard needs a row field,
   // not just an option.
   assert.match(BENCH, /overlapTicks: A\.overlap/, 'rows must record overlap-escape ticks');
-  assert.match(AUTO, /overlap: 0 \}/, 'the metric must be declared in A.metrics');
+  assert.match(AUTO, /overlap: 0[,\s}]/, 'the metric must be declared in A.metrics');
   assert.match(AUTO, /m\.overlap = 0/, 'the metric must be cleared by metrics.reset()');
   assert.match(BENCH, /fightState:/, 'rows must record which fight state the bot was in');
   // Death attribution: installHurtLog ran for fullrun and invade only, so the dodge
@@ -119,6 +119,84 @@ test('dodge rows prove the combat path and the overlap escape ran', () => {
   assert.match(dodge, /installHurtLog\(\)/, 'the dodge path must install death attribution');
   assert.match(BENCH, /nearDistMin:/, 'rows must record how close the nearest enemy was');
   assert.match(BENCH, /hitsDashReady:/, 'rows must record whether a dash was available');
+});
+
+test('the reload swap is not vetoed by the main-hand rule', () => {
+  // Regression the user reported: "换弹时不会自动换武器以持续输出".  The swap
+  // condition had become `(!keepBest || othDps >= curDps)` with keepBest true by
+  // default, so holding the BEST gun - exactly what mainHandBest is for -
+  // disabled the swap and every reload was spent not firing.
+  assert.match(AUTO, /if \(curBusy && othReady\) \{ tap\('KeyX'\)/,
+    'a busy (reloading) gun must swap to any ready one, regardless of DPS');
+  assert.doesNotMatch(AUTO, /curBusy && othReady && \(!keepBest/,
+    'the DPS veto on reload swapping must not come back');
+  // and it must be observable in the rows
+  assert.match(AUTO, /reloadSwap = \(A\.metrics\.reloadSwap \| 0\) \+ 1|metrics\.reloadSwap/,
+    'reload swaps must be counted');
+});
+
+test('blind fire is limited to weapons that can actually cross geometry', () => {
+  // Reported: "墙挡住的时候仍然浪费弹药（投掷物和能穿墙的武器除外）".
+  // The hunt path fired unconditionally at a wall-blocked foe.
+  assert.match(AUTO, /const blindOK = wPierce >= 999/,
+    'wall-crossing must be decided by the weapon, not assumed');
+  assert.match(AUTO, /if \(A\._blindOK\) \{/,
+    'blind fire at a blocked foe must be gated on blindOK');
+  assert.match(AUTO, /'lob', 'mine', 'orb', 'nova', 'slam'/,
+    'arcing / thrown kinds must be allowed to fire without sight');
+  assert.match(AUTO, /blindBlocked/,
+    'rounds saved must be countable so the fix is verifiable');
+});
+
+test('a disabled room option stops the bot pathing there', () => {
+  // Reported: "把选项关掉了也会向这种房间寻路".  The interact handlers checked
+  // the options but roomWeight never did, so the room still scored as a target.
+  assert.match(AUTO, /function roomDisabled\(r\)/, 'room weight must consult the options');
+  assert.match(AUTO, /case 'shop': return A\.opts\.shop === false/,
+    'the shop must be excluded when switched off');
+  assert.match(AUTO, /case 'forge': return A\.opts\.forge === false/,
+    'the forge must be excluded when switched off');
+  assert.match(AUTO, /if \(roomDisabled\(r\)\) return 99/,
+    'a disabled room must be deprioritised in the weight');
+  // the dedicated forge branches run before the weight sweep, so they need their own gate
+  assert.match(AUTO, /A\.opts\.forgeFirst !== false && A\.opts\.forge !== false/,
+    'the forge-first branch must respect opts.forge');
+});
+
+test('the stuck-wiggle cannot spin in place', () => {
+  // Reported: "仍然会在某些地方打转".  The wiggle picked a fresh random angle on
+  // every retry, which reads as spinning; it now sweeps a persistent direction.
+  assert.match(AUTO, /const a0 = Math\.atan2\(wiggle\.dir\[1\], wiggle\.dir\[0\]\) \+ 0\.96/,
+    'a retry must rotate from the previous direction, not re-roll it');
+  assert.match(AUTO, /if \(!wiggle\.dir\) \{/, 'the first pick must be stored and reused');
+});
+
+test('the detail dropdown can always be closed', () => {
+  // Reported: "细则选项菜单很难关掉".  The only exit was a document click
+  // listener that stopPropagation could swallow, and there was no Escape.
+  const PANEL = readFileSync(join(ROOT, 'site', 'tools', 'panel.js'), 'utf8');
+  assert.match(PANEL, /\}, true\);\s*\n\s*try \{/, 'the outside-click listener must use capture');
+  assert.match(PANEL, /ev\.key !== 'Escape'/, 'Escape must close the dropdown');
+  assert.match(PANEL, /x\.textContent = '关闭'/, 'the dropdown needs a visible close button');
+  assert.match(PANEL, /panelBox\.__header\) panelBox\.insertBefore/,
+    'the close bar must be restored after every rebuild');
+});
+
+test('no option key is declared twice in A.opts', () => {
+  // A duplicate key silently overrides the earlier one: this happened when a new
+  // `dodgeDashAt: 1.8` was added while `dodgeDashAt: TSW.settings.get(..., 99)`
+  // already existed further down, so the real default became 99 (off) and the
+  // option under test did nothing.  Object literals do not warn.  Scan the opts
+  // block and fail on any repeated key.
+  const start = AUTO.indexOf('opts: {');
+  const opts = AUTO.slice(start, AUTO.indexOf('metrics: {', start));
+  const seen = new Map();
+  for (const m of opts.matchAll(/^\s{6}([A-Za-z_$][\w$]*):/gm)) {
+    const k = m[1];
+    seen.set(k, (seen.get(k) || 0) + 1);
+  }
+  const dupes = [...seen.entries()].filter(([, n]) => n > 1).map(([k, n]) => k + ' x' + n);
+  assert.deepEqual(dupes, [], 'duplicate A.opts keys silently override each other: ' + dupes.join(', '));
 });
 
 test('the in-run learner is declared, evidenced, and ablatable', () => {

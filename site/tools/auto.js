@@ -31,7 +31,7 @@
       // turret, where the CURRENT-position danger never reaches 1.8, so the escape
       // never fired even though `dash` read ready at 15 of 15 landed hits (benchmark
       // 293).  Declared here or the A/B would be voided as an unknown option.
-      dodgeDashAt: 1.8,
+      combatDashAt: 1.8,
       // Overlap escape: when a damaging body is actually touching the player, replace
       // the steering with the shortest exit vector.  The seed-41 death trace had the
       // player pinned inside a splitter for ten frames on i-frames alone (benchmark
@@ -198,7 +198,7 @@
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
-    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0 },
+    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0, reloadSwap: 0, blindFire: 0, blindBlocked: 0 },
     status: { note: '', target: null },
   };
   // ---------------- in-run online learning (self-evolution v2) ----------------
@@ -268,7 +268,7 @@
   TSW.bus.on('newRun', () => { A.learn.dPrev = null; A.learn.hpPrev = null; A.learn.n = 0; A.learn.save(); });
   A.learn.set = (k, v) => { A.learn[k] = v; TSW.settings.set(k === 'lr' ? 'autoLearnRate' : 'autoLearn', v); TSW.bus.emit('auto'); };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
-  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; };
+  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; m.reloadSwap = 0; m.blindFire = 0; m.blindBlocked = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
   A.setPolicy = (p) => { A.policy = p; TSW.settings.set('autoPolicy', p); TSW.bus.emit('auto'); };
 
@@ -1880,7 +1880,13 @@
         // (hammer 23.4 dps < nail 35), leaving the melee permanently unused.
         const pairHeld = !!(isMelee(cur) || isMelee(alt));
         if (pairHeld) A._mhSkip = (A._mhSkip || 0) + 1;      // pairing rule owns the hand
-        else if (alt && cur && alt !== cur && wDps(alt) > wDps(cur) + 1.5) {
+        // Do not drag the hand back to a gun that cannot fire right now: if the
+        // stronger weapon is mid-reload (or dry), swapping to it just wastes the
+        // reload window this rule exists to serve.  Without this the reload dance
+        // below swapped to the ready sidearm and this rule swapped straight back
+        // on the next tick.
+        else if (alt && cur && alt !== cur && wDps(alt) > wDps(cur) + 1.5
+          && (function () { try { const a = ammoOf(p, alt); return a.rl <= 0 && a.n > 0; } catch (e) { return true; } })()) {
           A._mhLog = (A._mhLog || 0) + 1;
           if (A._mhLog <= 3) console.info('[mh] swap ' + cur + '->' + alt + ' dps ' + Math.round(wDps(cur)) + '->' + Math.round(wDps(alt)));
           tap('KeyX'); A.status.note = '主手换强枪 ' + alt;
@@ -2183,6 +2189,17 @@
           }
         }
       } else if (neF) { A._hunt = 0; A._huntAim = null; }
+      // ---- can this weapon hurt something through a wall? ---------------------
+      // Firing blind at a wall-blocked foe only makes sense for weapons whose
+      // projectiles pass through geometry (pierce 999: saw / crescent / chakram /
+      // orb / mines) or that arc over it / ignore the line entirely (lob, mine,
+      // nova, slam).  Everything else — every ordinary gun, bow, rail, beam —
+      // simply eats a wall and burns a round, which is the reported ammo waste.
+      const wPierce = (function () { try { return (w && (w.pierce | 0)) || 0; } catch (e) { return 0; } })();
+      const wkBlind = (function () { try { return w ? w.kind : ''; } catch (e) { return ''; } })();
+      const blindOK = wPierce >= 999
+        || ['lob', 'mine', 'orb', 'nova', 'slam', 'chakram', 'saw', 'missile', 'rocket', 'wave'].indexOf(wkBlind) >= 0;
+      A._blindOK = !!blindOK;
       // also drop the hunt aim once the straggler is gone (killed), so we never
       // keep firing at a stale object that no longer exists in G.enemies
       if (A._huntAim && (A._huntAim.dead || A._huntAim.spawnT > 0 || (G.enemies || []).indexOf(A._huntAim) < 0)) A._huntAim = null;
@@ -2330,10 +2347,17 @@
         // never shoots, and the room can never clear: one measured run spent
         // 1598 s in combat with 690 s of not-firing and a single foe pinned at
         // 77-82 px, clearing 1 room of 11.
+        // ...but ONLY when the weapon can actually reach it.  The unconditional
+        // version fired every ordinary gun into the wall, which is the ammo waste
+        // the user reported.  Keep the room-clearing intent for weapons that pass
+        // through geometry, and aim manually otherwise so the barrel at least
+        // points somewhere useful.
         if (!wantFire && A._huntAim) {
           const ax = A._huntAim.x, ay = A._huntAim.y;
-          Input.mx = clampM(ax - G.cam.x, GW()); Input.my = clampM(ay - G.cam.y, GH());
-          wantFire = true;
+          if (A._blindOK) {
+            Input.mx = clampM(ax - G.cam.x, GW()); Input.my = clampM(ay - G.cam.y, GH());
+            wantFire = true; A.metrics.blindFire = (A.metrics.blindFire | 0) + 1;
+          } else { A.metrics.blindBlocked = (A.metrics.blindBlocked | 0) + 1; }   // would have been a wasted round
         }
         // `iai` dashes the player forward by its full range (weapons.js:189-201), so
         // firing moves us toward the enemy and sometimes into hazards.  Veto the
@@ -2351,9 +2375,14 @@
         // stretches.  The gate needs line of sight, and rooms are full of pillars,
         // so the bot holds fire exactly when a close shot could still connect.
         // Measured option: allow a point-blank shot without clear sight.
+        // Point-blank shots without clear sight: also gated on the weapon, because a
+        // point-blank shot into a pillar behind which the foe is standing still
+        // wastes the round.  Melee is exempt (its arc cuts bullets) and so are the
+        // wall-crossing / arcing kinds.
         if (!wantFire && !retreat && A.opts.fireWithoutLos) {
           const cl = nearestEnemy(p.x, p.y, A.opts.noLosRange || 150, false);
-          if (cl) { wantFire = true; A.status.note = '近战无视线开火'; }
+          if (cl && (A._blindOK || melee)) { wantFire = true; A.status.note = '近战无视线开火'; A.metrics.blindFire = (A.metrics.blindFire | 0) + 1; }
+          else if (cl) { A.metrics.blindBlocked = (A.metrics.blindBlocked | 0) + 1; }   // ammo saved
         }
         // Melee weapons destroy the bullets they swing through (deflectBullets,
         // weapons.js:209) and reflect 35% of them back.  Swinging while bullets
@@ -2436,7 +2465,7 @@
       }
       // dash out when the current spot is about to hurt and the dash is up (never into a pit)
       const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
-      const dashAt = (A.opts.dodgeDashAt === undefined ? 1.8 : +A.opts.dodgeDashAt);
+      const dashAt = (A.opts.combatDashAt === undefined ? 1.8 : +A.opts.combatDashAt);
       if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? Math.min(1.3, dashAt) : dashAt)) {
         const dd = dashDir(p, [mx, my]);                 // escape toward the calmest arc
         if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
@@ -2515,13 +2544,20 @@
           const othReady = othA.rl <= 0 && othA.n > 0;
           const othBusy = othA.rl > 0 || othA.n <= 0;
           const curReady = curA.rl <= 0 && curA.n > 0;
-          // The main-hand rule owns weapon choice; the reload dance must never
-          // fight it.  Only swap for reloading when the MAIN hand is meant to be
-          // the weaker gun (i.e. mainHandBest is off) or the swap keeps the best.
+          // The main-hand rule chooses which gun is BETTER; it must not veto the
+          // reload dance, or a run where the best gun is held simply stops firing
+          // while that gun reloads.  That was the regression: `keepBest` made the
+          // swap condition `othDps >= curDps`, so holding the strongest weapon —
+          // exactly what mainHandBest is for — disabled swapping altogether and
+          // reload frames were wasted.  A reloading gun does ZERO dps, so ANY
+          // loaded gun beats it; the original comment below the code said the
+          // intent was to never fight the main-hand rule, but the effect was to
+          // idle the sidearm for the whole reload.
           const curDps = wDps(curW.id), othDps = wDps(othW.id);
-          const keepBest = A.opts.mainHandBest !== false;
-          if (curBusy && othReady && (!keepBest || othDps >= curDps)) { tap('KeyX'); A.status.note = '换弹切副武器 ' + othW.id; }
-          else if (curReady && othBusy && (!keepBest || curDps >= othDps) && wScore(curW.id) >= wScore(othW.id)) { tap('KeyX'); A.status.note = '切回主武器 ' + curW.id; }
+          // ...but do not thrash: prefer to hold the higher-DPS gun when BOTH are
+          // ready, and swap for reload only when the other one can actually fire.
+          if (curBusy && othReady) { tap('KeyX'); A.status.note = '换弹切副武器 ' + othW.id; A.metrics.reloadSwap = (A.metrics.reloadSwap | 0) + 1; }
+          else if (curReady && othBusy && curDps >= othDps) { tap('KeyX'); A.status.note = '切回主武器 ' + curW.id; }
         }
       }
       // ---- radio partner skill: KeyF (partners.js) ----
@@ -2915,8 +2951,23 @@
         }
         if (!handled) {  // no path: wiggle in a committed direction, dash through (pit-safe)
           if (!wiggle.dir || wiggle.until < G.time) {
-            const a = Math.random() * Math.PI * 2;
-            wiggle.dir = [Math.cos(a), Math.sin(a)]; wiggle.until = G.time + 1.2;
+            // Do NOT pick a fresh random angle every time: that is what made the
+            // bot visibly spin in place.  Keep sweeping the SAME direction for the
+            // whole episode, rotating by a small constant step each retry, so the
+            // motion is a deliberate arc instead of a lottery.  It also has to use
+            // the seeded RNG so a benchmark run stays reproducible.  Note TSW.rng.seed()
+            // swaps Math.random itself for mulberry32, so plain Math.random() IS the
+            // seeded generator while a bench run is active.
+            const rnd = Math.random();
+            if (!wiggle.dir) {
+              const a0 = rnd * Math.PI * 2;
+              wiggle.dir = [Math.cos(a0), Math.sin(a0)];
+            } else {
+              // rotate ~55 degrees from where we were pointing, same handedness
+              const a0 = Math.atan2(wiggle.dir[1], wiggle.dir[0]) + 0.96;
+              wiggle.dir = [Math.cos(a0), Math.sin(a0)];
+            }
+            wiggle.until = G.time + 1.2;
             wiggle.n = (wiggle.n || 0) + 1;
             if (wiggle.n >= 3) { if (navProg.tgt) benchFor(navProg.tgt, 30); navCache = null; wiggle.n = 0; }
           }
@@ -2978,6 +3029,24 @@
   // matters, not the absolute numbers.
   const REWARD_ROOMS = ['treasure', 'shop', 'arsenal', 'vault', 'camp', 'forge', 'dialysis', 'barracks', 'shrine', 'trial', 'idol'];
   const TRAPPED_ROOMS = ['blades', 'flames', 'spikes'];
+  // Is this room type one the user has switched OFF?  Walking to a room we will
+  // then refuse to interact with is pure waste: the bot crossed the floor, stood
+  // on the bench and did nothing.  The interact handlers already check these same
+  // options (opts.shop / opts.forge / opts.dialysis / …), but the room WEIGHT did
+  // not, so disabling an option did not stop the bot pathing there.
+  function roomDisabled(r) {
+    const t = r && r.type;
+    switch (t) {
+      case 'shop': return A.opts.shop === false;
+      case 'forge': return A.opts.forge === false;
+      case 'dialysis': return A.opts.dialysis === false;
+      case 'treasure': return A.opts.chest === false;
+      case 'arsenal': return A.opts.arsenal === false;
+      case 'camp': return A.opts.mate === false;
+      case 'lab': return A.opts.labSerum === false;
+      default: return false;
+    }
+  }
   function roomWeight(r) {
     // A reward room is born cleared (world.js:75: cleared unless combat/boss), so
     // the blanket `cleared -> 99` rule made chests, forges, shops and arsenals
@@ -2990,6 +3059,10 @@
     // here sent the bot past a 2-room-away key to a 6-room-away serum, which is
     // the reported "近在咫尺的钥匙不拿而去找几个房间远的血清".
     if (r.key) return 0;
+    // A disabled room type must not attract the bot at all.  Weight 99 puts it up
+    // with the already-cleared rooms, i.e. only worth entering if nothing else is
+    // left — and the interact handlers will still refuse, which is correct.
+    if (roomDisabled(r)) return 99;
     if (r.cleared && !r.visited && REWARD_ROOMS.includes(r.type)) return 1;
     if (r.cleared) return 99;
     // "rush" mode: reward rooms are the main time sink before the boss gate, so
@@ -3249,7 +3322,7 @@
     // stats showed wlv={} on every run while ink peaked at 200+: the bot simply
     // never visited a forge (obj=forge appeared 4 times vs 47 for fight).
     // Promote the forge ahead of combat rooms when it is actually affordable.
-    if (A.opts.forgeFirst !== false) {
+    if (A.opts.forgeFirst !== false && A.opts.forge !== false) {
       for (const r of rooms) {
         if (r.type !== 'forge' || unreachable(r)) continue;
         const cur = p.weapons[p.wi];
@@ -3265,7 +3338,7 @@
         return { pt: tgt2, label: 'forge', room: r };
       }
     }
-    {
+    if (A.opts.forge !== false) {
       const forgeMode = A.opts.forgeMode || 'held';
       for (const r of rooms) {
         if (r.type !== 'forge' || unreachable(r)) continue;
@@ -3302,7 +3375,7 @@
     // 再回头清战斗房。 默认保持原顺序（直接清房），可用 A/B 切换验证。
     if (A.opts.exploreOrder === 'resources') {
       if (A.opts.specialsFirst !== false)
-        for (const r of rooms) if (!r.visited && SPECIAL_ROOM_TYPES.includes(r.type) && !unreachable(r))
+        for (const r of rooms) if (!r.visited && SPECIAL_ROOM_TYPES.includes(r.type) && !unreachable(r) && !roomDisabled(r))
           return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
       for (const r of rooms) if (!r.visited && ['forge', 'shrine'].includes(r.type) && !unreachable(r)) return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: r.type, room: r };
     }

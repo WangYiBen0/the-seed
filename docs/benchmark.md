@@ -14218,3 +14218,80 @@ if (active || G.trial || near) {   // active = 当前房间, near = 900px 内最
 已写入 `ROADMAP.md` 与 `docs/pitfalls.md`。
 
 原始数据：`.tmp/roomless-ab.jsonl`（48 行）。
+
+### 296. 四个挂机回归修复（用户报告）+ 一个我自己引入的重复键 bug
+
+用户 2026-11-07 报四条：换弹不换枪、墙后浪费弹药、关了选项还去该房间、细则菜单难关。
+
+#### 1. 换弹不换枪（浪费输出）
+
+`auto.js` 的换枪条件被写成：
+
+```js
+const keepBest = A.opts.mainHandBest !== false;        // 默认 true
+if (curBusy && othReady && (!keepBest || othDps >= curDps)) { ... }
+```
+
+`mainHandBest` 默认 **true** → `keepBest` 为真 → 条件退化成
+**「副武器 DPS ≥ 主武器才换」**。而 `mainHandBest` 的作用恰恰是**把最强的枪放在主手**，
+于是「主手最强」⇒「副手永远不更强」⇒ **换弹期间永远不换**，整段换弹时间零输出。
+
+修：只要当前枪在换弹（`curBusy`）且副枪可用（`othReady`），**无论 DPS 一律换**；
+换回来时仍要求 `curDps >= othDps`，避免抖动。
+
+**证据**（fullrun seed 7/11）：`reloadSwap = 192 / 266`（此前该路径被否决，应为 0）。
+
+#### 2. 墙挡住仍浪费弹药
+
+追击无视线目标时**无条件开火**，注释理由是「穿墙武器能打到，且不打就永远清不了房」。
+问题是这条对**普通枪械**同样生效 —— 打中墙只掉一发子弹。
+
+修：按武器能力判定 `blindOK`：
+
+- `pierce >= 999`（saw / crescent / chakram …，实测这些真的穿墙）；
+- 或 `kind ∈ {lob, mine, orb, nova, slam, chakram, saw, missile, rocket, wave}`（抛射/越墙类）。
+
+普通枪械在无视线时不再开火。近战豁免（`meleeBlock` 的挥砍是格挡）。
+
+**证据**：`blindBlocked = 419 / 1182`（被拦下的「对墙开火」决策次数，**按 tick 计，不是弹药数**），
+`blindFire = 0`（这两局持有的是普通枪，本就不该盲射）。
+
+#### 3. 选项关掉了还往那个房间走
+
+`roomWeight(r)` 从不看选项：`REWARD_ROOMS`（shop/forge/…）一律返回权重 0，
+所以关掉 `shop`/`forge` 只让**交互处理器**拒绝，**寻路仍然把人送过去**。
+
+修：新增 `roomDisabled(r)`，映射到对应选项；禁用房间权重置 99（等同已清房）。
+另外三处单独分支（`forgeFirst`、forge 权重扫描、`exploreOrder==='resources'`）也各自加了门。
+
+#### 4. 细则菜单难关
+
+下拉框只有**document 级 click 监听器**一条关闭路径，而游戏画布和面板多处
+`stopPropagation`，点到游戏里就关不掉；且**完全没有键盘退出**。
+
+修：①document 监听改 **capture 阶段**（先于 stopPropagation）；
+②`Escape` 关闭所有 `[data-tsw-drop]` 面板；③下拉框顶部加**可见的「关闭」按钮**；
+④因为 `build()` 会清空面板，每次重建后把标题栏插回顶部。
+
+#### 5. 打转（抖动）
+
+卡住时的 wiggle 每次重试都 `Math.random()` 重新抽角度 → 视觉上就是原地打转。
+改为**持久方向 + 每次旋转约 55°**，形成绕行弧线而不是抽奖。
+（顺带：`TSW.rng.seed()` 会替换 `Math.random` 本身，所以 bench 下仍可复现。）
+
+#### ⚠️ 我自己引入的重复键 bug（已修，已加守卫）
+
+给战斗冲刺阈值新增 `dodgeDashAt: 1.8` 时，**没注意文件后部早已有**
+`dodgeDashAt: TSW.settings.get('autoDodgeDashAt', 99)`。
+JS 对象字面量**重复键不报错，后者覆盖前者** ⇒ 真实默认值变成 **99（=关闭）**，
+即我那行代码反而**把探索模式的战斗冲刺关掉了**。
+
+修：改名为 `combatDashAt`（与既有的 `dodgeDashAt` 语义区分）。
+**新增守卫**：`no option key is declared twice in A.opts` 扫描 opts 块，重复键直接测试失败。
+
+#### 测试
+
+**148/148 通过**，新增 6 个：换弹不换枪 / 盲射按武器能力 / 禁用房间不寻路 /
+打转不得原地重抽 / 下拉必须能关 / opts 不得有重复键。
+
+原始数据：`.tmp/verify4.jsonl`（reloadSwap/blindBlocked 实测）、`.tmp/roomgate.jsonl`。

@@ -118,6 +118,9 @@
     wrap.appendChild(panelBox);
     const refresh = () => {
       const lines = build(panelBox);
+      // build() starts with `box.textContent = ''`, which removes the close bar, so
+      // put it back at the top after every rebuild.
+      if (panelBox.__header) panelBox.insertBefore(panelBox.__header, panelBox.firstChild);
       const stat = (lines && lines.count !== undefined) ? lines.count : '';
       b.textContent = label + (stat ? '（' + stat + '）' : '') + ' ▾';
     };
@@ -127,7 +130,41 @@
       panelBox.style.display = open ? 'block' : 'none';
       if (open) refresh();
     };
-    document.addEventListener('click', (ev) => { if (!wrap.contains(ev.target)) panelBox.style.display = 'none'; });
+    // Closing was unreliable: the only exit was a document-level click listener,
+    // but the game canvas and several panel controls call stopPropagation, so
+    // clicks inside the game never reached it.  Three fixes:
+    //   1. capture phase, so an earlier stopPropagation cannot swallow it;
+    //   2. Escape closes it (there was no keyboard exit at all);
+    //   3. a visible 关闭 button, so it never depends on a click landing outside.
+    document.addEventListener('click', (ev) => {
+      if (!wrap.contains(ev.target)) panelBox.style.display = 'none';
+    }, true);
+    try {
+      if (!document.__tswDropEsc) {
+        document.__tswDropEsc = true;
+        document.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'Escape') return;
+          let any = false;
+          for (const el2 of document.querySelectorAll('[data-tsw-drop]')) {
+            if (el2.style.display !== 'none') { el2.style.display = 'none'; any = true; }
+          }
+          if (any) { ev.stopPropagation(); ev.preventDefault(); }
+        }, true);
+      }
+    } catch (e) { }
+    panelBox.setAttribute('data-tsw-drop', label);
+    // an explicit close affordance at the top of the box
+    {
+      const bar = el('div', 'display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 4px;padding:0 0 4px;border-bottom:1px solid #221f1c');
+      const t = el('div', 'color:#8d867a;font:11px ui-monospace,monospace'); t.textContent = label;
+      const x = el('button', 'background:#1b1815;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:1px 7px;cursor:pointer;font:11px ui-monospace,monospace');
+      x.textContent = '关闭';
+      x.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); panelBox.style.display = 'none'; };
+      bar.append(t, x);
+      panelBox.appendChild(bar);
+      // build() rewrites panelBox.textContent, so re-add the bar after each build
+      panelBox.__header = bar;
+    }
     parent.appendChild(wrap);
     refresh();
     return wrap;

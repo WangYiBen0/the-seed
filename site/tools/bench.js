@@ -963,6 +963,12 @@
         } catch (e) { return 0; }
       })(),
       tCombat: +(function () { try { return window.__tDecomp.combat.toFixed(1); } catch (e) { return 0; } })(),
+      // autopilot behaviour evidence (same fields as the dodge row): a reload swap
+      // that never happens would leave reloadSwap 0; blindBlocked>0 means the bot
+      // repeatedly stopped itself from firing into geometry.  Per-tick counts.
+      reloadSwap: (TSW.auto.metrics.reloadSwap | 0),
+      blindFire: (TSW.auto.metrics.blindFire | 0),
+      blindBlocked: (TSW.auto.metrics.blindBlocked | 0),
       tTravel: +(function () { try { return window.__tDecomp.travel.toFixed(1); } catch (e) { return 0; } })(),
       tIdle: +(function () { try { return window.__tDecomp.idle.toFixed(1); } catch (e) { return 0; } })(),
       // top idle causes, so "43% idle" becomes actionable
@@ -1499,6 +1505,15 @@
       // the option being set, which is the forgeRoomsSeen mistake: the treatment may
       // simply never have triggered.
       overlapTicks: A.overlap | 0,
+      // Behaviour evidence for the autopilot fixes.  `reloadSwap` > 0 proves the
+      // sidearm actually took over during a reload (it used to be vetoed by the
+      // main-hand rule).  `blindBlocked` / `blindFire` are per-TICK counts, not
+      // rounds: they say how often the bot wanted to shoot at a wall-blocked foe
+      // and was stopped (or allowed, for wall-crossing weapons).  Treat them as an
+      // activity indicator, not as an ammo count.
+      reloadSwap: A.reloadSwap | 0,
+      blindFire: A.blindFire | 0,
+      blindBlocked: A.blindBlocked | 0,
       // Which fight state did the autopilot actually think it was in?  The whole
       // kite state machine sits inside the same `active || near` guard as the rest
       // of the combat block, so in a roomless arena it may never have run at all —
