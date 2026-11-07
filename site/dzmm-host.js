@@ -104,10 +104,10 @@
         }
         return out;
       },
-      'kv.batchPut': async (p) => { for (const [k, v] of Object.entries(p.entries || {})) kvSet(k, JSON.stringify(v)); return { ok: true }; },
+      'kv.batchPut': async (p) => { const entries = p.values || p.entries || {}; for (const [k, v] of Object.entries(entries)) kvSet(k, JSON.stringify(v)); return { ok: true }; },
       // identity: never invented
       'user.info': async () => (o.user ? o.user : { id: null, name: null, avatarUrl: null, token: null, environment: 'prod' }),
-      'capabilities.get': async () => ({ kvPutIfAbsent: false, saveActions: true }),
+      'capabilities.get': async () => ({ kv: true, kvBatch: true, kvList: true, kvPutIfAbsent: false, saveActions: true }),
       'log.write': async (p) => { console.info('[dzmm-host:log]', p && p.message); return { ok: true }; },
       'toast.show': async (p) => { console.info('[dzmm-host:toast]', p && p.message); return { ok: true }; },
       'save.action': async (p) => { if (o.onSaveAction) return o.onSaveAction(p); return { ok: false, code: 'unsupported' }; },
