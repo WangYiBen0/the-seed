@@ -14402,4 +14402,20 @@ JS 对象字面量**重复键不报错，后者覆盖前者** ⇒ 真实默认�
 
 **判据**：先验看“陈旧目标空转”是否归零（不是选最好的 3 个种子——这 3 个正是失败样本）。空转清零，且清房/击杀均回升。**这不是五锁/整体通关的普适提升结论**；仍需按既定纪律做多种子、同批次 A/B。原始：`.tmp/new-up.jsonl`（修复前）、`.tmp/fix-verify2.jsonl`（修复后）。
 
-148/148 测试通过。
+148/148 测试通过。## Web 首屏“加载失败”+ 空存档（名字丢失）（2026-11-07，修复）
+
+**用户报告（当前）：**「打开网页首先跳出来一个加载失败请刷新网页 / 然后正常启动，但是进去之后发现是空存档，名字都没有」。
+
+**结论：**「加载失败」是上游 `platform.js` 在 iframe 布局下的已知假阳性（它从 `upstream/` 用相对路径 `js/...` 二次加载脚本 404，写横幅后抛错；静态 `../js/` 标签早已加载完）。宿主页 `site/index.html` 原本在 2.5s 后检测横幅并强制 `EMBER_START` + 移除横幅，但横幅仍短暂可见。真正的问题是「空存档/名字丢失」，根因有二且叠加：
+
+1. **存档命名空间断裂（主因）。** 旧版直出页用 `site/dzmm-shim.js`，前缀 `theseed.kv.*`（`site/dzmm-shim.js:20`）；iframe+host 架构（`20db49f`）改由 `site/dzmm-host.js` 以 `theseed.host.kv.*`（`site/dzmm-host.js:40`）应答 `kv.*`。两套前缀无迁移 → 迁到 host 架构后读到空存档，名字（`achroma_set` 内，`site/js/name.js`）与进度都像「消失」。
+2. **host `kv.batchGet` 响应形状与 `platform.js` 解析不兼容。** `platform.js` `storeLoad`（`site/js/platform.js:64-67`）在批量路径要求每项同时含 `value` 与 `updated_at` 才取 `e.value`，否则回退成整项；host 原实现返回 `{value:...}`（无 `updated_at`，且 `.slice(0,10)` 截断），导致解析得到包装对象/形状错乱，进一步破坏读档。单 key `kv.get` 形状本就正确，但 `storeLoad` 优先走 `batchGet`。
+
+**修复（本仓适配层，不动 `site/js/**` 上游内容）：**
+- `site/dzmm-host.js`: 引入 `OLD_PREFIX='theseed.kv.'`，`kvGet/migrateKey` 在 host key 缺失时从旧前缀一次性拷贝到新前缀（**不删除旧数据**）；`kvKeys` 合并两套前缀视图；`kv.batchGet` 改为返回 `{ [key]: {value, updated_at} | null }`，支持 `backend.batchGet` 转发，不再 `.slice(0,10)`。
+- `site/upstream/index.html`: 将静态脚本标签补齐到与 `GAME_SCRIPTS`（`mw5a0z71`，含 `weapons4.js`/`boss4.js`，`../js/` 前缀）一致，避免 verbatim 帧静态加载缺新脚本。
+- `scripts/sync-scripts.mjs`: 新增 `renderUpstreamScriptTags`/`syncUpstreamIndex`，在非 dry/check 写入后自动按 `platform.js` 的 `GAME_SCRIPTS` 重生 `site/upstream/index.html` 的脚本块（仅 `../js/` 路径前缀职责，属 AGENTS.md 规则 1 允许的前缀改写），防止同类漂移。无上游 js 内容改动。
+
+**验证：** `node --check site/dzmm-host.js scripts/sync-scripts.mjs site/js/platform.js` 通过；`node --test tests/*.test.mjs` **148/148 通过**（含既有 `sync-scripts`/测量纪律/挂机回归）。`upstream/index.html` 含 `weapons4.js`/`boss4.js` 已确认。浏览器侧真实旧存档迁移与「横幅闪现时长」**未在真实浏览器复现验证**（本环境无交互浏览器；CDN/线上字节以部署后 `gh api .../pages/builds/latest` + `curl` 字节比对为准，遵循 AGENTS.md 第 5 节）。
+
+**仍需跟进：** 部署后做线上字节核验；若横幅闪现仍明显，可在宿主页检测到 `platform.js` 二次加载路径错误/首帧存活后更早隐藏横幅（须不影响健康启动）。

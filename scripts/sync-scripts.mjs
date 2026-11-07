@@ -57,6 +57,27 @@ export function planFiles({ scripts, local }) {
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
+
+// Regenerate the static script tag block in site/upstream/index.html from
+// GAME_SCRIPTS (../js/ prefix). site/upstream/index.html is the verbatim
+// upstream page with only its script src paths rewritten to ../js/ (AGENTS.md
+// rule 1 exception); keeping that list in lockstep with GAME_SCRIPTS is part
+// of the same path-prefix duty, not a content change.
+export function renderUpstreamScriptTags(scripts) {
+  return scripts.map((n) => '<script src="../js/' + n + '.js"></script>').join('');
+}
+
+export async function syncUpstreamIndex(jsDir, upstreamIndexPath) {
+  const scripts = parseGameScripts(await readFile(join(jsDir, 'platform.js'), 'utf8'));
+  let html = await readFile(upstreamIndexPath, 'utf8');
+  const re = /<script src="\.\.\/js\/engine\.js"><\/script>[\s\S]*?<\/body><\/html>/;
+  if (!re.test(html)) return { changed: false, reason: 'no-script-block', scripts: scripts.length };
+  const next = html.replace(re, renderUpstreamScriptTags(scripts) + '</body></html>');
+  const changed = next !== html;
+  if (changed) await writeFile(upstreamIndexPath, next);
+  return { changed, scripts: scripts.length };
+}
+
 // ---- main ------------------------------------------------------------------
 
 async function main() {
@@ -174,6 +195,14 @@ async function main() {
     if (report.gameV.upstream) {
       console.log('[sync-scripts] GAME_V ' + (vDrift ? 'CHANGED ' : 'unchanged ') + localV + ' → ' + report.gameV.upstream);
     }
+  }
+
+  // keep the verbatim-upstream frame's static script list in lockstep (../js/ prefix only)
+  if (!flag('dry') && !flag('check')) {
+    try {
+      const ui = await syncUpstreamIndex(jsDir, join(siteDir, 'upstream', 'index.html'));
+      if (ui.changed) console.log('[sync-scripts] upstream/index.html scripts regenerated (' + ui.scripts + ')');
+    } catch (e) { console.warn('[sync-scripts] upstream/index.html not updated: ' + e.message); }
   }
 
   // --check is the CI gate: upstream moved but we did not (or could not) write

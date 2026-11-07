@@ -38,16 +38,34 @@
     const GID = o.gameId || '';
     // kv is kept in the host's own localStorage unless you provide a backend
     const KV_PREFIX = 'theseed.host.kv.';
+    const OLD_PREFIX = 'theseed.kv.'; // pre-iframe direct-shim saves: migrate on read, never delete old
     // A page that HAS a dzmm session can forward kv to the real API instead of
     // localStorage (o.kvFetch).  That is the whole point of the iframe route: the
     // host runs the request from its own origin with its own cookies, so the
     // no-CORS / SameSite=Lax problem that blocks a direct fetch never applies.
     //   kvFetch: async ({ op:'get'|'put'|'delete'|'list', key, value, prefix }) => result
     const backend = o.kvFetch || null;
-    const kvGet = (k) => { try { return localStorage.getItem(KV_PREFIX + k); } catch (e) { return null; } };
+    function migrateKey(k) {
+      try {
+        if (localStorage.getItem(KV_PREFIX + k) !== null) return;
+        const oldv = localStorage.getItem(OLD_PREFIX + k);
+        if (oldv !== null) localStorage.setItem(KV_PREFIX + k, oldv);
+      } catch (e) { }
+    }
+    const kvGet = (k) => { try { migrateKey(k); return localStorage.getItem(KV_PREFIX + k); } catch (e) { return null; } };
     const kvSet = (k, v) => { try { localStorage.setItem(KV_PREFIX + k, v); } catch (e) { } };
     const kvDel = (k) => { try { localStorage.removeItem(KV_PREFIX + k); } catch (e) { } };
-    const kvKeys = () => { const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(KV_PREFIX)) out.push(k.slice(KV_PREFIX.length)); } } catch (e) { } return out; };
+    const kvKeys = () => {
+      const out = new Set();
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(KV_PREFIX)) out.add(k.slice(KV_PREFIX.length));
+          else if (k && k.startsWith(OLD_PREFIX)) out.add(k.slice(OLD_PREFIX.length));
+        }
+      } catch (e) { }
+      return [...out];
+    };
 
     // ---- the request table: method name -> async (params) => result ----------
     // Every method the game calls goes through here.  Unknown methods answer with
@@ -75,7 +93,17 @@
         const limit = p.limit || 20;
         return { keys: keys.slice(0, limit), cursor: keys.length > limit ? String(limit) : null };
       },
-      'kv.batchGet': async (p) => { const out = {}; for (const k of (p.keys || []).slice(0, 10)) { const raw = kvGet(k); out[k] = raw === null ? null : { value: JSON.parse(raw) }; } return out; },
+      'kv.batchGet': async (p) => {
+        if (backend) { try { return await backend({ op: 'batchGet', keys: p.keys || [] }); } catch (e) { console.warn('[dzmm-host] backend batchGet failed, local fallback', e); } }
+        const out = {};
+        for (const k of (p.keys || [])) {
+          const raw = kvGet(k);
+          if (raw === null) { out[k] = null; continue; }
+          try { out[k] = { value: JSON.parse(raw), updated_at: null }; }
+          catch (e) { out[k] = { value: raw, updated_at: null }; }
+        }
+        return out;
+      },
       'kv.batchPut': async (p) => { for (const [k, v] of Object.entries(p.entries || {})) kvSet(k, JSON.stringify(v)); return { ok: true }; },
       // identity: never invented
       'user.info': async () => (o.user ? o.user : { id: null, name: null, avatarUrl: null, token: null, environment: 'prod' }),
