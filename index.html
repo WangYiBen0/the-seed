@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>[TheSeed]</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23050506'/%3E%3Cellipse cx='8' cy='9' rx='4.2' ry='5' fill='%238a1820'/%3E%3Cellipse cx='8' cy='9' rx='2.4' ry='3.4' fill='%23e0483e'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="[TheSeed] 非官方离线镜像 — unofficial offline mirror. Game by its author on dzmm.ai; this page only mirrors it and adds tools.">
+<style>
+  html,body{margin:0;height:100vh;height:100dvh;background:#050506;overflow:hidden;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#e8e1d3}
+  /* the game owns the screen, exactly like the official host page */
+  #stage{position:fixed;inset:0}
+  #stage iframe{border:0;width:100%;height:100%;display:block;background:#050506}
+  /* toolbar: same idea as the official page's chrome, only for OUR tools */
+  #bar{position:fixed;top:0;left:0;right:0;height:34px;display:none;align-items:center;gap:10px;
+    padding:0 10px;background:#0b0a09e8;border-bottom:1px solid #2d2925;z-index:40;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  #bar.on{display:flex}
+  #bar .brand{color:#efb94a;font-weight:700;letter-spacing:.04em}
+  #bar button{background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;
+    padding:3px 10px;font:11px ui-monospace,monospace;cursor:pointer}
+  #bar button:hover{border-color:#6b6257;background:#1c1916}
+  #bar button.on{background:#2a2318;border-color:#efb94a;color:#efb94a}
+  #bar .spacer{flex:1}
+  #bar .hint{color:#57534c}
+  #note{position:fixed;left:0;right:0;bottom:2px;text-align:center;
+    font:10px/1.4 "Microsoft YaHei","PingFang SC",sans-serif;color:#57534c;z-index:5;letter-spacing:.05em}
+  #note a{color:#6e675c;text-decoration:none}
+  /* the inject CTA parks ABOVE the top edge and slides out on hover.  A thin
+     hotzone keeps it reachable where there is no hover (touch): tapping the top
+     strip reveals it.  #cta:focus-within does the same for keyboard users. */
+  #ctahot{position:fixed;top:0;left:0;right:0;height:14px;z-index:59}
+  #cta{position:fixed;left:50%;top:14px;z-index:60;
+    transform:translate(-50%,-170%);
+    display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;
+    background:#12100ee8;border:1px solid #3c3732;box-shadow:0 6px 24px #000a;
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    transition:transform .18s ease,opacity .25s,visibility .25s}
+  #ctahot:hover ~ #cta, #cta:hover, #cta:focus-within{transform:translate(-50%,0)}
+  /* once the tools are in the CTA (and its hotzone) must never come back */
+  #cta.gone{opacity:0;pointer-events:none;visibility:hidden}
+  #cta .dot{width:7px;height:7px;border-radius:50%;background:#8ed872;box-shadow:0 0 8px #8ed872}
+  #cta button{background:#efb94a;color:#14110c;border:0;border-radius:999px;
+    padding:5px 14px;font:600 12px ui-monospace,monospace;cursor:pointer}
+  #cta button:hover{filter:brightness(1.08)}
+  #cta .sub{color:#8d867a;font-size:11px}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="ctahot"></div>
+
+<div id="cta">
+  <span class="dot"></span>
+  <span>游戏已就绪</span>
+  <button id="inject">注入工具</button>
+  <span class="sub">工坊 / HUD / 挂机 / 基准</span>
+</div>
+
+<div id="bar">
+  <span class="brand">[TheSeed]</span>
+  <button id="tPanel">工坊 F8</button>
+  <button id="tHud">HUD F9</button>
+  <button id="tCmd">指令台 F10</button>
+  <button id="tAuto">挂机</button>
+  <span class="spacer"></span>
+  <span class="hint" id="barHint"></span>
+  <button id="tOut">卸下工具</button>
+</div>
+
+<div id="note">非官方离线镜像 · UNOFFICIAL OFFLINE MIRROR — 游戏著作权归原作者所有（<a href="https://www.dzmm.ai/character/3738712" target="_blank" rel="noopener">官网页面</a>），本页面仅为镜像并附工具 · game © its author · not affiliated</div>
+
+<script src="dzmm-host.js"></script>
+<script>
+// The game runs in an iframe, like the official page: same-origin here, so the
+// host CAN reach into it.  Tools are NOT preloaded — the player presses 注入工具,
+// which is the only difference from the official flow (where the host injects
+// automatically).  Keeping injection explicit means a mirror page loads with no
+// autopilot attached to it.
+(function () {
+  // BE THE DZMM HOST.  The upstream page runs the REAL SDK, and the SDK's whole
+  // data channel is postMessage to its host page (kv, identity, capabilities).
+  // With nobody answering, platform.js sits in the kv-load retry loop forever and
+  // the frame is a black rectangle from the very first paint (measured
+  // 2026-11-04: canvas rgb [0,0,0] already in the intro state, zero exceptions).
+  // dzmm-host.js answers the handshake and the kv methods from this origin's
+  // localStorage; a signed-in kvFetch can later forward to the real API.
+  var dzmmHost = DzmmHost.create({});
+
+  // The frame is the VERBATIM upstream page, kept under upstream/ (only its
+  // script paths were rewritten from [TheSeed]_files/x_auz1.js to ../js/x.js, the
+  // same content).  mount() builds exactly the frame the old hand-rolled code did
+  // AND owns the handshake: it keeps the child window handle — create() alone
+  // leaves send() pointed at null, so the dzmm:ready reply silently never fired
+  // (measured: kv.get hung with the listener registered) — and posts
+  // 'dzmm:parent-ready' on load.
+  var frame = dzmmHost.mount(document.getElementById('stage'), 'upstream/index.html', { id: 'game' });
+
+  // platform.js loads the game scripts a SECOND time from 'js/…' — a relative
+  // path that only works on the official layout (index.html beside js/).  Under
+  // upstream/ every one of those 404s, its Promise.all rejects, and EMBER_START —
+  // the render-loop kick — is skipped.  Nothing is actually missing: the verbatim
+  // page's own 77 static ../js/ tags already load every one of those files
+  // (launchRun existed while the screen stayed black).  So detect the
+  // boot-failure banner and fire the loop once from here; the guard keeps a
+  // healthy boot single-started (a second rAF loop would double the game speed).
+  frame.addEventListener('load', function () {
+    setTimeout(function () {
+      try {
+        var w = frame.contentWindow, d = w.document;
+        if (d && d.body && d.body.innerHTML.indexOf('加载失败') >= 0
+            && typeof w.EMBER_START === 'function' && !w.__emberKicked) {
+          w.__emberKicked = true;
+          w.EMBER_START();
+          // the banner was painted by platform.js before the kick; the loop is
+          // alive now, so take the stale notice down instead of leaving it on
+          // screen for the whole session
+          try {
+            var ps = d.querySelectorAll('p');
+            for (var i = 0; i < ps.length; i++) if ((ps[i].textContent || '').indexOf('加载失败') >= 0) ps[i].remove();
+          } catch (e2) { }
+        }
+      } catch (e) { }
+    }, 2500);
+  });
+
+  var injected = false;
+  var cta = document.getElementById('cta');
+  var bar = document.getElementById('bar');
+  var barHint = document.getElementById('barHint');
+
+  function win() { try { return frame.contentWindow; } catch (e) { return null; } }
+  function sw() { var w = win(); try { return w && w.__TSW; } catch (e) { return null; } }
+
+  function markInjected(on) {
+    injected = on;
+    cta.classList.toggle('gone', on);
+    // the top hotzone belongs to the CTA: without this it would keep revealing a
+    // hidden CTA after injection
+    var hot = document.getElementById('ctahot');
+    if (hot) hot.style.display = on ? 'none' : '';
+    bar.classList.toggle('on', on);
+    barHint.textContent = on ? '已注入 · 快捷键 F8/F9/F10 也可用' : '';
+    for (var id of ['tPanel', 'tHud', 'tCmd', 'tAuto']) document.getElementById(id).classList.toggle('on', on);
+  }
+
+  document.getElementById('inject').onclick = function () {
+    var w = win();
+    if (!w) return;
+    // The tools are plain scripts; loading them INTO the frame is the whole
+    // "injection" — no code is copied, and no game file is touched.
+    var FILES = ['core', 'macro', 'auto', 'hud', 'bench', 'explore', 'evolve', 'cheats', 'cloud', 'cloudhost', 'panel'];
+    var i = 0;
+    (function next() {
+      if (i >= FILES.length) {
+        markInjected(true);
+        var t = sw();
+        if (t) t.log('注入完成 · ' + FILES.length + ' 个工具已挂载');
+        return;
+      }
+      var s = w.document.createElement('script');
+      // Relative to the FRAME's document (upstream/), not to the host page:
+      // a script injected into the iframe resolves src against the iframe's URL,
+      // so 'tools/x.js' would look for upstream/tools/x.js and 404.
+      s.src = '../tools/' + FILES[i] + '.js';
+      s.onload = s.onerror = function () { i++; next(); };
+      w.document.head.appendChild(s);
+    })();
+  };
+
+  function callIn(fn) {
+    var t = sw(); if (!t) return;
+    try { fn(t, win()); } catch (e) { console.warn('[host]', e); }
+  }
+  document.getElementById('tPanel').onclick = function () { callIn(function (t, w) { if (t.panel && t.panel.toggle) t.panel.toggle(); }); };
+  document.getElementById('tHud').onclick = function () { callIn(function (t) { if (t.hud && t.hud.toggle) t.hud.toggle(); }); };
+  document.getElementById('tCmd').onclick = function () { callIn(function (t) { if (t.cmdWin) t.cmdWin.toggle(); }); };
+  document.getElementById('tAuto').onclick = function () {
+    callIn(function (t, w) {
+      var m = t.auto.mode === 'full' ? 'off' : 'full';
+      t.auto.setMode(m);
+      document.getElementById('tAuto').textContent = m === 'full' ? '停止挂机' : '挂机';
+    });
+  };
+  document.getElementById('tOut').onclick = function () {
+    // reload the frame: the cleanest way to remove every injected tool
+    frame.src = frame.src.split('#')[0];
+    markInjected(false);
+    document.getElementById('tAuto').textContent = '挂机';
+  };
+
+  // The frame may finish loading after a reload; keep the CTA visible until a
+  // real injection happened, so pressing it on an unloaded frame is harmless.
+  frame.addEventListener('load', function () { if (!injected) markInjected(false); });
+})();
+</script>
+</body>
+</html>
