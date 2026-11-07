@@ -2912,8 +2912,58 @@
                 // the room left the coordinate path free to re-select the same point.
                 benchFor(tgt.pt, 45);
                 if (tgt.room) benchFor(tgt.room, 45);
+                // Also bench the nearest stale G.inter item to this target point:
+                // the sweep filters on unreachable(it) (object identity) AND on
+                // unreachable([it.x,it.y]).  Benching only tgt.pt misses when the
+                // objective and the actual inter entry use different coordinates or
+                // when the sweep re-derives the point from the item.
+                // Measured 2026-11-07 (new upstream): 51-165s parked 1px from the
+                // target while inter=10-15 — the point was benched but re-picked
+                // because the bench didn't cover the item's identity/path in effect.
+                try {
+                  let bestIt = null, bd2 = 80;
+                  for (const it2 of (G.inter || [])) {
+                    if (it2.used) continue;
+                    const d2 = Math.hypot((it2.x || 0) - tgt.pt[0], (it2.y || 0) - tgt.pt[1]);
+                    if (d2 < bd2) { bd2 = d2; bestIt = it2; }
+                  }
+                  if (bestIt) { benchFor(bestIt, 45); benchFor([bestIt.x, bestIt.y], 45); }
+                } catch (e) { }
+                // Escalate: if we keep arriving at a stale point, the 45s bench is not
+                // enough because the objective cache and/or a different code path
+                // re-selects it.  Mark as deadPoint (5 min, checked by cache) and
+                // invalidate the cache so the next tick re-picks immediately.
+                try {
+                  A._staleHits = A._staleHits || {};
+                  const sk = Math.round(tgt.pt[0]) + ',' + Math.round(tgt.pt[1]);
+                  A._staleHits[sk] = (A._staleHits[sk] | 0) + 1;
+                  if (A._staleHits[sk] >= 3) {
+                    A._deadPoint = A._deadPoint || {};
+                    A._deadPoint[sk] = (window.__achroma && __achroma.G ? __achroma.G.time : 0) + 300;
+                    if (tgt.room) { A._skipRoom = A._skipRoom || {}; A._skipRoom[tgt.room.id] = (window.__achroma && __achroma.G ? __achroma.G.time : 0) + 120; }
+                  }
+                } catch (e) { }
+                if (A._objCache) A._objCache.t = 0;  // force immediate re-pick
                 mx = 0; my = 0; A.status.note = '空目标点：放弃';
-              } else { mx = 0; my = 0; A.status.note = '已到目标点'; }
+              } else {
+                // Something is nearby but we may be just outside interaction range
+                // (interaction checks d<=24, nearAny checks d<28).  Nudge toward the
+                // nearest unused interactable so we don't park 2-4px short forever.
+                // Measured 2026-11-07: seed 7/11/5 idled 51-165s at "空目标点：放弃"
+                // 1px from tpt with inter items present but no interaction triggered.
+                let bestD = 1e9, bx = 0, by = 0, bkind = '';
+                for (const it2 of (G.inter || [])) {
+                  if (it2.used) continue;
+                  const d2 = Math.hypot((it2.x || 0) - p.x, (it2.y || 0) - p.y);
+                  if (d2 < bestD) { bestD = d2; bx = (it2.x || 0) - p.x; by = (it2.y || 0) - p.y; bkind = it2.kind || ''; }
+                }
+                if (bestD < 60 && bestD > 3) {
+                  const ol2 = Math.max(1, Math.hypot(bx, by));
+                  const k2 = Math.min(1, bestD / 8);
+                  mx = (bx / ol2) * k2; my = (by / ol2) * k2;
+                  A.status.note = '靠近交互：' + bkind;
+                } else { mx = 0; my = 0; A.status.note = '已到目标点'; }
+              }
             }
           }
           // stuck on this objective? bench it for a while so the run keeps moving
@@ -3141,7 +3191,15 @@
     // cleared (world.js:61, game.js:208).  `r.key` is a public field, so we can
     // route straight at it instead of hoping to stumble on it — this shortens the
     // unlock chain deterministically (see docs/benchmark.md §89).
+    // Target the ACTUAL key interactable when it exists: the key spawns at
+    // cx+(orb?26:0),cy (game.js:208), not at room center, and room-center can be
+    // blocked or offset — measured 2026-11-07: the bot parked at room center for
+    // 51s reporting "空目标点：放弃" while the key sat elsewhere in the room.
     if (A.opts.keyRoomFirst !== false && WORLD.bossLocked && !G.hasKey) {
+      const keyIt = (G.inter || []).find((it) => it.kind === 'key' && !it.used);
+      if (keyIt && !unreachable(keyIt) && !unreachable([keyIt.x, keyIt.y])) {
+        return { pt: [keyIt.x, keyIt.y], label: 'key', room: roomAt(keyIt.x, keyIt.y) };
+      }
       for (const r of rooms) {
         if (!r.key || r.cleared || unreachable(r)) continue;
         return { pt: [r.cx * 16 + 8, r.cy * 16 + 8], label: 'keyroom', room: r };
