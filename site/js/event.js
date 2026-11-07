@@ -6,19 +6,21 @@
 'use strict';
 // ev3: before 2026-11-01 0:00 GMT+8 the server clears 突入探索 on despair with at least one modifier 500 times; each player then claims
 // 30 embers, and the arsenal room (choose any weapon in a run) joins every player's floors once the goal is reached
-const EVC = { id: 'ev3', goal: 500, goalX: 500, goalI: 0, end: Date.UTC(2026, 9, 31, 15, 59, 59, 999), reward: 30, unlock: 'arsenal' }; // the same numbers as functions/event.js
+// closed (v149): ev3 is over and taken down. No menu card, camp stand or event page, and runs are no longer sent. One quiet status
+// call per session still opens the arsenal (gp.unlocks.arsenal) if the server says the goal was reached. A new event: a new id, closed: false.
+const EVC = { id: 'ev3', goal: 500, goalX: 500, goalI: 0, end: Date.UTC(2026, 9, 31, 15, 59, 59, 999), reward: 30, unlock: 'arsenal', closed: true }; // the same numbers as functions/event.js
 const EV_MAT = { easy: 1, classic: 1, hard: 1, nightmare: 1, despair: 1 }; // each clear counts once, on any difficulty
 const EV = { d: null, err: false, busy: false, next: 0, skew: 0, day: -1, claiming: false, hits: [], t: 0, flash: null };
 const evOn = () => ONDZ() && PLAT.caps.fn !== false;
 const evNow = () => Date.now() + EV.skew; // the server's clock once we have heard from it
 const evDay = ms => Math.floor((ms + 8 * 3600e3) / 86400e3);
-const evOpen = () => evNow() <= EVC.end;
+const evOpen = () => !EVC.closed && evNow() <= EVC.end;
 const evX = () => EV.d ? EV.d.x | 0 : 0, evI = () => EV.d ? EV.d.i | 0 : 0, evTotal = () => evX() + evI();
 const evGoal = kind => { const key = kind === 'i' ? 'goalI' : 'goalX', n = EV.d && EV.d[key]; return Number.isSafeInteger(n) && n >= 0 && EV.d ? n : EVC[key]; };
 const evKinds = () => ['x', 'i'].filter(k => evGoal(k) > 0); // the counters this event shows
 const evDone = () => evX() >= evGoal('x') && evI() >= evGoal('i');
 const evClaimedHere = () => !!((gpLoad().ev || {})[EVC.id]);
-const evHidden = () => evDone() && evClaimedHere();
+const evHidden = () => !!EVC.closed || (evDone() && evClaimedHere());
 // which counter a settled run adds to: 'x' a cleared (or endless) 突入探索 run, 'i' a cleared 入侵抵抗 run
 // this event: only a cleared (or endless) 突入探索 run on despair that carried at least one modifier counts
 function evKind(R) { if (!R || R.mode === 'invade' || R.diff !== 'despair' || !(R.win || R.endless)) return ''; const mods = R.modifiers || (G && G.result === R ? G.modifiers : null); return Array.isArray(mods) && mods.length ? 'x' : ''; }
@@ -48,20 +50,23 @@ function evStatus() {
     .catch(() => { EV.err = true; }).finally(() => { EV.busy = false; EV.next = performance.now() + (MENU.page === 'event' ? 20e3 : 60e3); EV.day = evDay(evNow()); });
 }
 // called every frame on the main menu and the event page: asks again every 60 s (20 s on the event page) and right after 0:00 GMT+8
-function evTick() { if (!evOn() || EV.busy) return; if (performance.now() >= EV.next || evDay(evNow()) !== EV.day) evStatus(); }
+function evTick() { if (!evOn() || EV.busy) return;
+  if (EVC.closed) { if (!EV.d && !EV.err && !(gpLoad().unlocks || {})[EVC.unlock]) evStatus(); return; } // closed: one quiet check for the arsenal
+  if (performance.now() >= EV.next || evDay(evNow()) !== EV.day) evStatus(); }
 
 // ---- contributing: when a cleared run is settled. Queued first and sent until the server has it, like score uploads ----
 const EV_PEND = 'achroma_evpend';
 function evPendGet() { try { const a = JSON.parse(STORE.getItem(EV_PEND) || '[]'); return Array.isArray(a) ? a.filter(r => r && typeof r === 'object' && typeof r.rid === 'string' && r.rid && (r.kind === 'x' || r.kind === 'i')) : []; } catch (e) { return []; } }
 function evPendSet(a) { try { STORE.setItem(EV_PEND, JSON.stringify(a)); } catch (e) { } }
 function evContribute(R) {
-  if (!R || (window.BOSS_TEST && BOSS_TEST.on)) return; const kind = evKind(R); if (!kind) return;
+  if (!R || EVC.closed || (window.BOSS_TEST && BOSS_TEST.on)) return; const kind = evKind(R); if (!kind) return;
   if (!evOpen()) { R.ev = { st: 'ended', amt: 1 }; return; }
   R.ev = { st: 'up', amt: 1 }; const a = evPendGet(); if (!a.some(x => x.rid === R.rid)) { a.push({ rid: R.rid, kind }); evPendSet(a); }
   if (!NET.user) { R.ev = { st: 'login', amt: 1 }; return; }
   evFlush(R);
 }
 function evFlush(R) {
+  if (EVC.closed) { if (evPendGet().length) evPendSet([]); return; } // the event is over: drop runs still queued for it
   if (!evOn() || !NET.user || EV.flushing) return; const a = evPendGet(); if (!a.length) return; const it = a[0]; EV.flushing = true;
   const mine = R && R.rid === it.rid ? R : (G.result && G.result.rid === it.rid ? G.result : null);
   fnCall('event', 'add', it).then(r => {

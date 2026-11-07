@@ -83,45 +83,81 @@ async function main() {
   }
   const baseUrl = base.endsWith('/') ? base : base + '/';
 
-  const platformLocal = await readFile(join(jsDir, 'platform.js'), 'utf8');
-  const localV = parseGameV(platformLocal);
-  const localScripts = parseGameScripts(platformLocal);
-  const local = await readdir(jsDir);
-  const wanted = planFiles({ scripts: localScripts, local });
-
   const report = {
     base: baseUrl,
-    gameV: { local: localV, upstream: null },
-    files: { planned: wanted.length, identical: 0, changed: [], missing: [], stale: [] },
+    gameV: { local: parseGameV(await readFile(join(jsDir, 'platform.js'), 'utf8')), upstream: null },
+    files: { planned: 0, identical: 0, changed: [], missing: [], stale: [] },
   };
 
-  for (const name of wanted) {
-    const url = baseUrl + 'js/' + name;
-    let rsp;
-    try {
-      rsp = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 theseed-mirror-sync' } });
-    } catch (e) {
-      report.files.missing.push({ name, why: String(e.message || e) });
-      continue;
+  // ONE PASS IS NOT ENOUGH.  platform.js is itself one of the fetched files AND it
+  // carries the list of scripts to fetch (parseGameScripts), so updating it changes
+  // what the next pass should ask for.  Measured on 2026-11-07 (run 42338839222):
+  // pass 1 planned 77, wrote 8 changed files including platform.js, then --check
+  // re-planned and found 79 — boss4.js and weapons4.js had appeared in the new
+  // list and had never been fetched — so the gate failed on drift the same run had
+  // just introduced, every time upstream touched that list.  Iterate until
+  // platform.js stops changing (bounded, so a flapping upstream cannot spin).
+  const MAX_PASSES = 4;
+  const changedAll = [];
+  const missingAll = new Map();          // name -> why (dedupe across passes)
+  let passes = 0, local = [], wanted = [], converged = false;
+  for (;;) {
+    passes++;
+    const platformLocal = await readFile(join(jsDir, 'platform.js'), 'utf8');
+    report.gameV.local = parseGameV(platformLocal);
+    const localScripts = parseGameScripts(platformLocal);
+    local = await readdir(jsDir);
+    wanted = planFiles({ scripts: localScripts, local });
+    report.files.planned = wanted.length;
+
+    let wrotePlatform = false, wroteAny = false, identicalThisPass = 0;
+    for (const name of wanted) {
+      const url = baseUrl + 'js/' + name;
+      let rsp;
+      try {
+        rsp = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 theseed-mirror-sync' } });
+      } catch (e) {
+        missingAll.set(name, String(e.message || e));
+        continue;
+      }
+      if (rsp.status !== 200) { missingAll.set(name, 'HTTP ' + rsp.status); continue; }
+
+      const body = Buffer.from(await rsp.arrayBuffer());
+      if (name === 'platform.js') report.gameV.upstream = parseGameV(body.toString('utf8'));
+
+      const dst = join(jsDir, name);
+      if (existsSync(dst) && sha(await readFile(dst)) === sha(body)) { identicalThisPass++; continue; }
+
+      // One entry per file, even if a later pass sees it again.
+      if (!changedAll.some((c) => c.name === name)) {
+        changedAll.push({ name, bytes: body.length, sha256: sha(body).slice(0, 16) });
+      }
+      if (name === 'platform.js') wrotePlatform = true;
+      wroteAny = true;
+      if (flag('dry') || flag('check')) continue;
+      await writeFile(dst, body);
     }
-    if (rsp.status !== 200) { report.files.missing.push({ name, why: 'HTTP ' + rsp.status }); continue; }
+    // identical is a property of the LAST pass, not a running total, or a three-pass
+    // convergence would report more identical files than the plan contains.
+    report.files.identical = identicalThisPass;
 
-    const body = Buffer.from(await rsp.arrayBuffer());
-    if (name === 'platform.js') report.gameV.upstream = parseGameV(body.toString('utf8'));
-
-    const dst = join(jsDir, name);
-    if (existsSync(dst) && sha(await readFile(dst)) === sha(body)) { report.files.identical++; continue; }
-
-    report.files.changed.push({ name, bytes: body.length, sha256: sha(body).slice(0, 16) });
-    if (flag('dry') || flag('check')) continue;
-    await writeFile(dst, body);
+    // In dry/check mode nothing is written, so there is no second pass to converge.
+    if (flag('dry') || flag('check')) break;
+    if (!wrotePlatform) { converged = true; break; }   // the fetch list is now stable
+    if (!wroteAny) { converged = true; break; }
+    if (passes >= MAX_PASSES) break;                  // bounded
   }
+  report.files.changed = changedAll;
+  report.files.missing = [...missingAll.entries()].map(([name, why]) => ({ name, why }));
+  report.passes = passes;
+  report.converged = flag('dry') || flag('check') ? null : converged;
 
     // an upstream script that vanished is NOT deleted, only reported
   for (const name of local.filter((f) => f.endsWith('.js'))) {
     if (!wanted.includes(name)) report.files.stale.push(name);
   }
 
+  const localV = report.gameV.local;
   const vDrift = report.gameV.upstream && localV !== report.gameV.upstream;
   const failed = report.files.missing.length > 0;
 

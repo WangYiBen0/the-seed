@@ -315,7 +315,7 @@ function loadSave() { try {
   s.campPick = Object.hasOwn(SURV, s.campPick) ? s.campPick : null;
   s.squad = s.squad.filter((m, i, a) => a.findIndex(n => n.id === m.id) === i);
   s.buffs = { resolve: !!(s.buffs && s.buffs.resolve), adren: !!(s.buffs && s.buffs.adren) };
-  s.bossPick = s.bossPick && typeof s.bossPick === 'object' ? { alt: !!s.bossPick.alt, v: !!s.bossPick.v } : null;
+  s.bossPick = s.bossPick && typeof s.bossPick === 'object' ? { alt: !!s.bossPick.alt, v: !!s.bossPick.v, n: !!s.bossPick.n } : null;
   s.transition = s.transition && Number.isInteger(s.transition.floor) && FLOORS[s.transition.floor] ? { floor: s.transition.floor, curseDone: !!s.transition.curseDone } : null;
   return s;
 } catch (e) { return null; } }

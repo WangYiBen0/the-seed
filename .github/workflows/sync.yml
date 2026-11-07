@@ -2,7 +2,7 @@ name: sync upstream
 
 # Keep the mirror in step with the live game.
 #
-#   schedule  ── every 6 hours, plus manual dispatch
+#   schedule  ── once a day, plus manual dispatch (and any push to a watched path)
 #   metadata  ── sign in with DZMM_SIGN_IN_CODE, read gameId/publishedAt
 #   scripts   ── scripts/sync-scripts.mjs rewrites site/js/ from the same base
 #                (byte-identical; measured 77/77 on 2026-11-01)
@@ -23,7 +23,12 @@ name: sync upstream
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    # Once a day.  Was every 6 hours, which was never needed: upstream publishes
+    # a new build rarely, and a missed poll only costs one news cycle.  Requested
+    # by the user on 2026-11-07 ("1 rpd is enough").  01:20 UTC = 09:20 Beijing.
+    # NOTE: scheduled runs also fire on every push to the watched paths below;
+    # this cron is the floor, not the only trigger.
+    - cron: "20 1 * * *"
   workflow_dispatch:
   push:
     branches: [main]

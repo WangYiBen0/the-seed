@@ -114,7 +114,7 @@ function cxEnemies() {
   if (CX.elist) return CX.elist; const out = [];
   for (const id of CX_FOES) if (ESPR[id] && (EINFO[id] || ETYPES[id].info)) { const inf = () => EINFO[id] || ETYPES[id].info; out.push({ k: 'e:' + id, kind: ETYPES[id].special ? 'special' : 'foe', id, n: () => tr(inf()[0]), d: () => tr(inf()[1]), hp: ETYPES[id].hp }); }
   for (const f of CHAMPS) for (const c of f) out.push({ k: 'e:' + c.id, kind: 'champ', id: c.id, n: () => tr(c.n), d: () => EINFO[c.id] ? tr(EINFO[c.id][1]) : '', hp: c.hp });
-  const bs = [...BOSSES.slice(0, 5).map((d, i) => ({ d, look: i })), ...(typeof BOSSES_ALT !== 'undefined' ? BOSSES_ALT.map(d => ({ d, look: d.look })) : [])];
+  const bs = [...BOSSES.slice(0, 5).map((d, i) => ({ d, look: i })), ...(typeof BOSSES_ALT !== 'undefined' ? BOSSES_ALT.map(d => ({ d, look: d.look })) : []), ...(typeof BOSSES_NEW !== 'undefined' ? BOSSES_NEW.map(d => ({ d, look: d.look })) : [])];
   for (const { d, look } of bs) out.push({ k: 'b:' + d.key, kind: 'boss', id: d.key, def: d, look, n: () => tr(d.name), d: () => BINFO[d.key] ? tr(BINFO[d.key]) : '', hp: d.hp });
   return CX.elist = out;
 }

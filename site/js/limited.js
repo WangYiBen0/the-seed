@@ -20,7 +20,8 @@ Object.assign(STR, {
 });
 const ltOnline = () => ONDZ() && !NET.off && PLAT.caps.fn !== false;
 const ltNow = () => LT.d ? LT.serverAt + Math.max(0, performance.now() - LT.anchor) : Date.now();
-const ltHidden = () => !!(LT.d && ltNow() >= LT.d.hideAt);
+// without the server's answer (offline, or the call failed) the card still goes once the 48-hour showcase is over by the local clock
+const ltHidden = () => LT.d ? ltNow() >= LT.d.hideAt : Date.now() >= LTC.end + 48 * 3600e3;
 const ltPhase = () => LT.d?.fullAt ? 'full' : ltNow() >= (LT.d?.end || LTC.end) ? 'ended' : 'open';
 const ltOwnsTitle = () => !!(NET.user && LT.ownerUid === NET.user.uid && LT.d?.mine);
 function ltApply(r) {

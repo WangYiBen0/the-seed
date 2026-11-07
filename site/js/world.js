@@ -171,14 +171,14 @@ function decorateRoom(Wd, r, set, get) {
 }
 // boss arenas (25x19): one quarter of each layout, mirrored into all four; [floor][alt]: the 5 bosses and their alternates
 const BOSS_COVER = [
-  [[[6, 4], [7, 4], [7, 5]], [[5, 3], [6, 3], [8, 6], [9, 6]]],                                     // L corners / short bars
-  [[[4, 5], [8, 3], [9, 6]], [[6, 4], [7, 4], [6, 5], [7, 5]]],                                     // scattered posts / 2x2 blocks
-  [[[3, 3], [5, 6], [8, 2], [9, 5]], [[7, 2], [7, 3], [7, 4], [3, 6], [4, 6]]],                      // staggered posts / walls and a ledge
-  [[[5, 4], [6, 4], [7, 4], [6, 3], [6, 5]], [[4, 3], [5, 3], [6, 3], [7, 6], [8, 6], [9, 6]]],     // plus-shaped piers / shelf rows
-  [[[3, 5], [6, 6], [9, 4], [8, 2]], [[4, 4], [5, 4], [4, 5], [5, 5], [9, 2]]],                      // a wide ring of posts / blocks and posts
+  [[[6, 4], [7, 4], [7, 5]], [[5, 3], [6, 3], [8, 6], [9, 6]], [[4, 2], [4, 3], [8, 5], [9, 5]]],    // L corners / short bars / staggered bars
+  [[[4, 5], [8, 3], [9, 6]], [[6, 4], [7, 4], [6, 5], [7, 5]], [[3, 4], [7, 2], [9, 6]]],            // scattered posts / 2x2 blocks / lamp posts
+  [[[3, 3], [5, 6], [8, 2], [9, 5]], [[7, 2], [7, 3], [7, 4], [3, 6], [4, 6]], [[5, 2], [5, 6], [9, 4]]], // staggered posts / walls and a ledge / sparse posts
+  [[[5, 4], [6, 4], [7, 4], [6, 3], [6, 5]], [[4, 3], [5, 3], [6, 3], [7, 6], [8, 6], [9, 6]], [[3, 3], [4, 3], [8, 2], [8, 6], [9, 6]]], // plus piers / shelf rows / barricades
+  [[[3, 5], [6, 6], [9, 4], [8, 2]], [[4, 4], [5, 4], [4, 5], [5, 5], [9, 2]], [[3, 3], [6, 6], [9, 2], [9, 5]]], // a ring of posts / blocks and posts / a wider ring
 ];
 function decorateBoss(Wd, r, set) {
-  const fi = clamp(Wd.fi | 0, 0, BOSS_COVER.length - 1), alt = !!(typeof G !== 'undefined' && G && G.bossPick && G.bossPick.alt), q = BOSS_COVER[fi][alt ? 1 : 0];
+  const fi = clamp(Wd.fi | 0, 0, BOSS_COVER.length - 1), pk = typeof G !== 'undefined' && G && G.bossPick || {}, q = BOSS_COVER[fi][pk.n ? 2 : pk.alt ? 1 : 0];
   const ok = (x, y) => Math.abs(x - r.cx) > 1 && Math.abs(y - r.cy) > 1 && x > r.x0 + 1 && x < r.x0 + r.w - 2 && y > r.y0 + 1 && y < r.y0 + r.h - 2 && Wd.tiles[y * Wd.w + x] === TL.FLOOR;
   for (const [dx, dy] of q) for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const x = r.cx + sx * dx, y = r.cy + sy * dy; if (ok(x, y)) set(x, y, TL.WALL); }
 }

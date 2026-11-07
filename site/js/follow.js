@@ -226,7 +226,7 @@ function drawGirlEquip(id, d, I, c, x, y, w) {
 const ANN = { open: false, t: 0, top: 0, drag: null, hit: null };
 // this notice's gift: 20 embers for everyone, once (gp.gifts), handed over when the notice is closed
 const ANN_GIFT = { id: 'v127', n: 20, on: false };   // the v127 gift is over; set on: true (and a new id) to hand out another
-const ANN_ID = 'n147';                                 // a new id shows the notice again to players who chose not to see it
+const ANN_ID = 'n149';                               // a new id shows the notice again to players who chose not to see it
 Object.assign(STR, { ann_gift: ['UPDATE GIFT: {0} EMBERS (GIVEN WHEN YOU CLOSE THIS NOTICE)', '更新補償：{0} 火種（關閉公告時發放）', 'アップデート補償：火種{0}（閉じると受け取り）', '更新补偿：{0} 火种（关闭公告时发放）'],
   ann_got: ['UPDATE GIFT: {0} EMBERS RECEIVED', '更新補償：已領取 {0} 火種', 'アップデート補償：火種{0}受け取り済み', '更新补偿：已领取 {0} 火种'],
   ann_claim: ['CLAIM {0}', '領取 {0} 火種', '{0}受け取る', '领取 {0} 火种'], ann_toast: ['+{0} EMBERS: UPDATE GIFT', '+{0} 火種：更新補償', '+{0} 火種：アップデート補償', '+{0} 火种：更新补偿'] });
@@ -235,9 +235,25 @@ function annClaim() { if (annGot()) return; const gp = gpLoad(); gp.gifts = gp.g
   NET.toast = { txt: L('ann_toast', ANN_GIFT.n), c: TH.gold, t: 0 }; AU.play('chipGet'); }
 // the notice is laid out in parts: a lead paragraph, sections with a heading, and update items (a coloured mark, a white title, grey details)
 const ANN_DOC = [
-  { k: 'h', s: IZ('IN THIS UPDATE', '本次更新') },
-  { k: 'i', c: () => '#c89aff', t: IZ('Experimental serum Ω', '实验血清Ω调整'), s: IZ('Its drawback is now: for the next 3 fights armor regenerates at half speed (it used to forbid dashing). After that, maximum armor +1 for the run, as before.', '副作用改为：接下来 3 次战斗内护甲回复效率减半（原为无法冲刺）。3 次战斗后护甲上限永久 +1，与之前相同。') },
-  { k: 'i', c: () => TH.gold, t: IZ('Getting the Overclock! chip', 'Overclock! 技能芯片获取方式'), s: IZ('The last event was not completed, so Overclock! is now sold in the black market supplies for 10 embers. Once bought it appears in the chip choices of every run.', '上次限时活动未完成，Overclock! 技能芯片现已在黑市补给道具中出售，价格 10 火种。购买后会进入局内的芯片池。') },
+  { k: 'h', s: IZ('10 NEW WEAPONS', '新增 10 种武器') },
+  { k: 'p', s: IZ('They drop in 突入探索 from now on, no unlocking needed, and can be chosen at the arsenal.', '已加入突入探索的武器掉落，无需解锁；军械库中也可以自选。') },
+  { k: 'i', c: () => '#c9d0d4', t: IZ('Slingshot', '钢珠弹弓'), s: IZ('The ball bounces on to the next foe, up to 4 times; each bounce hits 15% harder.', '钢珠命中后弹向下一个敌人，最多弹跳 4 次，每弹一次伤害 +15%。') },
+  { k: 'i', c: () => '#e0565b', t: IZ('Scalpels', '手术刀'), s: IZ('Two per throw. Every hit adds a bleed; at 5 stacks the wound haemorrhages for 3.5x damage.', '一次掷出两把，命中叠加流血；叠满 5 层时大出血，造成 3.5 倍伤害。') },
+  { k: 'i', c: () => '#a89a7a', t: IZ('Caltrops', '蒺藜'), s: IZ('Scatters 6 caltrops at the crosshair for 6 s; foes walking over them are hurt and slowed.', '在准星附近撒下 6 枚蒺藜，持续 6 秒，踩到的敌人受伤并减速。') },
+  { k: 'i', c: () => '#9a7aff', t: IZ('Singularity', '奇点手雷'), s: IZ('Opens a gravity well for 1.6 s that drags foes in, then collapses in a blast.', '张开 1.6 秒重力井把周围敌人拖向中心，随后坍缩爆炸。') },
+  { k: 'i', c: () => '#ff8a3d', t: IZ('Remote charges', '遥控炸药'), s: IZ('Each shot plants a charge (up to 3); the next shot detonates them all at 150%. Charges go off by themselves after 9 s.', '每次射击埋下一枚炸药（最多 3 枚），下一发将它们全部引爆，伤害 150%；9 秒后会自行引爆。') },
+  { k: 'i', c: () => '#7ef0ff', t: IZ('Prism gun', '棱镜枪'), s: IZ('The beam splits into red, green and cyan beams at the first foe it hits, 60% damage each.', '光束在命中的第一个敌人处分裂成红、绿、青三道光束，每道 60% 伤害。') },
+  { k: 'i', c: () => '#ff4a5a', t: IZ('Tripwire', '绊线枪'), s: IZ('Fires anchors; each new anchor is linked to the last by a laser wire that keeps cutting foes (7 s, up to 4 anchors).', '射出锚点，相邻锚点之间连成激光绊线，持续切割经过的敌人（持续 7 秒，最多 4 个锚点）。') },
+  { k: 'i', c: () => '#9fd8ff', t: IZ('Bubble gun', '泡泡枪'), s: IZ('Traps the first foe it touches for 1.5 s, then pops for double damage. Bosses and champions pop it at once.', '泡泡把碰到的第一个敌人困住 1.5 秒，破裂时造成双倍伤害；首领与冠军碰到会立刻破裂。') },
+  { k: 'i', c: () => '#b6f0c8', t: IZ('Crystal seeder', '结晶播种器'), s: IZ('Fires a seed; where it strikes, 6 crystal spikes burst out a moment later.', '射出结晶种子，命中处片刻后迸出 6 根结晶尖刺。') },
+  { k: 'i', c: () => '#d0a050', t: IZ('Pile driver (melee)', '打桩枪（近战）'), s: IZ('A short piston stab; the shock carries through the first foe into everything in a cone behind it (60%).', '短距离活塞突刺，冲击穿透第一个敌人，命中其身后扇形范围内的所有敌人（60% 伤害）。') },
+  { k: 'h', s: IZ('5 NEW BOSSES', '新增 5 位 BOSS') },
+  { k: 'p', s: IZ('Every floor has one more boss. On floors 1-4 each of the three bosses comes one time in three; on floor 5 it is the Absence or the Progenitor, half and half. Each new boss has its own arena cover and a variant; all are in the codex.', '每层 Boss 战新增一位可能遇到的 Boss：第 1-4 层三位 Boss 各有 1/3 概率出现；第 5 层在缺席与始祖之间各 50%。新 Boss 拥有专属的掩体布局和变种，可在图鉴中查看。') },
+  { k: 'i', c: () => '#b08a5a', t: IZ('Floor 1 · The Scrap Colossus', '第 1 层 · 废铁巨像'), s: IZ('A heap of cars and cranes: charges down lanes, hurls scrap, spins, pulls you in with a magnet and splits the arena with quakes.', '由汽车与吊臂堆成的巨像：沿路线冲撞、抛掷废铁、旋转横扫、磁力牵引，还会震裂半边场地。') },
+  { k: 'i', c: () => '#ffd27a', t: IZ('Floor 2 · The Lamplighter', '第 2 层 · 提灯人'), s: IZ('Only the lanterns’ light is safe. Beams, homing moths, flickering tiles and burning wicks.', '只有灯笼的光圈里是安全的。光束扫射、追踪飞蛾、明暗格闪烁、灯芯点燃。') },
+  { k: 'i', c: () => '#8ed872', t: IZ('Floor 3 · The Mother Culture', '第 3 层 · 母体培养皿'), s: IZ('Blooms spread over the floor, rows erupt one after another, tendrils lash out, broods hatch and spores drift.', '菌斑在地面蔓延、成排孢子依次喷发、触须横扫、孵化幼体并释放孢子云。') },
+  { k: 'i', c: () => '#e8c040', t: IZ('Floor 4 · The Quarantine Warden', '第 4 层 · 隔离监守者'), s: IZ('Enforces the quarantine: sirens, sealed grids, gas zones, volleys and sweeping cones.', '仍在执行隔离令：警报环、网格封锁、毒气区域、齐射与扇形扫射。') },
+  { k: 'i', c: () => '#ff5ad0', t: IZ('Floor 5 · The Progenitor', '第 5 层 · 始祖'), s: IZ('The source of every specimen: helix barrages, genome tiles, crossing lances, mirrored fission and collapsing rings. Like the Absence, it rises again in a second form.', '所有样本的源头：双螺旋弹幕、基因格、交错光枪、镜像分裂与收缩光环。和缺席一样，倒下后会以第二形态再度现身。') },
 ];
 function annRows(w) { const lh = lineH(), out = [];
   for (const d of ANN_DOC) {

@@ -14295,3 +14295,82 @@ JS 对象字面量**重复键不报错，后者覆盖前者** ⇒ 真实默认�
 打转不得原地重抽 / 下拉必须能关 / opts 不得有重复键。
 
 原始数据：`.tmp/verify4.jsonl`（reloadSwap/blindBlocked 实测）、`.tmp/roomgate.jsonl`。
+
+### 297. CI 同步失败的真因：**自引用文件导致一次跑不完** + 上游真的更新了
+
+用户 2026-11-07：「sync 挂了」「运行工作流不用这么频繁，1 rpd 就够了」。
+
+#### 现象
+
+`sync upstream` 在 `21feeff` 上**连续两次失败**（run 42338839222 / 42306545354），
+但 deploy 成功（旧产物继续发布），所以线上没炸、CI 常红。
+
+日志关键行：
+
+```
++ js/platform.js ... (12.8 KiB)
+[sync-scripts] 77 planned, 69 identical, 8 changed, ...
+[sync-scripts] GAME_V CHANGED mvkp5c7g → mw5a0z71
++ js/boss4.js / + js/weapons4.js
+[sync-scripts] 79 planned, 77 identical, 2 changed, 0 unavailable
+[sync-scripts] upstream drifted; regenerate site/js/
+##[error]Process completed with exit code 1.
+```
+
+#### 真因一：`platform.js` 既是输入又是输出
+
+`platform.js` 同时是：
+
+- **被同步的文件之一**，以及
+- **脚本清单的来源**（`parseGameScripts(platform.js)` 决定要下哪些文件）。
+
+于是：
+
+1. 第 1 轮：按**旧**清单下 77 个，写入新的 `platform.js`（新清单是 **79** 个）；
+2. 立刻跑 `--check`：按**新**清单重新规划 → 发现 `boss4.js`、`weapons4.js` **从未下载** → 「上游漂移」→ **exit 1**。
+
+**同一次运行自己制造了它随后报出的漂移**，所以只要上游改动了清单，这次同步注定失败。
+这不是网络问题，也不是我的提交，而是**一轮不可能收敛**的结构缺陷。
+
+修：同步改为**迭代到清单稳定**（上限 4 轮）。
+
+- 每轮重新读 `platform.js`、重新规划；
+- 若本轮**没写 platform.js**（或什么都没写）→ 收敛，结束；
+- `--dry`/`--check` 不写盘，所以只跑一轮（保持原语义）。
+
+**实测收敛**：
+
+| | planned | identical | changed |
+|---|---|---|---|
+| 第 1 轮（写） | 77 | 69 | 8 |
+| 第 2 轮（写） | 79 | 77 | **2**（boss4/weapons4）|
+| 收敛后 `--check` | 79 | **79** | **0** → **RC=0** ✅ |
+
+#### 真因二：上游真的更新了（76 → 78 个脚本）
+
+用户判断正确。本轮实际上游变化：
+
+- **新增** `weapons4.js`（10 把新武器）、`boss4.js`（第三套 boss）；
+- `decorateBoss` 支持 `bossPick.n`（每层三种 boss 三选一）；
+- 房间装饰图案增加一档；`event.js` 的 ev3 活动下线（`closed: true`）；
+- `GAME_V` `mvkp5c7g → mw5a0z71`。
+
+**这暴露了一个测试缺陷**：`tests/sync-scripts.test.mjs` 把脚本数**硬编码成 76**，
+且断言 `names.at(-1) === 'arsenal'`。上游加脚本后（`boss4` 接手末尾），
+这个测试**因为上游进步而变红**，与代码质量无关。
+
+修：改为语义断言（≥60 个、`engine` 必须第一、名字唯一、`site/js/` 必须真的存在清单里的每个文件），
+不再钉死数量与末尾。
+
+#### 顺带：调度频率 6 小时 → 1 天
+
+用户要求「1 rpd 就够」。`cron: "0 */6 * * *"` → `"20 1 * * *"`（01:20 UTC = 09:20 北京）。
+注：`push` 到受监视路径仍会触发运行，这个 cron 只是**下限**，不是唯一触发。
+
+#### 仍未解决（下一节）
+
+新上游下挂机表现变差（seed 7：清房 4 → 2，`tIdle` 3.9s → 139s，击杀 84 → 17）。
+**这不是同步修复造成的**——已用 `git stash` 对照验证：同一份工具代码，
+旧上游 4 房、新上游 2 房。属上游改动导致的适配回归，另立一节追。
+
+原始数据：`.tmp/before-sync.jsonl`（旧上游）、`.tmp/after-sync.jsonl`（新上游）。
