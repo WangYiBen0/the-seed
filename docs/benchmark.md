@@ -14419,3 +14419,24 @@ JS 对象字面量**重复键不报错，后者覆盖前者** ⇒ 真实默认�
 **验证：** `node --check site/dzmm-host.js scripts/sync-scripts.mjs site/js/platform.js` 通过；`node --test tests/*.test.mjs` **148/148 通过**（含既有 `sync-scripts`/测量纪律/挂机回归）。`upstream/index.html` 含 `weapons4.js`/`boss4.js` 已确认。浏览器侧真实旧存档迁移与「横幅闪现时长」**未在真实浏览器复现验证**（本环境无交互浏览器；CDN/线上字节以部署后 `gh api .../pages/builds/latest` + `curl` 字节比对为准，遵循 AGENTS.md 第 5 节）。
 
 **仍需跟进：** 部署后做线上字节核验；若横幅闪现仍明显，可在宿主页检测到 `platform.js` 二次加载路径错误/首帧存活后更早隐藏横幅（须不影响健康启动）。
+
+### 299. 线上空存档的真根因：SDK 前缀键被二次加前缀（2026-11-08）
+
+**用户报告（m00466）：** 完整打完一层必定触发保存，但刷新后仍是空存档、名字没有；同日日志里少女立绘 404（`GET upstream/assets/portraits/yoru.webp [404]`）。
+
+**根因一（存档，致命）：** `site/dzmm-host.js` 的 kv 方法在读写 localStorage 时统一用 `KV_PREFIX + k`，但真实 SDK（`site/upstream/index.html` 里的 gamefy bundle）发请求前已经调过 `withKvPrefix`——请求键本身就是 `theseed.host.kv.achroma_set`。于是：
+
+| 路径 | batchPut 写到 | batchGet 读 | 结果 |
+|---|---|---|---|
+| 真实 SDK（线上） | `theseed.host.kv.theseed.host.kv.X` | `theseed.host.kv.X` → null | 写成功、读不到 → 刷新即空 ❌ |
+| dzmm-shim（无头 bench） | `theseed.host.kv.X` ✓ | `theseed.host.kv.X` ✓ | 正常 ✓ |
+
+bench 走 shim（不加前缀），所以 148/148 全绿、fullrun 行正常，**该 bug 从未被测出**。d94e985 只修了 `p.values || p.entries` 的字段名（shim 路径），真实 SDK 路径照样坏。
+
+**修法（ce5ded1）：** host 侧加 `norm(k)`（剥离自有前缀），`kvGet/kvSet/kvDel/kv.batchPut/kv.batchGet` 全部走归一化；`tests/dzmm-host.test.mjs` 新增 5 条合约测试，同时覆盖前缀键（SDK）与裸键（shim）两条路径的 put/get/batchPut/batchGet/delete/list round-trip。
+
+**根因二（立绘，独立）：** `site/js/squad.js:93` 用相对路径 `'assets/portraits/' + id + '.webp'`，iframe 页面在 `site/upstream/` 下，解析成 `the-seed/upstream/assets/…` → 404（AGENTS 第 1 条禁改 `site/js/**`）。**修法（9882a57）：** 把 `site/assets/{portraits,private,stories}`（56 文件，28 MB）镜像进 `site/upstream/assets/`；`scripts/sync-scripts.mjs` 每次 sync 时重新同步该目录（防上游更新后丢失），顺带修了 `siteDir` 未定义变量。真实浏览器探测：`upstream/assets/portraits/yoru.webp` → 200、`private/yoru.png` → 200。
+
+**验证：** 沙箱合约测试两路径 round-trip 均 true；`node --test tests/*.test.mjs` **153/153**（+5）；推送 `9882a57`，Pages 构建 `8d4de01`（2026-11-08T01:26:31Z），线上 `dzmm-host.js`/`index.html` 与本地字节一致（`norm` 与 80ms 轮询均在），`upstream/assets/portraits/yoru.webp` 与 `upstream/assets/private/yoru.png` 线上均 200。ad3d23b（横幅 80ms 轮询）此前不在本地历史，本次随 9882a57 的 `site/index.html` 一并上线。
+
+**预期限制（非 bug）：** `fn.invoke`/`activity.heartbeat` 仍 METHOD_NOT_SUPPORTED——离线镜像无服务端函数后端（排行榜/在线提交走不了）；`Permissions Policy autoplay` 告警无功能影响。**未验证：** 用户在本机浏览器里打完一关刷新确认名字还在（需要真实会话）；旧 `theseed.kv.*`（pre-iframe shim）存档的迁移仍只验证过代码路径，未在真实浏览器验证。

@@ -130,3 +130,28 @@
 
 **收结果后**：提取冠军 genome → `room-ab.mjs --b '{"genome":{...}}'`（6 种子 × 3 重复）→
 显著优于默认则设默认并更新基线；无差异则如实记录。**训练期间不要跑并行基准**（避免 CPU 竞争扰动 speed=8）。
+## 进行中（2026-11-08 09:2x 启动）
+
+### 修复线上存档读不出来 + 少女立绘 404（用户 m00466 报告）
+
+- **症状**：打完一层必定触发保存，刷新后仍是空存档、名字没有；控制台另有
+  `GET upstream/assets/portraits/yoru.webp [404]`，少女立绘不显示。
+- **根因（两个独立 bug）**：
+  1. `site/dzmm-host.js` 的 `kv.batchPut`/`kv.batchGet`/`kv.put`/`kv.delete` 在读写
+     localStorage 时都用 `KV_PREFIX + k`，但真实 SDK（`site/upstream/index.html` 里的
+     gamefy bundle）**已经把键传成了完整前缀键** `theseed.host.kv.achroma_set`，
+     于是写到 `theseed.host.kv.theseed.host.kv.achroma_set`、读 `theseed.host.kv.achroma_set`
+     返回 null。写成功、读不到 → 刷新就是空的。bench 走的 `dzmm-shim.js` 不加前缀，
+     所以 148/148 全绿、fullrun 行正常，**这个 bug 从来没被测出来**。
+  2. `site/js/squad.js:93` 用 `P.img.src = 'assets/portraits/' + id + '.webp'`，iframe 页面在
+     `site/upstream/index.html` 下，相对路径解析成 `the-seed/upstream/assets/…` → 404。
+     `assets/` 只在 `site/assets/` 有一份。
+- **修法**：host 所有 kv 方法加 `norm(k)`（去掉我们自己的前缀再读写）；
+  `site/upstream/assets/` 镜像 `site/assets/{portraits,private,stories}`；
+  `scripts/sync-scripts.mjs` 每次 sync 时重新同步 `upstream/assets/`，避免上游更新后丢失。
+- **验证**：沙箱合约测试两条路径（真实 SDK 前缀键 / shim 无前缀）都 round-trip 成功；
+  真实浏览器探测 `upstream/assets/portraits/yoru.webp` → 200、`private/yoru.png` → 200；
+  `tests/dzmm-host.test.mjs` 新增 5 条 kv 合约测试，全库 153/153。
+- **未验证**：真实浏览器里写一局再刷新看名字还在不在（需要用户在本机浏览器跑）；
+  `fn.invoke` / `activity.heartbeat` 仍是 METHOD_NOT_SUPPORTED（离线镜像无服务端函数，预期限制）。
+
