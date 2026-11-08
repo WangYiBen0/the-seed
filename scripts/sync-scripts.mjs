@@ -19,7 +19,7 @@
 //     with hashed filenames this script cannot reproduce;
 //   * never invents GAME_V: the version is read from the fetched platform.js.
 
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile, mkdir, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -200,9 +200,30 @@ async function main() {
   // keep the verbatim-upstream frame's static script list in lockstep (../js/ prefix only)
   if (!flag('dry') && !flag('check')) {
     try {
-      const ui = await syncUpstreamIndex(jsDir, join(siteDir, 'upstream', 'index.html'));
+      const ui = await syncUpstreamIndex(jsDir, join(site, 'upstream', 'index.html'));
       if (ui.changed) console.log('[sync-scripts] upstream/index.html scripts regenerated (' + ui.scripts + ')');
     } catch (e) { console.warn('[sync-scripts] upstream/index.html not updated: ' + e.message); }
+    // The game's asset URLs are relative ('assets/portraits/…'), and the frame
+    // lives under upstream/, so they resolve to upstream/assets/… — a directory
+    // that did not exist, which is why every portrait came back 404 (measured on
+    // the live mirror 2026-11-08: GET upstream/assets/portraits/yoru.webp 404).
+    // Mirror site/assets/ into the frame's own directory so the relative paths
+    // resolve; a missing asset is reported, never silently dropped.
+    try {
+      const assetDirs = ['portraits', 'private', 'stories'];
+      let copied = 0, missing = 0;
+      for (const d of assetDirs) {
+        const src = join(site, 'assets', d);
+        const dst = join(site, 'upstream', 'assets', d);
+        if (!existsSync(src)) { console.log('[sync-scripts] ! assets/' + d + ' absent locally'); missing++; continue; }
+        await mkdir(dst, { recursive: true });
+        for (const f of await readdir(src)) {
+          await copyFile(join(src, f), join(dst, f));
+          copied++;
+        }
+      }
+      console.log('[sync-scripts] upstream/assets synced (' + copied + ' files, ' + missing + ' dirs missing)');
+    } catch (e) { console.warn('[sync-scripts] upstream/assets not synced: ' + e.message); }
   }
 
   // --check is the CI gate: upstream moved but we did not (or could not) write
