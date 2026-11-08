@@ -58,24 +58,23 @@ export function planFiles({ scripts, local }) {
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
 
-// Regenerate the static script tag block in site/upstream/index.html from
-// GAME_SCRIPTS (../js/ prefix). site/upstream/index.html is the verbatim
-// upstream page with only its script src paths rewritten to ../js/ (AGENTS.md
-// rule 1 exception); keeping that list in lockstep with GAME_SCRIPTS is part
-// of the same path-prefix duty, not a content change.
-export function renderUpstreamScriptTags(scripts) {
-  return scripts.map((n) => '<script src="../js/' + n + '.js"></script>').join('');
-}
-
-export async function syncUpstreamIndex(jsDir, upstreamIndexPath) {
-  const scripts = parseGameScripts(await readFile(join(jsDir, 'platform.js'), 'utf8'));
+// The verbatim upstream page carries NO static game-script tags: platform.js
+// loads GAME_SCRIPTS itself, and only AFTER the save has been read into
+// STORE.mem (boot: storeLoad → Promise.all(scripts) → EMBER_START).  An earlier
+// mirror patch inserted <script src="../js/*.js"> tags into upstream/index.html
+// to dodge the upstream/js/ 404s; that ran engine.js at parse time with an
+// empty STORE.mem, freezing `const SET` (engine.js) to its defaults — every
+// boot showed the naming screen again even though the save was intact
+// ("存档在，但名字要重新取", measured 2026-11-08).  The fix is the official
+// layout instead: mirror site/js/ to upstream/js/ for the dynamic loads (see
+// main) and keep the verbatim page verbatim (AGENTS.md rule 1).
+export async function stripUpstreamScriptTags(upstreamIndexPath) {
   let html = await readFile(upstreamIndexPath, 'utf8');
   const re = /<script src="\.\.\/js\/engine\.js"><\/script>[\s\S]*?<\/body><\/html>/;
-  if (!re.test(html)) return { changed: false, reason: 'no-script-block', scripts: scripts.length };
-  const next = html.replace(re, renderUpstreamScriptTags(scripts) + '</body></html>');
-  const changed = next !== html;
-  if (changed) await writeFile(upstreamIndexPath, next);
-  return { changed, scripts: scripts.length };
+  if (!re.test(html)) return { changed: false, reason: 'no-script-block' };
+  html = html.replace(re, '</body></html>');
+  await writeFile(upstreamIndexPath, html);
+  return { changed: true };
 }
 
 // ---- main ------------------------------------------------------------------
@@ -197,12 +196,27 @@ async function main() {
     }
   }
 
-  // keep the verbatim-upstream frame's static script list in lockstep (../js/ prefix only)
+  // keep the frame page verbatim: strip any leftover static game-script tags
   if (!flag('dry') && !flag('check')) {
     try {
-      const ui = await syncUpstreamIndex(jsDir, join(site, 'upstream', 'index.html'));
-      if (ui.changed) console.log('[sync-scripts] upstream/index.html scripts regenerated (' + ui.scripts + ')');
+      const ui = await stripUpstreamScriptTags(join(site, 'upstream', 'index.html'));
+      if (ui.changed) console.log('[sync-scripts] upstream/index.html static tags stripped');
     } catch (e) { console.warn('[sync-scripts] upstream/index.html not updated: ' + e.message); }
+    // platform.js loads GAME_SCRIPTS from 'js/…' relative to the frame document
+    // (upstream/index.html), i.e. upstream/js/<name>.js — a directory that did
+    // not exist, which is why every dynamic load 404'd and static tags + a host
+    // kick papered over it at the cost of the SET-freeze bug above.  Mirror
+    // site/js/ into upstream/js/ so the official load path resolves.
+    try {
+      await mkdir(join(site, 'upstream', 'js'), { recursive: true });
+      let copied = 0;
+      for (const f of await readdir(jsDir)) {
+        if (!f.endsWith('.js')) continue;
+        await copyFile(join(jsDir, f), join(site, 'upstream', 'js', f));
+        copied++;
+      }
+      console.log('[sync-scripts] upstream/js synced (' + copied + ' files)');
+    } catch (e) { console.warn('[sync-scripts] upstream/js not synced: ' + e.message); }
     // The game's asset URLs are relative ('assets/portraits/…'), and the frame
     // lives under upstream/, so they resolve to upstream/assets/… — a directory
     // that did not exist, which is why every portrait came back 404 (measured on

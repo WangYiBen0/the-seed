@@ -51,3 +51,54 @@ test('planFiles covers scripts, local-only files, and is stable across runs', as
   assert.deepEqual(a, ['a.js', 'b.js', 'z.js']);
   assert.ok(!a.includes('FILES.txt'), 'non-js files are never fetched');
 });
+
+// ---- the verbatim frame page and the upstream/js mirror (SET-freeze fix) ---
+//
+// The verbatim upstream page must carry NO static game-script tags.  platform.js
+// loads GAME_SCRIPTS itself, AFTER the save is in STORE.mem; a static tag runs
+// engine.js at parse time with an empty STORE.mem, which froze `const SET` to
+// defaults and forced the naming screen on every boot ("存档在，但名字要重新取",
+// measured 2026-11-08 with a real-iframe probe).  The dynamic loads resolve to
+// upstream/js/<name>.js, so that directory must exist and match site/js/ byte
+// for byte, or the boot fails in the other direction.
+
+test('upstream/index.html is verbatim: no static game-script tags, platform.js only', async () => {
+  const html = readFileSync(join(ROOT, 'site', 'upstream', 'index.html'), 'utf8');
+  const gameTags = [...html.matchAll(/<script src="\.\.\/js\/([a-z0-9_-]+)\.js"><\/script>/g)].map((m) => m[1]);
+  assert.deepEqual(gameTags, ['platform'],
+    'upstream/index.html must carry exactly the platform.js tag, got: ' + gameTags.join(', '));
+  assert.ok(html.trimEnd().endsWith('</body></html>'), 'the page must end with the closing body/html tags');
+  assert.ok(!/engine\.js/.test(html), 'no engine.js reference may remain anywhere in the page');
+});
+
+test('upstream/js mirrors site/js for every GAME_SCRIPTS entry, byte for byte', async () => {
+  const { parseGameScripts } = await import(MOD);
+  const names = parseGameScripts(platformSrc);
+  assert.ok(names.length >= 60, 'sanity: the game script list is present');
+  const missing = [];
+  for (const n of names) {
+    const p = join(ROOT, 'site', 'upstream', 'js', n + '.js');
+    if (!existsSync(p)) { missing.push(n + ' (absent)'); continue; }
+    const a = readFileSync(join(ROOT, 'site', 'js', n + '.js'));
+    const b = readFileSync(p);
+    if (!a.equals(b)) missing.push(n + ' (drift)');
+  }
+  assert.deepEqual(missing, [], 'upstream/js must mirror site/js: ' + missing.join(', '));
+});
+
+test('stripUpstreamScriptTags removes the tag block and keeps the rest', async () => {
+  const { stripUpstreamScriptTags } = await import(MOD);
+  const { mkdtemp, writeFile, readFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'strip-'));
+  const p = join(dir, 'index.html');
+  const before = '<body><script src="../js/platform.js"></script>\n' +
+    '<script src="../js/engine.js"></script><script src="../js/i18n.js"></script></body></html>';
+  await writeFile(p, before);
+  const first = await stripUpstreamScriptTags(p);
+  assert.deepEqual(first, { changed: true });
+  const after = await readFile(p, 'utf8');
+  assert.equal(after, '<body><script src="../js/platform.js"></script>\n</body></html>');
+  const second = await stripUpstreamScriptTags(p);
+  assert.deepEqual(second, { changed: false, reason: 'no-script-block' }, 'a second run is a no-op');
+});

@@ -29,15 +29,18 @@ test('the entry page frames the verbatim upstream page', () => {
   assert.equal(existsSync(join(SITE, 'game.html')), false, 'game.html was replaced by the upstream page');
 });
 
-test('upstream page keeps the game scripts one level up, never inlined', () => {
+test('upstream page is verbatim: only platform.js, game scripts load dynamically', () => {
   const up = join(SITE, 'upstream', 'index.html');
   const html = readFileSync(up, 'utf8');
   const refs = [...html.matchAll(/src="([^"]+)"/g)].map((m) => m[1]).filter((s) => s.startsWith('../js/'));
-  assert.ok(refs.length > 70, 'the page should reference every game script via ../js/, got ' + refs.length);
-  // every referenced script must exist
-  for (const r of refs) {
-    assert.ok(existsSync(join(SITE, 'upstream', r)), 'missing ' + r);
-  }
+  // platform.js reads the save into STORE.mem BEFORE dynamically loading the game
+  // scripts; a static ../js/<game>.js tag here runs engine.js at parse time with an
+  // empty STORE.mem and freezes `const SET` — the naming screen on every boot
+  // ("存档在，但名字要重新取", measured 2026-11-08).  The dynamic loads resolve to
+  // upstream/js/, mirrored from site/js/ by scripts/sync-scripts.mjs (byte-for-byte
+  // mirror asserted in sync-scripts.test.mjs).
+  assert.deepEqual(refs, ['../js/platform.js'], 'the page must reference only platform.js via ../js/, got ' + refs.join(', '));
+  assert.ok(existsSync(join(SITE, 'upstream', 'js', 'engine.js')), 'dynamic loads must resolve: upstream/js/ must exist');
 });
 
 test('tools are injected relative to the frame, not the host', () => {

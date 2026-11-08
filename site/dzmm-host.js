@@ -62,6 +62,39 @@
     // empty save on every refresh even though the write had reported ok.
     // Normalize here: strip the prefix we own, then operate on the bare key.
     const norm = (k) => (k && k.startsWith(KV_PREFIX)) ? k.slice(KV_PREFIX.length) : k;
+    // One-time repair of saves written by the pre-normalization host: those
+    // carries the prefix TWICE ('theseed.host.kv.theseed.host.kv.<name>').
+    // The player's name is the visible casualty: it lives in achroma_set,
+    // which is only written when it changes, so an old name stayed stranded
+    // in the double-prefixed slot while progress keys (achroma_run & co.) were
+    // re-written under the correct key on every level save — the game then
+    // asked for the name again on every boot.  Move every double-prefixed
+    // entry to its correct slot unless that slot already holds a value (never
+    // clobber newer data); remove the stranded key only after a successful
+    // move, so a failed write cannot lose the old save.
+    function migrateDoublePrefix() {
+      const DP = KV_PREFIX + KV_PREFIX;
+      let moved = 0;
+      try {
+        const stranded = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf(DP) === 0) stranded.push(k);
+        }
+        for (const k of stranded) {
+          let bare = k.slice(DP.length);
+          while (bare.indexOf(DP) === 0) bare = bare.slice(DP.length);
+          const good = KV_PREFIX + bare;
+          if (localStorage.getItem(good) == null && localStorage.getItem(k) != null) {
+            localStorage.setItem(good, localStorage.getItem(k));
+            moved++;
+          }
+          if (localStorage.getItem(good) != null) localStorage.removeItem(k);
+        }
+        if (moved > 0) console.info('[dzmm-host] repaired ' + moved + ' double-prefixed kv entries');
+      } catch (e) { }
+    }
+    migrateDoublePrefix();
     const kvGet = (k) => { try { migrateKey(norm(k)); return localStorage.getItem(KV_PREFIX + norm(k)); } catch (e) { return null; } };
     const kvSet = (k, v) => { try { localStorage.setItem(KV_PREFIX + norm(k), v); } catch (e) { } };
     const kvDel = (k) => { try { localStorage.removeItem(KV_PREFIX + norm(k)); } catch (e) { } };

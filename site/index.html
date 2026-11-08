@@ -99,15 +99,16 @@
   // 'dzmm:parent-ready' on load.
   var frame = dzmmHost.mount(document.getElementById('stage'), 'upstream/index.html', { id: 'game' });
 
-  // platform.js loads the game scripts a SECOND time from 'js/…' — a relative
-  // path that only works on the official layout (index.html beside js/).  Under
-  // upstream/ every one of those 404s, its Promise.all rejects, and EMBER_START —
-  // the render-loop kick — is skipped.  Nothing is actually missing: the verbatim
-  // page's own static ../js/ tags already load every one of those files. Detect
-  // the false boot-failure banner and fire the loop once from here; the guard
-  // keeps a healthy boot single-started (a second rAF loop would double speed).
-  // Poll fast (not load+2500ms): adding static tags delays frame load and made the
-  // banner linger longer, so catch the banner as soon as it appears.
+  // The frame now boots the official way: platform.js reads the save into
+  // STORE.mem, THEN dynamically loads GAME_SCRIPTS from upstream/js/ (mirrored
+  // from site/js/ by scripts/sync-scripts.mjs) and calls EMBER_START itself.
+  // This poll is a dormant fallback for a genuine boot failure (the '加载失败'
+  // banner, e.g. a script missing from upstream/js/): remove the banner and kick
+  // the render loop once.  The guard keeps a healthy boot single-started (a
+  // second rAF loop would double speed); on a healthy boot no banner appears, so
+  // this never fires.  Residual limitation: if a script 404s, EMBER_START never
+  // gets defined and the kick cannot rescue the frame — the banner is removed
+  // but the game stays dark until upstream/js/ is re-synced.
   frame.addEventListener('load', function () {
     var t0 = Date.now();
     var iv = setInterval(function () {

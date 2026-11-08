@@ -155,3 +155,22 @@
 - **未验证**：真实浏览器里写一局再刷新看名字还在不在（需要用户在本机浏览器跑）；
   `fn.invoke` / `activity.heartbeat` 仍是 METHOD_NOT_SUPPORTED（离线镜像无服务端函数，预期限制）。
 
+- **[2026-11-08] 存档在但名字要重新取（第二层 bug：SET 冻结）**：
+  - 现象：刷新后进度（achroma_run 等）都在，但 SET.name 为空，每次开屏都要重新取名；
+    日志里找不到 `theseed.host.kv` 开头的键（用户 m00808）。
+  - 第一层：滞留双前缀键 `theseed.host.kv.theseed.host.kv.*`（kv 归一化修复前的残骸）→
+    dzmm-host.js 启动时 migrateDoublePrefix() 迁回单前缀键（绝不覆盖新数据）。
+  - 第二层（真正根因）：upstream/index.html 里 79 个静态 `<script src="../js/*.js">` 标签是
+    镜像自己加的（e053cb1 引入，非上游原文；sync-scripts.mjs 的 syncUpstreamIndex 每次还
+    重新生成）。静态解析期 engine.js 执行 `const SET = Object.assign(defaults,
+    JSON.parse(STORE.getItem('achroma_set')||'{}'))`，而 STORE.mem 要等 platform.js 异步
+    boot 的 storeLoad 之后才填充 → SET 冻结为默认值。官方原页只有 platform.js 一个标签，
+    游戏脚本全部在存档读取之后动态加载（platform.js:118-121 → EMBER_START）。
+  - 修法：剥掉静态标签恢复上游原貌（syncUpstreamIndex → stripUpstreamScriptTags）；
+    sync-scripts.mjs 把 site/js/ 镜像到 site/upstream/js/ 供官方动态加载；
+    宿主页踢 EMBER_START 的轮询退化为休眠兜底（仅加载失败横幅时触发）。
+  - 验证：nameprobe（真实 iframe+CDP，种子=用户滞留键+正确 run 键）修复后
+    `name:"云上测试"`（修复前 `""`）、`nameEdOpen:false`、run 在、STORE.mem 含
+    achroma_set/achroma_run、localStorage 只剩单前缀正确键；node --test 全库 156/156
+    （layout 旧契约改为锁新契约：upstream/index.html 只允许 platform.js 一个标签）；
+    部署字节校验见对应提交。
