@@ -46,15 +46,25 @@
     //   kvFetch: async ({ op:'get'|'put'|'delete'|'list', key, value, prefix }) => result
     const backend = o.kvFetch || null;
     function migrateKey(k) {
+      k = norm(k);
       try {
         if (localStorage.getItem(KV_PREFIX + k) !== null) return;
         const oldv = localStorage.getItem(OLD_PREFIX + k);
         if (oldv !== null) localStorage.setItem(KV_PREFIX + k, oldv);
       } catch (e) { }
     }
-    const kvGet = (k) => { try { migrateKey(k); return localStorage.getItem(KV_PREFIX + k); } catch (e) { return null; } };
-    const kvSet = (k, v) => { try { localStorage.setItem(KV_PREFIX + k, v); } catch (e) { } };
-    const kvDel = (k) => { try { localStorage.removeItem(KV_PREFIX + k); } catch (e) { } };
+    // The gamefy SDK prefixes every kv key with withKvPrefix before sending,
+    // so a request key may already be 'theseed.host.kv.<name>'.  Reading or
+    // writing with KV_PREFIX + k would then double-prefix it and land in a
+    // different (nonexistent) slot — measured: writes went to
+    // 'theseed.host.kv.theseed.host.kv.achroma_set' while reads looked up
+    // 'theseed.host.kv.achroma_set' and came back null, so the game loaded an
+    // empty save on every refresh even though the write had reported ok.
+    // Normalize here: strip the prefix we own, then operate on the bare key.
+    const norm = (k) => (k && k.startsWith(KV_PREFIX)) ? k.slice(KV_PREFIX.length) : k;
+    const kvGet = (k) => { try { migrateKey(norm(k)); return localStorage.getItem(KV_PREFIX + norm(k)); } catch (e) { return null; } };
+    const kvSet = (k, v) => { try { localStorage.setItem(KV_PREFIX + norm(k), v); } catch (e) { } };
+    const kvDel = (k) => { try { localStorage.removeItem(KV_PREFIX + norm(k)); } catch (e) { } };
     const kvKeys = () => {
       const out = new Set();
       try {
@@ -97,14 +107,18 @@
         if (backend) { try { return await backend({ op: 'batchGet', keys: p.keys || [] }); } catch (e) { console.warn('[dzmm-host] backend batchGet failed, local fallback', e); } }
         const out = {};
         for (const k of (p.keys || [])) {
-          const raw = kvGet(k);
+          // The SDK sends FULLY PREFIXED keys (dzmm.withKvPrefix); kvGet(k) would
+          // prepend the prefix again and read a nonexistent double-prefixed key,
+          // so every batch read returned null and the game loaded an empty save
+          // even though writes had landed.  Strip the prefix we own and read bare.
+          const raw = kvGet(norm(k));
           if (raw === null) { out[k] = null; continue; }
           try { out[k] = { value: JSON.parse(raw), updated_at: null }; }
           catch (e) { out[k] = { value: raw, updated_at: null }; }
         }
         return out;
       },
-      'kv.batchPut': async (p) => { const entries = p.values || p.entries || {}; for (const [k, v] of Object.entries(entries)) kvSet(k, JSON.stringify(v)); return { ok: true }; },
+      'kv.batchPut': async (p) => { const entries = p.values || p.entries || {}; for (const [k, v] of Object.entries(entries)) kvSet(norm(k), JSON.stringify(v)); return { ok: true }; },
       // identity: never invented
       'user.info': async () => (o.user ? o.user : { id: null, name: null, avatarUrl: null, token: null, environment: 'prod' }),
       'capabilities.get': async () => ({ kv: true, kvBatch: true, kvList: true, kvPutIfAbsent: false, saveActions: true }),
