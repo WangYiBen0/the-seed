@@ -14440,3 +14440,21 @@ bench 走 shim（不加前缀），所以 148/148 全绿、fullrun 行正常，*
 **验证：** 沙箱合约测试两路径 round-trip 均 true；`node --test tests/*.test.mjs` **153/153**（+5）；推送 `9882a57`，Pages 构建 `8d4de01`（2026-11-08T01:26:31Z），线上 `dzmm-host.js`/`index.html` 与本地字节一致（`norm` 与 80ms 轮询均在），`upstream/assets/portraits/yoru.webp` 与 `upstream/assets/private/yoru.png` 线上均 200。ad3d23b（横幅 80ms 轮询）此前不在本地历史，本次随 9882a57 的 `site/index.html` 一并上线。
 
 **预期限制（非 bug）：** `fn.invoke`/`activity.heartbeat` 仍 METHOD_NOT_SUPPORTED——离线镜像无服务端函数后端（排行榜/在线提交走不了）；`Permissions Policy autoplay` 告警无功能影响。**未验证：** 用户在本机浏览器里打完一关刷新确认名字还在（需要真实会话）；旧 `theseed.kv.*`（pre-iframe shim）存档的迁移仍只验证过代码路径，未在真实浏览器验证。
+
+### 300. 「存档在，但名字要重新取」：静态标签把 SET 冻在存档读取之前（2026-11-08）
+
+**用户报告（m00808）：** 「日志里没有带theseed.host.kv 的」「存档是在的，但是名字是要重新取的」。§299 修完 kv 双前缀后，进度（achroma_run 等）恢复，但每次开屏仍要求重新取名。
+
+**第一层（滞留键，真实存在）：** kv 修复前写坏的双前缀键 theseed.host.kv.theseed.host.kv.achroma_set 还躺在用户 localStorage 里。**修法（8ce66d9，dzmm-host.js）：** 启动时 migrateDoublePrefix() 扫描 KV_PREFIX+KV_PREFIX 开头的键，迁回单前缀正确键；目标键已有值时绝不覆盖新数据，迁移成功才删除滞留键，并打 [dzmm-host] repaired N double-prefixed kv entries 日志。
+
+**第二层（真正根因，脚本时序）：** upstream/index.html 里的 79 个静态 script src="../js/*.js" 标签不是上游原文——git 取证：b01a56e/6e79eeb/e2e7789 为 0 个，e053cb1（iframe 切换）引入 77 个，fb05a76 增至 79 个，且 sync-scripts.mjs 的 syncUpstreamIndex() 每次 sync 还会重新生成。静态解析期 engine.js 执行 const SET = Object.assign(defaults, JSON.parse(STORE.getItem('achroma_set')||'{}'))，而 STORE.mem 要等 platform.js 异步 boot 的 storeLoad 之后才填充（platform.js 的动态加载在 storeLoad 之后）→ SET 冻结为默认值。官方原页只有 platform.js 一个标签，游戏脚本全部在存档读取之后动态加载——镜像的静态标签补丁恰好破坏了官方时序。kv 修复前整个存档为空，把这个 bug 掩盖了。
+
+**修法（8ce66d9）：**
+
+1. syncUpstreamIndex → stripUpstreamScriptTags（剥掉标签块，恢复上游原貌）；
+2. sync 时把 site/js/*.js（79 个）镜像到 site/upstream/js/，platform.js 的动态加载 js/<name>.js?v=… 相对帧文档解析到该目录；
+3. 宿主页 80ms 轮询退化为休眠兜底（仅出现「加载失败」横幅时踢 EMBER_START，健康启动永不触发，__emberKicked 防双 rAF）。
+
+**残余限制：** 若某脚本 404，EMBER_START 不会被定义，兜底只能移除横幅、页面保持黑屏，直到重新 sync——依赖 CI 的 sync gate 拦住上游加脚本的情形。
+
+**验证：** 真实 iframe + CDP 探针（.tmp/nameprobe*，种子=用户滞留键 + 正确 achroma_run）：修复前 name:""；修复后 name:"云上测试"、nameEdOpen:false、run:RUN_PRESENT、STORE.mem 含两键、localStorage 只剩单前缀正确键（迁移 + storeLoad + 动态加载三层一条链全部生效）。node --test tests/*.test.mjs 156/156（layout 旧契约「静态标签 ≥70」改为锁新契约「只允许 platform.js 一个标签」；sync-scripts 新增 strip/mirror 三测）。推送 8ce66d9，CI completed success，Pages 构建 0ebdb4b；线上五项字节核验：upstream/index.html 仅剩 platform.js 标签且全文无 engine.js、upstream/js/engine.js 200 且与本地字节一致、dzmm-host.js 字节一致含 migrateDoublePrefix、宿主 index.html 字节一致、upstream/js/weapons4.js 200。**未验证（需用户本机）：** 真实会话刷新后名字保留 + 取名界面不再弹出。
