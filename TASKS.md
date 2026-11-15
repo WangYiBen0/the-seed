@@ -155,6 +155,12 @@
 - **未验证**：真实浏览器里写一局再刷新看名字还在不在（需要用户在本机浏览器跑）；
   `fn.invoke` / `activity.heartbeat` 仍是 METHOD_NOT_SUPPORTED（离线镜像无服务端函数，预期限制）。
 
+
+- **[2026-11-15] 挂机回归修复（m01525）：wreck 重组 / 伙伴三选一 / 篝火 / 传送门漏战利品 / 取物寻路偏远**：
+  - `site/tools/auto.js`：drivePlay 处理 `reform`（等待重组态自动推进，不再乱转）；driveTalk 处理 `T.ask` 招募三选项（默认替换电台，目标/现任匹配时保留）；交互与目标扫描补 `wreck`（触发零号样本二阶段）、`camp`（有伙伴且电台 CD/显式 always 时休整）、`idol`；`worthLoot` 覆盖 idol/wreck/chest/vault 且传送门分支在楼层仍有战利品/残骸时不提前进入；LOOT_R 放宽到 420（可配 `lootRadius`）；奖励/偶像房距离成本收紧（就近优先），同步更新 `tests/auto-objectives.test.mjs`。
+  - 验证：`node --check` 通过；`node --test tests/*.test.mjs` 156/156。
+  - 未完成/未验证：`2x` 卡顿属 core tick 泵在高倍速下每帧模拟/规划压力翻倍（`site/tools/core.js` speed>1 acc+MAX_STEPS 逻辑），本次未做性能优化与实测；“对每个 boss/每个武器/每个技能逐一专项优化”的全面覆盖未完成（仅修明确自动化缺口）；wreck/reform、T.ask、camp、漏拿战利品等需在真实游戏流程中人工确认。
+
 - **[2026-11-08] 存档在但名字要重新取（第二层 bug：SET 冻结）**：
   - 现象：刷新后进度（achroma_run 等）都在，但 SET.name 为空，每次开屏都要重新取名；
     日志里找不到 `theseed.host.kv` 开头的键（用户 m00808）。

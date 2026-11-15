@@ -44,8 +44,10 @@ test('fount routing and fount interaction share one predicate', () => {
 });
 
 test('distance is folded into the room score', () => {
-  assert.match(AUTO, /const w = base \+ Math\.min\(1\.5, d \/ 420\)/,
-    'distance must be a bounded cost on top of the weight');
+  assert.match(AUTO, /const distCost = \(REWARD_ROOMS\.includes\(r\.type\) \|\| r\.type === 'idol'\) \? Math\.min\(2\.2, d \/ 260\) : Math\.min\(1\.5, d \/ 420\)/,
+    'reward rooms should prefer nearer options with a bounded distance cost');
+  assert.match(AUTO, /const w = base \+ distCost;/,
+    'distance must remain a bounded cost on top of the weight');
 });
 
 test('every master switch persists to settings', () => {

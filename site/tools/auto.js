@@ -1419,6 +1419,21 @@
     A.status.note = '营地对话';
     // end window: any key closes it; Enter is edge-safe here
     if (T.end >= 0) { if (T.end > .8) tap('Enter'); return; }
+    // recruit-choice prompt (已有电台伙伴时的三选项：替换/保留)
+    if (T.ask) {
+      if (T.end < .45 || T.t < .4) return;
+      // 默认接受新伙伴接管电台；仅在用户目标明确要求保留现任时选保留
+      let keep = false;
+      try {
+        const cur = (G.ptn && G.ptn.id) || '';
+        const want = (A.opts.mateGoal || A.opts.radioGoal || '').toString().toLowerCase();
+        if (want && cur && want === cur.toLowerCase()) keep = true;
+        if (A.goalList && (A.goalHit(cur, 'radio') || A.goalHit(cur, 'mate')) && !(A.goalHit(T.id, 'radio') || A.goalHit(T.id, 'mate'))) keep = true;
+      } catch (e) { }
+      const wantSel = keep ? 1 : 0;
+      if ((T.sel | 0) !== wantSel) { tap(wantSel === 0 ? 'KeyA' : 'KeyD'); A.status.note = keep ? '电台：保留现任' : '电台：替换为新伙伴'; return; }
+      tap('Enter'); A.status.note = keep ? '电台：保留' : '电台：替换'; return;
+    }
     // let the line render before advancing, or the tap only skips the typewriter
     if (T.t < .5) return;
     if (A.opts.mate && T.i >= 0) {
@@ -1483,6 +1498,7 @@
       case 'cards': return A.opts.autoCards && driveCards(G, tap);
       case 'curse': return driveCurse(G, tap);
       case 'bossintro': if (G.introT > 1.1) Input.clicked = true; return;
+      case 'reform': A.status.note = '零号样本重组…'; return;
       case 'dead':
       case 'win': {
         if (!A.opts.autoRestart || G.endT < 2.2) return;
@@ -1943,7 +1959,16 @@
         if (it.kind === 'vault' && A.opts.vault && !it.used && (G.ink | 0) >= (it.cost | 0) + 20) {
           A.status.note = '保险柜'; tap('KeyE'); break;
         }
-        if (it.kind === 'idol' && A.opts.idol && !it.used && (G.curses || []).length < 2) {
+        // 零号样本残骸：交互触发二阶段重组（E）
+        if (it.kind === 'wreck' && A.opts.bossWreck !== false) {
+          if (G.wreck && G.time >= (it.born || 0)) { A.status.note = '触发零号样本二阶段'; tap('KeyE'); break; }
+          continue;
+        }
+        // 篝火：有伙伴时可休整（重置电台技能冷却等）
+        if (it.kind === 'camp' && A.opts.campRest !== false && !it.used && (G.squad || []).length) {
+          A.status.note = '篝火休整'; tap('KeyE'); break;
+        }
+        if (it.kind === 'idol' && A.opts.idol && !it.used && (G.curses || []).length < (A.opts.idolMaxCurses == null ? 2 : (A.opts.idolMaxCurses | 0))) {
           A.status.note = '偶像祈愿'; tap('KeyE'); break;
         }
         if (it.kind === 'altar' && A.opts.altar && !it.used && p.hp > 2 && A.opts.altarPact) {
@@ -3251,6 +3276,9 @@
         // (217,1127) for 100+ game-seconds targeting 实验血清, kills and ink
         // frozen, four combat rooms still open.
         else if (it.kind === 'labvial' && A.opts.labSerum && !it.used && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) stops.push([it.x, it.y, 'labvial']);
+        else if (it.kind === 'wreck' && A.opts.bossWreck !== false && G.wreck && G.time >= (it.born || 0) && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) stops.push([it.x, it.y, 'wreck']);
+        else if (it.kind === 'camp' && A.opts.campRest !== false && !it.used && (G.squad || []).length && ((G.ptn && G.ptn.cd > 0) || A.opts.campRestAlways) && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) stops.push([it.x, it.y, 'camp']);
+        else if (it.kind === 'idol' && A.opts.idol && !it.used && (G.curses || []).length < (A.opts.idolMaxCurses == null ? 2 : (A.opts.idolMaxCurses | 0)) && !unreachable(it) && !unreachable(roomAt(it.x, it.y))) stops.push([it.x, it.y, 'idol']);
       }
       let best = null, bd = 1e9;
       // Pathing can route around walls, so requiring a straight line hid most
@@ -3336,7 +3364,9 @@
         // otherwise walking to it skips rooms, prisms and serums, and the run
         // arrives at the next floor weaker than it should be.
         const floorHasWork = rooms.some((r) => r.type === 'combat' && !r.cleared && !unreachable(r));
-        if (floorHasWork) { /* fall through to the fight objectives */ }
+        const floorLoot = (G.inter || []).some((it) => worthLoot(it));
+        const wreckLeft = (G.inter || []).some((it) => it.kind === 'wreck' && !it.used && G.wreck && G.time >= (it.born || 0));
+        if (floorHasWork || floorLoot || wreckLeft) { /* fall through to the fight/loot objectives */ }
         else for (const it of G.inter) {
           if (it.kind !== 'portal') continue;
           if (G.time - (it.born || 0) < .6) continue;
@@ -3355,6 +3385,15 @@
           if (G.hasKey && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
             return { pt: [it.x, it.y], label: 'seal', room: roomAt(it.x, it.y) };
         }
+      }
+      for (const it of G.inter) {
+        if (it.used || unreachable(it) || unreachable(roomAt(it.x, it.y))) continue;
+        if (it.kind === 'wreck' && A.opts.bossWreck !== false && G.wreck && G.time >= (it.born || 0))
+          return { pt: [it.x, it.y], label: 'wreck', room: roomAt(it.x, it.y) };
+        if (it.kind === 'camp' && A.opts.campRest !== false && (G.squad || []).length && ((G.ptn && G.ptn.cd > 0) || A.opts.campRestAlways))
+          return { pt: [it.x, it.y], label: 'camp', room: roomAt(it.x, it.y) };
+        if (it.kind === 'idol' && A.opts.idol && (G.curses || []).length < (A.opts.idolMaxCurses == null ? 2 : (A.opts.idolMaxCurses | 0)))
+          return { pt: [it.x, it.y], label: 'idol', room: roomAt(it.x, it.y) };
       }
       for (const it of G.inter) if ((it.kind === 'prism' || it.kind === 'key') && !unreachable(it) && !unreachable(roomAt(it.x, it.y)))
         return { pt: [it.x, it.y], label: it.kind, room: roomAt(it.x, it.y) };
@@ -3451,7 +3490,8 @@
       // "打完 boss 不拿掉落物直接进传送门".
       // The portal is only taken when nothing worth walking to is left within
       // LOOT_R, so a stray prism across the map cannot hold the floor forever.
-      const LOOT_R = 260;
+      // boss/史诗奖励与可拾取战利品优先于传送门；半径适当放宽避免远处漏拿
+      const LOOT_R = (A.opts.lootRadius | 0) > 0 ? (A.opts.lootRadius | 0) : 420;
       const worthLoot = (it) => {
         if (!it || it.used) return false;
         const d = Math.hypot(it.x - p.x, it.y - p.y);
@@ -3459,6 +3499,9 @@
         if (it.kind === 'prism' || it.kind === 'ink') return !!(A.opts.pickups || A.opts.pickups === undefined);
         if (it.kind === 'weapon') return !!A.opts.weaponPick;
         if (it.kind === 'chip') return !!A.opts.chipPick && !p.skill;
+        if (it.kind === 'idol') return !!A.opts.idol && (G.curses || []).length < (A.opts.idolMaxCurses == null ? 2 : (A.opts.idolMaxCurses | 0));
+        if (it.kind === 'wreck') return A.opts.bossWreck !== false && !!G.wreck && G.time >= (it.born || 0);
+        if (it.kind === 'chest' || it.kind === 'vault') return true;
         return false;
       };
       const lootPending = (G.inter || []).some(worthLoot);
@@ -3477,14 +3520,9 @@
           // of magnitude farther has to be genuinely better.
           const base = roomWeight(r) - (debuff > 0 && r.type === 'combat' && !r.visited ? .5 : 0);
           const d = dist(p.x, p.y, r.cx * 16 + 8, r.cy * 16 + 8);
-          // Distance is folded into the SCORE, not used as a tie-break.  As a
-          // tie-break alone, a weight gap of one sent the bot across the whole
-          // floor and back (reported: a nearby key ignored while it fetched a
-          // serum several rooms away, then walked back).  The earlier A/B that
-          // "disproved" distance ranking had replaced the weight with distance;
-          // this keeps the weight and adds a bounded cost, so distance can only
-          // override a weaker objective, never a stronger one.
-          const w = base + Math.min(1.5, d / 420);
+          // 距离折入得分：同类奖励优先就近，避免"近处奖励不拿去远处"。
+          const distCost = (REWARD_ROOMS.includes(r.type) || r.type === 'idol') ? Math.min(2.2, d / 260) : Math.min(1.5, d / 420);
+          const w = base + distCost;
           if (w < bw || (w === bw && d < bd)) { bw = w; bd = d; best = r; }
         }
         if (best && !portalReady) return { pt: [best.cx * 16 + 8, best.cy * 16 + 8], label: best.type, room: best };
