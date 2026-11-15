@@ -1325,7 +1325,7 @@
     if (!G || !G.p || A.mode === 'off') return;
     A._tick++;
     try { drive(G); } catch (e) { TSW.err('auto', e); A.status.note = 'err: ' + e.message; }
-    const _traceEvery = 120 * Math.max(1, Math.round((window.__TSW && TSW.speed && TSW.speed.value) || 1));
+    const _traceEvery = 120 * Math.max(1, Math.round((window.__TSW && TSW.speed && typeof TSW.speed.get === 'function' && TSW.speed.get()) || 1));
     if (TSW.trace && (++A._tick % _traceEvery === 0)) {
       const p2 = G.p, foes = G.enemies ? G.enemies.filter((e) => !e.dead).length : 0;
       const act = typeof WORLD !== 'undefined' && WORLD.rooms ? WORLD.rooms.find((r) => r.active) : null;
@@ -2779,7 +2779,7 @@
       // At higher sim speed the autopilot runs more ticks per real second, so
       // scale planning intervals by speed to keep per-wall-second work bounded.
       const perfD = (window.__TSW && TSW.perf && TSW.perf.decisions) || null;
-      const simSpeed = Math.max(1, (window.__TSW && TSW.speed && TSW.speed.value) || 1);
+      const simSpeed = Math.max(1, (window.__TSW && TSW.speed && typeof TSW.speed.get === 'function' && TSW.speed.get()) || 1);
       const pickEveryBase = perfD ? 1 / (perfD.pickEvery || 1) : 0.25;
       const pickEvery = pickEveryBase * (simSpeed > 1 ? Math.min(4, simSpeed) : 1);
       let tgt = A._objCache && (G.time - A._objCache.t) < pickEvery ? A._objCache.tgt : pickObjective(G, p);
