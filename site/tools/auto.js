@@ -1325,7 +1325,8 @@
     if (!G || !G.p || A.mode === 'off') return;
     A._tick++;
     try { drive(G); } catch (e) { TSW.err('auto', e); A.status.note = 'err: ' + e.message; }
-    if (TSW.trace && (++A._tick % 120 === 0)) {
+    const _traceEvery = 120 * Math.max(1, Math.round((window.__TSW && TSW.speed && TSW.speed.value) || 1));
+    if (TSW.trace && (++A._tick % _traceEvery === 0)) {
       const p2 = G.p, foes = G.enemies ? G.enemies.filter((e) => !e.dead).length : 0;
       const act = typeof WORLD !== 'undefined' && WORLD.rooms ? WORLD.rooms.find((r) => r.active) : null;
       console.info('[TSW:auto]', JSON.stringify({ st: G.state, fl: G.floor, dep: G.endless | 0, t: (G.runT || 0) | 0, k: G.kills | 0, ink: G.ink | 0, hp: p2.hp, foes, act: act ? act.type : 0, tgt: A.status.target, note: A.status.note, x: p2.x | 0, y: p2.y | 0, mx: A._dbg ? A._dbg[0].toFixed(1) : 0, my: A._dbg ? A._dbg[1].toFixed(1) : 0, eb: G.ebullets.length, keys: ['KeyW', 'KeyA', 'KeyS', 'KeyD'].filter((k) => Input.keys[k]).join('') }));
@@ -2775,8 +2776,12 @@
       // immediately whenever the current one is done or unreachable (below).
       // perf mode thins this further: the objective walk scales with rooms and
       // interactables, so re-planning 4x/s is the single biggest frame cost.
+      // At higher sim speed the autopilot runs more ticks per real second, so
+      // scale planning intervals by speed to keep per-wall-second work bounded.
       const perfD = (window.__TSW && TSW.perf && TSW.perf.decisions) || null;
-      const pickEvery = perfD ? 1 / (perfD.pickEvery || 1) : 0.25;
+      const simSpeed = Math.max(1, (window.__TSW && TSW.speed && TSW.speed.value) || 1);
+      const pickEveryBase = perfD ? 1 / (perfD.pickEvery || 1) : 0.25;
+      const pickEvery = pickEveryBase * (simSpeed > 1 ? Math.min(4, simSpeed) : 1);
       let tgt = A._objCache && (G.time - A._objCache.t) < pickEvery ? A._objCache.tgt : pickObjective(G, p);
       A._objCache = { t: G.time, tgt };
       // If the chosen point is known-unreachable, drop it and re-pick once.  The
