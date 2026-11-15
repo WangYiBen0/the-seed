@@ -100,14 +100,22 @@
   xbtn.style.display = visible ? '' : 'none'; // stays in sync when the HUD starts hidden
   document.body.appendChild(xbtn);
 
-  function draw() {
+  let lastDraw = 0;
+  function draw(now) {
+    requestAnimationFrame(draw);
+    if (!visible) return;
+    const interval = (TSW.speed && TSW.speed.get && TSW.speed.get() > 1) ? 180 : 100;
+    if (!now) now = performance.now();
+    if (now - lastDraw < interval) return;
+    lastDraw = now;
+
     cx.clearRect(0, 0, cv.width, cv.height);
     const G = window.__achroma && __achroma.G;
     cx.fillStyle = PAL.bg; cx.strokeStyle = PAL.line;
     cx.beginPath(); cx.roundRect(0, 0, cv.width, cv.height, 6); cx.fill(); cx.stroke();
     cx.textBaseline = 'top';
     let y = 6; const L = (txt, c = PAL.text, bold) => { cx.font = f(bold ? 11 : 10); cx.fillStyle = c; cx.fillText(txt, 7, y); y += bold ? 14 : 13; };
-    if (!G || !G.p) { L(window.__achroma ? 'TSW · 主菜单（进局后显示数据）' : 'TSW · 等待游戏启动…', PAL.dim); requestAnimationFrame(draw); return; }
+    if (!G || !G.p) { L(window.__achroma ? 'TSW · 主菜单（进局后显示数据）' : 'TSW · 等待游戏启动…', PAL.dim); return; }
     const runT = G.runT || 0, kpm = runT > 5 ? M.kills / (runT / 60) : 0, ipm = runT > 5 ? M.ink / (runT / 60) : 0;
     const depth = G.endless || 0;
     L(`TSW 测评 · ${depth ? `无尽 depth ${depth}` : `第 ${G.floor + 1} 章`}`, PAL.gold, true);
@@ -140,8 +148,6 @@
     if (TSW.rng.on) st.push('SEED');
     L(st.length ? st.join('  ') : '×1 手动', st.length ? PAL.violet : PAL.dim, true);
     if (TSW.cheats && TSW.cheats.on()) L('⚠ CHEAT · ' + TSW.cheats.label(), PAL.red, true);
-
-    requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 
