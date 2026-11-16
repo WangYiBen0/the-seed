@@ -1494,6 +1494,9 @@
     // 入侵的三个波间界面（crate/lv/shop）不是普通 state，必须主动驱动
     if ((G.state === 'ivcrate' || G.state === 'ivlv' || G.state === 'ivshop') && driveInvadeUI(G, tap)) return;
 
+    // Reset serum card timer when leaving the cards state
+    if (G.state !== 'cards') A._cardsT = 0;
+
     switch (G.state) {
       case 'play': return drivePlay(G, p, tap);
       case 'cards': return A.opts.autoCards && driveCards(G, tap);
@@ -1528,10 +1531,11 @@
     // the panel has been open and force a pick once it overruns.
     A._cardsT = (A._cardsT || 0) + 1;
     if (A._cardsT < 3) return;                       // let the animation start
+    // Hard timeout: force pick after ~0.75s regardless of sieve state
+    if (A._cardsT >= 45) A.status.note = '血清面板超时强制选择';
     if (cd.skipT !== undefined || cd.ban) {
-      // still animating: wait, but never forever
-      if (A._cardsT < 90) return;
-      A.status.note = '血清面板超时强制选择';
+      // still animating: wait, but never forever (reduced from 90 to 45 ticks)
+      if (A._cardsT < 45) return;
     }
     const ex = exclList('serumExclude'), prio = exclList('serumPriority');
     const hasSv = (typeof svData === 'function') ? svData() : { ban: 0, skip: 0 };
@@ -2085,6 +2089,12 @@
         }
         if (it.kind === 'seal' && G.hasKey) { tap('KeyE'); break; }
       }
+    }
+
+    // Invalidate objective cache after any interaction so we re-plan
+    // with the updated world state (e.g. picked up item, opened chest).
+    if (A._objCache && A._objCache.t === G.time) {
+      A._objCache = null;
     }
 
     // ---------- combat target & kite ----------
