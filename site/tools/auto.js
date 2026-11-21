@@ -198,7 +198,7 @@
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
-    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0, reloadSwap: 0, blindFire: 0, blindBlocked: 0 },
+    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0, reloadSwap: 0, blindFire: 0, blindBlocked: 0, dashVeto: 0, dashUnsafe: 0 },
     status: { note: '', target: null },
   };
   // ---------------- in-run online learning (self-evolution v2) ----------------
@@ -268,7 +268,7 @@
   TSW.bus.on('newRun', () => { A.learn.dPrev = null; A.learn.hpPrev = null; A.learn.n = 0; A.learn.save(); });
   A.learn.set = (k, v) => { A.learn[k] = v; TSW.settings.set(k === 'lr' ? 'autoLearnRate' : 'autoLearn', v); TSW.bus.emit('auto'); };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
-  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; m.reloadSwap = 0; m.blindFire = 0; m.blindBlocked = 0; };
+  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; m.reloadSwap = 0; m.blindFire = 0; m.blindBlocked = 0; m.dashVeto = 0; m.dashUnsafe = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
   A.setPolicy = (p) => { A.policy = p; TSW.settings.set('autoPolicy', p); TSW.bus.emit('auto'); };
 
@@ -1214,6 +1214,33 @@
     }
     return best;
   }
+  // ---- dashing: the GAME picks the direction, not us -----------------------
+  // game.js:146 sets p.dx/p.dy from the CURRENT key vector (mx,my normalised),
+  // and only then flies 330px/s for .16s (~53px).  So pressing Space without
+  // first setting the keys dashes along whatever direction the walking code
+  // happened to leave in the keys — which is how the bot dashed into the void.
+  // dashToward() sets the keys to the requested arc, reads back the direction
+  // the game will actually use (8-way quantisation + reverse/tremor rotation),
+  // re-validates that REAL vector with dashSafe, and only then presses Space.
+  function dashToward(p, dx, dy) {
+    const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    moveKeys(dx, dy);
+    const eff = A._effDir || [dx, dy];
+    if (!dashSafe(p, eff[0], eff[1])) {
+      A.metrics.dashVeto = (A.metrics.dashVeto | 0) + 1;
+      // fall back to the quantised arc we asked for only if it is itself safe
+      if (!dashSafe(p, dx, dy)) { A.metrics.dashUnsafe = (A.metrics.dashUnsafe | 0) + 1; return false; }
+      moveKeys(dx, dy);
+    }
+    tap('Space');
+    // Remember the vector: the walking code sets the keys again at the END of the
+    // tick, and the game reads them only after beforeTick returns. Without this
+    // the dash would start along the walk direction, not the escape arc.
+    A._dashWant = [eff[0], eff[1]];
+    A.metrics.dash = (A.metrics.dash | 0) + 1;
+    return true;
+  }
+
   // ---- input rotation the game applies to our keys -------------------------
   // The player vector is quantised to 8 directions from the keys, then the
   // REVERSE mech flips it, then the TREMOR curse (hp<=3) rotates it by
@@ -1237,13 +1264,21 @@
     A._own.KeyW = kw; A._own.KeyS = ks; A._own.KeyA = ka; A._own.KeyD = kd;
   };
   const moveKeys = (dx, dy) => {
-    const l = Math.hypot(dx, dy); if (l < .06) { setKeys(false, false, false, false); return; }
-    let want = Math.atan2(dy, dx) - tremorAngle();     // undo the terror/tremor rotation
-    if (reverseOn()) want += Math.PI;                  // undo the reverse mech
+    const l = Math.hypot(dx, dy); if (l < .06) { setKeys(false, false, false, false); A._effDir = null; return; }
+    const jit = tremorAngle(), rev = reverseOn() ? Math.PI : 0;
+    let want = Math.atan2(dy, dx) - jit;               // undo the terror/tremor rotation
+    if (rev) want += Math.PI;                          // undo the reverse mech
     let best = 0, bd = 9;
     for (let i = 0; i < 8; i++) { const a = Math.atan2(KEY8[i][1], KEY8[i][0]); const d = Math.abs(angDiff2(a, want)); if (d < bd) { bd = d; best = i; } }
     const c = KEY8[best];
     setKeys(c[1] < 0, c[1] > 0, c[0] < 0, c[0] > 0);
+    // The direction the GAME will actually move/dash in: it re-applies the keys,
+    // then the reverse mech (+PI) and the tremor rotation (+j).  8-way key
+    // quantisation can be off by 22.5 deg, i.e. up to ~20px of lateral error over
+    // a 53px dash — so anything that needs the REAL vector (a dash, above all)
+    // must read this back instead of assuming it got the exact angle it asked for.
+    const ea = Math.atan2(c[1], c[0]) + rev + jit;
+    A._effDir = [Math.cos(ea), Math.sin(ea)];
   };
   const stopMove = () => setKeys(false, false, false, false);
 
@@ -1921,7 +1956,16 @@
       return;
     }
     const w = WEAPONS[p.weapons[p.wi]], melee = isMelee(w.id);
-    const active = WORLD.rooms.find((r) => r.active);
+    // A boss room stays r.active = true for the whole fight, and game.js only
+    // clears it once G.bossDead is set (game.js:240).  ABSENCE's phase-1 death
+    // goes through absenceFall(), which does NOT set bossDead — so the room stayed
+    // "active" with nothing but a wreck in it, and BOTH the interaction branch and
+    // the navigation branch below are gated on !active.  The bot therefore never
+    // walked to the remains and never pressed E, which is exactly the reported
+    // "零号样本一阶段打完后仍然不会去触发二阶段".
+    // While a wreck is waiting, the room has no fight left: treat it as inactive.
+    const wreckWaiting = !!(G.wreck && (G.inter || []).some((it) => it.kind === 'wreck' && !it.used && G.time >= (it.born || 0)));
+    const active = WORLD.rooms.find((r) => r.active && !(wreckWaiting && r.type === 'boss'));
     // the door-funnel give-up timer is per room: a fresh fight must get a fresh
     // funnel, otherwise one stuck room disables the tactic for the whole run
     {
@@ -2499,15 +2543,18 @@
         // gets.  hp loss is a hard negative (the whole point is not getting hit).
         learnTick(p, dg, M);
       }
-      // dash out when the current spot is about to hurt and the dash is up (never into a pit)
+      // dash out when the current spot is about to hurt and the dash is up.
+      // Every dash goes through dashToward(): the game derives the dash vector
+      // from the KEYS, so the keys must be set first and the resulting 8-way
+      // quantised vector re-validated, or we dash into the void we just checked.
       const dirdash = () => { const l = Math.hypot(mx, my) || 1; return dashSafe(p, mx / l, my / l); };
       const dashAt = (A.opts.combatDashAt === undefined ? 1.8 : +A.opts.combatDashAt);
       if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= (hard() ? Math.min(1.3, dashAt) : dashAt)) {
         const dd = dashDir(p, [mx, my]);                 // escape toward the calmest arc
-        if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
-        else if (dirdash()) { tap('Space'); A.metrics.dash++; }
+        if (dd) dashToward(p, dd[0], dd[1]);
+        else if (dirdash()) dashToward(p, mx, my);
       }
-      if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0 && dirdash()) tap('Space');
+      if (A.opts.dash && ne && dist(p.x, p.y, ne.x, ne.y) < 26 && p.dashCd <= 0 && dirdash()) dashToward(p, mx, my);
       // proactive reload: a dry mag triggers the passive reload (SLOTH curse: 1 dmg each)
       if (usesAmmo(w)) {
         const a = ammoOf(p, w.id), cap = magSize(w) || 1;
@@ -3082,12 +3129,12 @@
         const threat = spotDanger(p.x, p.y, p);
         if (threat >= (A.opts.dodgeDashAt === undefined ? 1.0 : +A.opts.dodgeDashAt)) {
           const dd2 = dashDir(p, [mx, my]);
-          if (dd2 && dashSafe(p, dd2[0], dd2[1])) {
-            Input.keys.KeyW = dd2[1] < -.3; Input.keys.KeyS = dd2[1] > .3;
-            Input.keys.KeyA = dd2[0] < -.3; Input.keys.KeyD = dd2[0] > .3;
-            p.dashT = 0.12;                                  // commit for a beat
+          // Do NOT poke p.dashT here: game.js:133-136 flies along p.dx/p.dy, so
+          // setting the timer by hand re-used the PREVIOUS dash's vector.  Only
+          // the real key press starts a dash, and dashToward() validates the
+          // actual (quantised + rotated) vector that press will use.
+          if (dd2 && dashToward(p, dd2[0], dd2[1])) {
             A._dodgeDashCD = G.time + 0.35;                   // do not spam Space
-            A.metrics.dash = (A.metrics.dash || 0) + 1;
             A.status.note = '躲避冲刺';
             mx = dd2[0]; my = dd2[1];
           }
@@ -3101,6 +3148,10 @@
     // subordinate to simply not being there.
     if (A._overlapDir) { mx = A._overlapDir[0]; my = A._overlapDir[1]; }
     moveKeys(mx, my);
+    // A dash started this tick must keep ITS direction: the game derives p.dx/p.dy
+    // from the keys it reads after this hook returns (game.js:146), so restore the
+    // validated dash arc instead of the walk vector.
+    if (A._dashWant) { moveKeys(A._dashWant[0], A._dashWant[1]); A._dashWant = null; }
     A._dbg = [mx, my];
     // In invade, driveInvade has already decided whether to hold the trigger
     // (game.js's attackHeld() only reads Input.down).  Overwriting it here with

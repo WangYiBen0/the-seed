@@ -266,3 +266,50 @@ test('the measurement log keeps every recorded section', () => {
     assert.ok(sections[i] >= sections[i - 1], 'sections went backwards at ' + sections[i - 1] + ' -> ' + sections[i]);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Two reported regressions the suite did not cover at all:
+//   1. "零号样本一阶段打完后仍然不会去触发二阶段"
+//   2. "仍然可能出现冲刺掉下虚空的情况"
+// Both were pure logic holes, so they are guarded structurally here.
+// ---------------------------------------------------------------------------
+
+test('a boss room holding only a wreck is not treated as an active fight', () => {
+  // game.js:240 clears the boss room only when G.bossDead is set, but ABSENCE's
+  // phase-1 death goes through absenceFall(), which never sets it. The room then
+  // stayed r.active = true with just the wreck inside, and both the interaction
+  // branch and the navigation branch are gated on !active - so the bot never
+  // walked to the remains and never pressed E to reassemble.
+  assert.match(AUTO, /const wreckWaiting = /, 'the wreck-waiting state must be detected');
+  assert.match(AUTO, /r\.active && !\(wreckWaiting && r\.type === 'boss'\)/,
+    'an active boss room whose wreck is waiting must not suppress navigation');
+  assert.match(AUTO, /it\.kind === 'wreck' && A\.opts\.bossWreck !== false && G\.wreck/,
+    'the wreck must be selectable as an objective');
+  assert.match(AUTO, /label: 'wreck'/, 'the wreck objective must be labelled');
+});
+
+test('every dash sets its direction from the keys and re-validates the real vector', () => {
+  // game.js:146 derives p.dx/p.dy from the KEY vector, so pressing Space without
+  // setting the keys first dashes along whatever the walking code left there.
+  // Two separate holes put the bot into the void:
+  //   (a) moveKeys() ran after the dash block and overwrote the dash keys;
+  //   (b) the dodge path poked p.dashT by hand, which re-used the PREVIOUS dash's
+  //       p.dx/p.dy because nothing recomputed them.
+  assert.match(AUTO, /function dashToward\(p, dx, dy\)/, 'a dash helper must exist');
+  assert.match(AUTO, /moveKeys\(dx, dy\);\s*\n\s*const eff = A\._effDir \|\| \[dx, dy\];/,
+    'the helper must set the keys and read back the effective direction');
+  assert.match(AUTO, /if \(!dashSafe\(p, eff\[0\], eff\[1\]\)\)/,
+    'the helper must validate the vector the game will actually use');
+  assert.match(AUTO, /A\._dashWant = \[eff\[0\], eff\[1\]\]/,
+    'the validated dash vector must survive the end-of-tick moveKeys');
+  assert.match(AUTO, /if \(A\._dashWant\) \{ moveKeys\(A\._dashWant\[0\], A\._dashWant\[1\]\); A\._dashWant = null; \}/,
+    'the dash vector must be restored after the walk vector is applied');
+  assert.doesNotMatch(AUTO, /p\.dashT = 0\.12;/,
+    'setting p.dashT by hand re-uses a stale dash vector and must not come back');
+  const rawDashes = [...AUTO.matchAll(/tap\('Space'\)/g)].length;
+  const helperDashes = [...AUTO.matchAll(/dashToward\(/g)].length;
+  assert.ok(helperDashes >= 3, 'the combat, dodge and invade dashes must all use it, got ' + helperDashes);
+  assert.ok(rawDashes - helperDashes <= 1, 'no stray tap(Space) outside the helper (got ' + rawDashes + ' taps vs ' + helperDashes + ' helper calls)');
+  assert.match(AUTO, /dashVeto:/, 'vetoed dashes must be counted');
+  assert.match(AUTO, /dashUnsafe:/, 'unavoidably-unsafe dashes must be counted');
+});
