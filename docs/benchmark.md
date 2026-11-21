@@ -14458,3 +14458,68 @@ bench 走 shim（不加前缀），所以 148/148 全绿、fullrun 行正常，*
 **残余限制：** 若某脚本 404，EMBER_START 不会被定义，兜底只能移除横幅、页面保持黑屏，直到重新 sync——依赖 CI 的 sync gate 拦住上游加脚本的情形。
 
 **验证：** 真实 iframe + CDP 探针（.tmp/nameprobe*，种子=用户滞留键 + 正确 achroma_run）：修复前 name:""；修复后 name:"云上测试"、nameEdOpen:false、run:RUN_PRESENT、STORE.mem 含两键、localStorage 只剩单前缀正确键（迁移 + storeLoad + 动态加载三层一条链全部生效）。node --test tests/*.test.mjs 156/156（layout 旧契约「静态标签 ≥70」改为锁新契约「只允许 platform.js 一个标签」；sync-scripts 新增 strip/mirror 三测）。推送 8ce66d9，CI completed success，Pages 构建 0ebdb4b；线上五项字节核验：upstream/index.html 仅剩 platform.js 标签且全文无 engine.js、upstream/js/engine.js 200 且与本地字节一致、dzmm-host.js 字节一致含 migrateDoublePrefix、宿主 index.html 字节一致、upstream/js/weapons4.js 200。**未验证（需用户本机）：** 真实会话刷新后名字保留 + 取名界面不再弹出。
+
+
+### 301. 躲弹幕改为真实绝境五锁楼层 + 四个「死指标」缺陷（2026-11-21）
+
+用户要求：①「躲弹幕用绝境五锁真实层级，不再手动生成敌人而是去真实房间，超过阈值即为通过」
+②「仍然可能出现冲刺掉下虚空的情况」③「零号样本一阶段打完后仍然不会去触发二阶段」。
+
+#### 新测评：`--kind dodge-real`
+
+旧 dodge 用 `ivArena()` 造一个**没有房间/门/柱子**的空盒，再手搓 gunner，那不是游戏会出现的局面。
+新测评 `runDodgeReal()` 走**真实绝境五锁楼层**：`startRunWith({diff:'despair', mods:[rage,deathfight,bulwark,rot,cyst]})`
+→ 等真实 `WORLD.rooms` 建好 → `startEndless()` → 让游戏自己刷怪。判据是**存活时长**（`survivedS`），
+不是 `hpLeft`——45s 局里 34/36 局提前死亡，`hpLeft` 恒为 0，没有梯度（§292 已记）。
+
+实测 6 种子（seed 5/7/11/13/19/41，`--seconds 45 --speed 8`）：
+
+| seed | survivedS | hits | hurt 次数 | dash | dangerAvg |
+|---|---|---|---|---|---|
+| 5 | 18.12 | 8 | 137 | 5 | 6.53 |
+| 7 | 16.35 | 8 | 167 | 0 | 10.65 |
+| 11 | 15.38 | 8 | 284 | 1 | 8.21 |
+| 13 | 22.55 | 8 | 101 | 1 | 4.70 |
+| 19 | 16.92 | 8 | 93 | 2 | 9.40 |
+| 41 | 16.23 | 8 | 1002 | 2 | 14.96 |
+
+均值 **17.59s**，中位 16.64s，区间 15.38–22.55s。**这是基线，不是改善**——本轮没有让存活变长。
+
+#### 顺带查出的四个「死指标 / 死代码」
+
+1. **`hurtsDashReady` 恒为 0**：行读 `h.dashReady`，而 `installHurtLog` 从不写这个字段。
+   现在记录 `dashCd` 并推导 `dashReady`（挨打时冲刺是否可用）。实测 284/82/54——**每次挨打冲刺都在**。
+2. **`dashToward` 里 `tap('Space')` 是 ReferenceError**：`tap` 是 `drive()` 内部的 const，
+   `dashToward` 在模块作用域。`beforeTick` 的 `try/catch` 把它吞了，所以写在 `tap` **之前**的计数器
+   正常，写在**之后**的 `A.metrics.dash++` 永远执行不到——实测同一行 `escape: 29 / dash: 0`。
+   改为直接走 edge-safe 按键路径。
+3. **`dashSafe` 的绝对阈值 1.2 让冲刺永不发生**：真实绝境五锁 `dangerAvg` 是 5–15，
+   8 个候选弧全部 `>= 1.2` → 实测 `dashCall 170 / dashVeto 462 / dash 0`。
+   现在 `dashSafe` 接受 `hazardLimit` 参数，`dashToward` 在两轮里选：先找严格安全的；
+   若全都超阈值，则在**落点严格比站着更安全**的方向里选最优（站立位置本身就是致命的）。
+4. **`depth` 参数是假的**：`startEndless()` 开头 `if (G.endless) return;`（game.js:747），
+   所以循环调 d>1 次是空操作。原代码据此写 `descentOk` 会虚报。现在只调一次，并如实说明
+   无尽层数是靠清层推进的，不是强制跳的。
+
+#### 修复后实测（3 种子，`--seconds 45`）
+
+`dash`/`dashCall` 一致（冲刺真的执行了），`escape` 开始出现（3/5）。
+但 `dashCall` 只有 1–5 次：`dodgeDashAt` 默认 99（历次 A/B 定的「默认关」），
+所以探索躲闪冲刺本来就几乎不触发，冲刺几乎全部来自 `combatDashAt=1.8`。
+
+**一次 A/B 被静默作废**：`dodgeDashAt` 99 vs 2.2 两臂结果**完全一致**（含 dash 计数），
+说明该选项没被真正读取。`autoOpts` 在行里确实写着两个值、`autoOptsUnknown` 为空，
+所以不是传参问题——**是读取路径另有 gating**，本轮未定位完，故没有改默认值。
+
+#### 另一处修复：零号样本二阶段
+
+`absenceFall()` 生成 wreck 但**不设 `G.bossDead`**，而 `game.js:240` 只在 `bossDead` 时才把 boss 房间
+设 `cleared`。于是房间一直 `r.active=true`，而交互分支与导航分支都以 `!active` 为门——
+bot 既不会走去找残骸，也不会按 E。修复：房间里有待触发的 wreck 时，boss 房间不算「active」。
+（未在真实流程里验证到残骸真的被触发，仅单元层守住。）
+
+#### 验证
+
+`node --test tests/*.test.mjs` **158/158**，新增两条结构守卫（wreck 可达、冲刺必须走校验过的键向量）。
+截图来自真实 Xvfb + chromium 跑 `auto.html?autotest=fullrun&diff=despair&mods=...`（`.tmp/vd3b.png`、`.tmp/vd3c.png`）。
+提交：`e4ff1e9`、`5b1c1cc`（已推送，远端 SHA 对齐）。
