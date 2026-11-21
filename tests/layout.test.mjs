@@ -57,3 +57,21 @@ test('the published root carries no internal markdown', () => {
   assert.equal(existsSync(join(SITE, 'README.md')), false);
   assert.ok(statSync(join(SITE, 'upstream')).isDirectory());
 });
+
+test('the inject button is on screen, not parked outside it', () => {
+  // Measured 2026-11-21 on a real 1280x800 window: the host page loaded, the game
+  // booted to the naming dialog, and there was NO inject button anywhere - it was
+  // parked above the top edge (translate(-50%,-170%)) and only slid down when the
+  // mouse entered a 14px TRANSPARENT hotzone, which is invisible.  The tools were
+  // therefore unreachable.  It must be visible whenever the tools are not injected.
+  const host = readFileSync(join(SITE, 'index.html'), 'utf8');
+  assert.doesNotMatch(host, /translate\(-50%,\s*-170%\)/,
+    'the CTA must not be translated off screen');
+  assert.match(host, /#ctahot\{display:none\}/,
+    'the invisible hover hotzone must be gone');
+  assert.match(host, /<button id="inject">注入工具<\/button>/,
+    'the inject button must exist');
+  // it may hide ONLY after a successful injection
+  assert.match(host, /cta\.classList\.toggle\('gone', on\)/,
+    'the CTA is hidden by the injection state, not by CSS position');
+});
