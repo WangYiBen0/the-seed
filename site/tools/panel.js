@@ -901,6 +901,7 @@
         else if (kind === 'boss') emit(await TSW.bench.run('boss', opts));
         else if (kind === 'probe') emit(await TSW.bench.run('probe', opts));
         else if (kind === 'dodge') emit(await TSW.bench.run('dodge', opts));
+        else if (kind === 'dodge-real') emit(await TSW.bench.run('dodge-real', opts));
         else if (kind === 'invade') emit(await TSW.bench.run('invade', opts));
         else if (kind === 'ab') emit(await TSW.bench.run('ab', opts));
         else if (kind === 'evolve') {

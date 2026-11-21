@@ -198,7 +198,7 @@
       manual: TSW.settings.get('autoManual', true),        // yield the controls when the player steers
     },
     // evasion scorecard, accumulated per play tick (see the dodge benchmark)
-    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0, reloadSwap: 0, blindFire: 0, blindBlocked: 0, dashVeto: 0, dashUnsafe: 0 },
+    metrics: { ticks: 0, dangerSum: 0, hazard: 0, clearSum: 0, clearMin: 1e9, samples: [], dash: 0, navStall: 0, navReplan: 0, overlap: 0, reloadSwap: 0, blindFire: 0, blindBlocked: 0, dashVeto: 0, dashUnsafe: 0, dashCall: 0, dashEscape: 0, dashDebounced: 0 },
     status: { note: '', target: null },
   };
   // ---------------- in-run online learning (self-evolution v2) ----------------
@@ -268,7 +268,7 @@
   TSW.bus.on('newRun', () => { A.learn.dPrev = null; A.learn.hpPrev = null; A.learn.n = 0; A.learn.save(); });
   A.learn.set = (k, v) => { A.learn[k] = v; TSW.settings.set(k === 'lr' ? 'autoLearnRate' : 'autoLearn', v); TSW.bus.emit('auto'); };
   const set = (k, v) => { A.opts[k] = v; TSW.settings.set(k, v); };
-  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; m.reloadSwap = 0; m.blindFire = 0; m.blindBlocked = 0; m.dashVeto = 0; m.dashUnsafe = 0; };
+  A.metrics.reset = () => { const m = A.metrics; m.ticks = 0; m.dangerSum = 0; m.hazard = 0; m.clearSum = 0; m.clearMin = 1e9; m.samples = []; m.dash = 0; m.navStall = 0; m.navReplan = 0; m.overlap = 0; m.reloadSwap = 0; m.blindFire = 0; m.blindBlocked = 0; m.dashVeto = 0; m.dashUnsafe = 0; m.dashCall = 0; m.dashEscape = 0; m.dashDebounced = 0; };
   A.setMode = (m) => { A.mode = m; TSW.settings.set('autoMode', m); TSW.bus.emit('auto'); };
   A.setPolicy = (p) => { A.policy = p; TSW.settings.set('autoPolicy', p); TSW.bus.emit('auto'); };
 
@@ -660,7 +660,7 @@
   // a dash is 330px/s for ~.16s ≈ 52px.  Refuse the arc when ANY sample lands in
   // a pit, the void (tiles or boss zones) or an active hazard — the old version
   // only looked at pits, which is why we happily dashed into blades and acid.
-  function dashSafe(p, dx, dy) {
+  function dashSafe(p, dx, dy, hazardLimit) {
     const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
     // Dash physics (game.js:133-136): dashT=.16s at 330px/s ≈ 53px, and it sets
     // p.fly=true so PITS STOP BLOCKING during the dash — the player really does
@@ -699,7 +699,12 @@
           // decided the pit question.
           if (tileAtPx(sx2, sy2) === TL.PIT) continue;
           const fake = { x: sx2, y: sy2, r: p.r };
-          if (spotDanger(sx2, sy2, fake) >= (A.opts.dashHazardLimit || 1.2)) return false;
+          // `hazardLimit` is an argument so an ESCAPE dash can pass its own bar.
+          // The absolute bar (1.2) is right for an optional dodge in calm space,
+          // but on a real 绝境五锁 floor dangerAvg runs 5-10 and EVERY landing
+          // exceeds it - measured dashVeto 462 / dashCall 170 / dash 0, i.e. the
+          // bot never dashed at all and died in the corner it refused to leave.
+          if (spotDanger(sx2, sy2, fake) >= (hazardLimit || A.opts.dashHazardLimit || 1.2)) return false;
         }
       }
     } catch (e) { }
@@ -1223,20 +1228,67 @@
   // the game will actually use (8-way quantisation + reverse/tremor rotation),
   // re-validates that REAL vector with dashSafe, and only then presses Space.
   function dashToward(p, dx, dy) {
+    A.metrics.dashCall = (A.metrics.dashCall | 0) + 1;
     const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
-    moveKeys(dx, dy);
-    const eff = A._effDir || [dx, dy];
-    if (!dashSafe(p, eff[0], eff[1])) {
-      A.metrics.dashVeto = (A.metrics.dashVeto | 0) + 1;
-      // fall back to the quantised arc we asked for only if it is itself safe
-      if (!dashSafe(p, dx, dy)) { A.metrics.dashUnsafe = (A.metrics.dashUnsafe | 0) + 1; return false; }
-      moveKeys(dx, dy);
+    const wantA = Math.atan2(dy, dx);
+    // The game dashes along the KEY vector, and the keys are 8-way: an arbitrary
+    // angle gets quantised by up to 22.5 deg (~20px lateral over a 53px dash) and
+    // can then land in a wall.  So pick among the directions the keys can actually
+    // produce.
+    const jit = tremorAngle(), rev = reverseOn() ? Math.PI : 0;
+    const cand = [];
+    for (let i = 0; i < 8; i++) {
+      const c = KEY8[i];
+      const ea = Math.atan2(c[1], c[0]) + rev + jit;   // what the game will really do
+      cand.push({ a: ea, ex: Math.cos(ea), ey: Math.sin(ea), off: Math.abs(angDiff2(ea, wantA)) });
     }
-    tap('Space');
+    // PASS 1: a strictly safe landing (the normal case in open space).
+    let best = null, bestD = 1e9;
+    for (const c of cand) {
+      if (c.off >= bestD) continue;
+      if (!dashSafe(p, c.ex, c.ey)) { A.metrics.dashVeto = (A.metrics.dashVeto | 0) + 1; continue; }
+      bestD = c.off; best = c;
+    }
+    // PASS 2: nothing is 'safe' by the absolute bar, which is the normal state on
+    // a real 绝境五锁 floor (dangerAvg 5-10 vs a 1.2 bar: measured dashVeto 462,
+    // dashCall 170, dash 0 - the bot never dashed and died in the corner).  A dash
+    // is still correct when its LANDING is less dangerous than staying put, so
+    // accept the least-bad direction under a relative bar.  Standing still was
+    // never an option: the whole reason we are here is that the current spot is
+    // already lethal.
+    if (!best) {
+      const here = spotDanger(p.x, p.y, p);
+      let pick = null, pickDanger = 1e9, pickOff = 1e9;
+      for (const c of cand) {
+        const land = [p.x + c.ex * 52, p.y + c.ey * 52];
+        if (tileAtPx(land[0], land[1]) === TL.VOID || tileAtPx(land[0], land[1]) === TL.WALL) {
+          A.metrics.dashVeto = (A.metrics.dashVeto | 0) + 1; continue;   // never into geometry
+        }
+        if (!dashSafe(p, c.ex, c.ey, 99)) { A.metrics.dashVeto = (A.metrics.dashVeto | 0) + 1; continue; }
+        const ld = spotDanger(land[0], land[1], { x: land[0], y: land[1], r: p.r });
+        // must strictly improve on where we are, otherwise dashing is just motion
+        if (ld >= here - .15) continue;
+        if (ld < pickDanger - .01 || (Math.abs(ld - pickDanger) <= .01 && c.off < pickOff)) {
+          pickDanger = ld; pickOff = c.off; pick = c;
+        }
+      }
+      if (pick) { best = pick; A.metrics.dashEscape = (A.metrics.dashEscape | 0) + 1; }
+    }
+    if (!best) { A.metrics.dashUnsafe = (A.metrics.dashUnsafe | 0) + 1; return false; }
+    moveKeys(best.ex, best.ey);
+    // Do NOT call tap() here: it is a const declared INSIDE drive(), so this
+    // module-scope function throws ReferenceError at that line.  The beforeTick
+    // hook catches every throw (`try { drive(G) } catch`), so the failure was
+    // silent: dashCall/dashVeto/dashEscape (all before this point) counted while
+    // the dash counter after it stayed 0 forever - measured escape 29 / dash 0.
+    // Press Space through the same edge-safe path tap() uses.
+    if (A._tick - (A._tapGap.Space == null ? -9 : A._tapGap.Space) >= 2) {
+      Input.keys.Space = true; A._taps.Space = 1; A._tapGap.Space = A._tick;
+    } else { A.metrics.dashDebounced = (A.metrics.dashDebounced | 0) + 1; return false; }
     // Remember the vector: the walking code sets the keys again at the END of the
-    // tick, and the game reads them only after beforeTick returns. Without this
+    // tick, and the game reads them only after beforeTick returns.  Without this
     // the dash would start along the walk direction, not the escape arc.
-    A._dashWant = [eff[0], eff[1]];
+    A._dashWant = [best.ex, best.ey];
     A.metrics.dash = (A.metrics.dash | 0) + 1;
     return true;
   }
@@ -1672,7 +1724,7 @@
           [mx, my] = pickDir(p, ax * 1.4, ay * 1.4);
           moveKeys(mx, my);
           A.status.note = '入侵：躲首领接触';
-          if (A.opts.dash && p.dashCd <= 0 && typeof dashSafe === 'function' && dashSafe(p, mx, my) && spotDanger(p.x, p.y, p) >= 1.0) { tap('Space'); A.metrics.dash++; }
+          if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.0) dashToward(p, mx, my);
           A.status.target = 'invade'; return;
         }
       }
@@ -1684,7 +1736,7 @@
         moveKeys(mx, my); [mx, my] = pickDir(p, mx, my);
         if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= gene('dashDanger')) {
           const dd0 = dashDir(p, [mx, my]);
-          if (dd0) { tap('Space'); A.metrics.dash++; }
+          if (dd0) dashToward(p, dd0[0], dd0[1]);
         }
         moveKeys(mx, my); A.status.target = 'invade'; return;
       }
@@ -1713,7 +1765,7 @@
         A.status.note = '入侵：突围（' + near.length + ' 敌包围）';
         [mx, my] = pickDir(p, mx, my);
         moveKeys(mx, my);
-        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.3 && typeof dashSafe === 'function' && dashSafe(p, mx, my)) { tap('Space'); A.metrics.dash++; }
+        if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= 1.3) dashToward(p, mx, my);
         A.status.target = 'invade'; return;
       }
       const tx = -uy * A._ivSpin, ty = ux * A._ivSpin;           // tangential (circle)
@@ -1740,7 +1792,7 @@
     // dash away when the local threat spikes
     if (A.opts.dash && p.dashCd <= 0 && spotDanger(p.x, p.y, p) >= gene('dashDanger')) {
       const dd = dashDir(p, [mx, my]);
-      if (dd) { Input.keys.KeyW = dd[1] < -.3; Input.keys.KeyS = dd[1] > .3; Input.keys.KeyA = dd[0] < -.3; Input.keys.KeyD = dd[0] > .3; tap('Space'); A.metrics.dash++; }
+      if (dd) dashToward(p, dd[0], dd[1]);
     }
     moveKeys(mx, my);
     A.status.target = 'invade';
@@ -3110,7 +3162,7 @@
           }
           if (wiggle.dir && wiggle.until > G.time) [mx, my] = wiggle.dir;
           const l = Math.hypot(mx, my) || 1;
-          if ((mx || my) && p.dashCd <= 0 && dashSafe(p, mx / l, my / l)) tap('Space');
+          if ((mx || my) && p.dashCd <= 0) dashToward(p, mx / l, my / l);
         }
       }
     } else { lastPos = { x: p.x, y: p.y, t: G.time }; wiggle.n = 0; }

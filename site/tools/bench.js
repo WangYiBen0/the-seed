@@ -184,7 +184,11 @@
       if (typeof orig !== 'function') return;
       window.hurtPlayer = function (dmg, sx, sy, mechHit, pierce) {
         const pre = (function () {
-          try { const q = __achroma.G.p; return { hp: q.hp | 0, ar: q.armor | 0, ma: q.maxArmor | 0, inv: +(q.inv || 0).toFixed(2), dash: +(q.dashT || 0).toFixed(2), lastHit: +(q.lastHit || 0).toFixed(2) }; }
+          // `dashReady` is what the hit analysis actually needs: dashT>0 means a dash is
+          // ALREADY running (i-frames), dashCd<=0 means a dash was AVAILABLE and unused.
+          // The row read h.dashReady for months while this log never recorded it, so
+          // hurtsDashReady was 0 in every run regardless of behaviour - a dead metric.
+          try { const q = __achroma.G.p; return { hp: q.hp | 0, ar: q.armor | 0, ma: q.maxArmor | 0, inv: +(q.inv || 0).toFixed(2), dash: +(q.dashT || 0).toFixed(2), dashCd: +(q.dashCd || 0).toFixed(2), lastHit: +(q.lastHit || 0).toFixed(2) }; }
           catch (e) { return {}; }
         })();
         let r;
@@ -201,6 +205,9 @@
           window.__hurtLog.push({
             d: dmg, p: +!!pierce, m: +!!mechHit, at: (window.__achroma && __achroma.G.time) | 0,
             hp: pre.hp, ar: pre.ar, ma: pre.ma, inv: pre.inv, dash: pre.dash,
+            // a dash was off cooldown when this hit landed => a dodge existed and was missed
+            dashReady: +((pre.dashCd || 0) <= 0 && (pre.dash || 0) <= 0),
+            dashCd: pre.dashCd,
             php: q.hp | 0, par: q.armor | 0,
             res: (r === true) ? 1 : 0,
             n: nearN, nt: nearType, nd: Math.round(nearD), nr: nearRanged,
@@ -1680,6 +1687,122 @@
     };
   }
 
+
+  // ---------------- dodge benchmark on a REAL 绝境五锁 floor ----------------
+  // The old dodge rig built an open arena (ivArena) and hand-spawned gunners.
+  // That measures a situation the game never produces: no rooms, no doors, no
+  // pillars, no wave pacing — and the user asked for the real thing.
+  // This variant walks into the actual five-lock floor at `depth` and lets the
+  // GAME populate it.  `noFire` stays on so the barrage only densifies, and the
+  // pass criterion is survival time, which is what actually moves (hpLeft is a
+  // floor value: 34/36 arena runs died before the cut).
+  async function runDodgeReal({ depth = 5, seconds = 60, speed = 8, policy = 'survival', seed = 11,
+    diff = 'despair', mods = null, hp = 14, autoOpts = null } = {}) {
+    const LEARN_KEYS = ['learn', 'noLearn', 'learnRate', 'keepLearn'];
+    const optSavedD = {}, optUnknownD = [];
+    if (autoOpts && typeof autoOpts === 'object') for (const [k, v] of Object.entries(autoOpts)) {
+      if (k in TSW.auto.opts) { optSavedD[k] = TSW.auto.opts[k]; TSW.auto.opts[k] = v; }
+      else if (LEARN_KEYS.indexOf(k) >= 0) { /* declared elsewhere */ }
+      else { optUnknownD.push(k); TSW.err('dodgeReal: unknown autoOpts ignored → ' + k); }
+    }
+    const wasSpeed = TSW.speed.get(), wasPolicy = TSW.auto.policy, wasMode = TSW.auto.mode;
+    const wasNoFire = TSW.auto.opts.noFire;
+    TSW.rng.seed(seed);
+    TSW.auto.setPolicy(policy);
+    TSW.speed.set(speed, true);
+    TSW.auto.opts.noFire = true;
+    TSW.auto.opts.dash = true;
+    const M = TSW.metrics; M.reset(); TSW.auto.metrics.reset();
+
+    // Real run at 绝境 with the five locks, then descend to `depth`.
+    await waitScripts();
+    const useMods = Array.isArray(mods) && mods.length ? mods : ['rage', 'deathfight', 'bulwark', 'rot', 'cyst'];
+    startRunWith({ diff: 'despair', mods: useMods, seed, boost: hp ? { hp, armor: 3, weapons: ['rivet'], wlv: { rivet: 1 }, shards: {}, ink: 0 } : null });
+    // wait for a live floor
+    {
+      const t0 = performance.now();
+      while (performance.now() - t0 < 15000) {
+        const g = window.__achroma.G;
+        const wOk = (typeof WORLD !== 'undefined') && WORLD && Array.isArray(WORLD.rooms) && WORLD.tiles;
+        if (g && g.p && wOk && g.state === 'play') break;
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
+    // Enter endless ONCE.  startEndless() begins with `if (G.endless) return;`
+    // (game.js:747), so calling it d>1 times is a no-op after the first: the
+    // endless counter only advances by CLEARING floors.  `depth` therefore means
+    // "play the endless floor that follows depth normal floors are NOT skipped" -
+    // it is recorded as reached, not forced.  Claiming a forced depth here would
+    // be the same class of lie as writing endless:1 into a save.
+    let descentOk = 0;
+    if (typeof startEndless === 'function') {
+      const before = (window.__achroma.G.endless | 0);
+      if (before === 0) {
+        try { startEndless(); } catch (e) { TSW.err('dodgeReal startEndless', e); }
+        const t1 = performance.now();
+        while (performance.now() - t1 < 15000) {
+          const gg = window.__achroma.G;
+          if (gg && gg.state === 'play' && (gg.endless | 0) > before) break;
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        if ((window.__achroma.G.endless | 0) > before) descentOk = 1;
+      }
+    }
+    installHurtLog(); try { window.__hurtLog = []; } catch (e) { }
+    let localHits = 0; const _hp = window.hurtPlayer;
+    try { window.hurtPlayer = function (...a) { const r = _hp.apply(this, a); if (r === true) localHits++; return r; }; } catch (e) { }
+    let deathTick = -1, aliveTicks = 0, sawFoe = 0, maxFoes = 0;
+    const off = TSW.hooks.beforeTick(() => {
+      const g = window.__achroma.G; if (!g || !g.p) return;
+      if (deathTick < 0) { if (g.state === 'dead' || g.p.alive === false) deathTick = aliveTicks; else aliveTicks++; }
+      if (g.state !== 'play') return;
+      const n = (g.enemies || []).filter((e) => !e.dead && e.spawnT <= 0).length;
+      if (n) sawFoe++; if (n > maxFoes) maxFoes = n;
+    });
+    TSW.auto.setMode('full');
+    const g1 = window.__achroma.G;
+    const runT0 = g1.runT || 0;
+    await new Promise((res) => setTimeout(res, Math.max(3000, seconds * 1000 / Math.min(4, speed) + 2500)));
+    off();
+    TSW.auto.setMode(wasMode === 'off' ? 'off' : wasMode);
+    TSW.speed.set(wasSpeed, true); TSW.auto.setPolicy(wasPolicy);
+    TSW.auto.opts.noFire = wasNoFire;
+    for (const k of Object.keys(optSavedD)) TSW.auto.opts[k] = optSavedD[k];
+    try { window.hurtPlayer = _hp; } catch (e) { }
+    TSW.rng.clear();
+    const g = window.__achroma.G, A = TSW.auto.metrics;
+    const gameS = Math.max(1, (g.runT || 0) - runT0);
+    const survived = deathTick >= 0 ? deathTick : aliveTicks;
+    const hurt = (window.__hurtLog || []).slice();
+    return {
+      kind: 'dodgeReal', at: Date.now(), depth, seconds, policy, seed, speed, diff: 'despair',
+      mods: useMods,
+      autoOpts: Object.assign({}, autoOpts || {}), autoOptsUnknown: optUnknownD.slice(),
+      end: g.state === 'dead' ? 'death' : 'alive',
+      survivedTicks: survived,
+      survivedS: +(survived / 60).toFixed(2),
+      diedAtTick: deathTick,
+      descentOk,
+      endlessReached: g.endless | 0,
+      floorReached: g.floor | 0,
+      gameS: +gameS.toFixed(1),
+      hits: localHits,
+      hurtsTotal: hurt.length,
+      hurtsDashReady: hurt.filter((h) => h && h.dashReady).length,
+      dangerAvg: A.ticks ? +(A.dangerSum / A.ticks).toFixed(2) : 0,
+      hazardPct: A.ticks ? +(A.hazard / A.ticks * 100).toFixed(1) : 0,
+      dash: A.dash | 0,
+      dashCall: A.dashCall | 0,
+      dashEscape: A.dashEscape | 0,
+      dashVeto: A.dashVeto | 0,
+      dashUnsafe: A.dashUnsafe | 0,
+      foesSeenPct: A.ticks ? +(sawFoe / A.ticks * 100).toFixed(1) : 0,
+      maxFoes,
+      // A run that never met an enemy measured nothing; retried by the caller.
+      valid: sawFoe > 30 && A.ticks > 60,
+    };
+  }
+
   async function runDodge(o = {}) {
     // 躲弹幕只有一个引擎（v2）；无效样本自动重试，避免"没进战斗=0受击"的假数据
     let r = await runDodgeOne(o);
@@ -1807,6 +1930,8 @@
       else if (kind === 'boss') r = await runBossBench(opts);
       else if (kind === 'probe') r = await runProbe(opts);
       else if (kind === 'dodge') r = await runDodge(opts);
+      // 真实绝境五锁楼层的躲弹幕测评（用户要求：不再手搓敌人/空房间）
+      else if (kind === 'dodge-real') r = await runDodgeReal(Object.assign({}, opts, { seconds: opts.seconds || 60 }));
       else if (kind === 'invade') r = await runInvade(opts);
       else if (kind === 'ab') r = await runAB(opts);
       else throw new Error('unknown kind ' + kind);

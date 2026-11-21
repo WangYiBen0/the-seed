@@ -296,20 +296,34 @@ test('every dash sets its direction from the keys and re-validates the real vect
   //   (b) the dodge path poked p.dashT by hand, which re-used the PREVIOUS dash's
   //       p.dx/p.dy because nothing recomputed them.
   assert.match(AUTO, /function dashToward\(p, dx, dy\)/, 'a dash helper must exist');
-  assert.match(AUTO, /moveKeys\(dx, dy\);\s*\n\s*const eff = A\._effDir \|\| \[dx, dy\];/,
-    'the helper must set the keys and read back the effective direction');
-  assert.match(AUTO, /if \(!dashSafe\(p, eff\[0\], eff\[1\]\)\)/,
-    'the helper must validate the vector the game will actually use');
-  assert.match(AUTO, /A\._dashWant = \[eff\[0\], eff\[1\]\]/,
+  // The keys are 8-way, so an arbitrary angle gets quantised by up to 22.5 deg and
+  // can land in a wall. The helper must therefore choose among the directions the
+  // keys can ACTUALLY produce and require that one to be safe. Vetoing the exact
+  // requested arc instead rejected every dash on a pillared floor (measured
+  // dashVeto 10 / dash 0: the bot never dashed at all).
+  assert.match(AUTO, /const ea = Math\.atan2\(c\[1\], c\[0]\) \+ rev \+ jit;/,
+    'the helper must model the direction each key combo really produces');
+  assert.match(AUTO, /if \(!dashSafe\(p, c\.ex, c\.ey\)\) \{ A\.metrics\.dashVeto/,
+    'each candidate must be validated with dashSafe before it can be chosen');
+  assert.match(AUTO, /if \(!best\) \{ A\.metrics\.dashUnsafe/,
+    'an unavoidable unsafe dash must be counted, not silently taken');
+  assert.match(AUTO, /A\._dashWant = \[best\.ex, best\.ey\]/,
     'the validated dash vector must survive the end-of-tick moveKeys');
   assert.match(AUTO, /if \(A\._dashWant\) \{ moveKeys\(A\._dashWant\[0\], A\._dashWant\[1\]\); A\._dashWant = null; \}/,
     'the dash vector must be restored after the walk vector is applied');
   assert.doesNotMatch(AUTO, /p\.dashT = 0\.12;/,
     'setting p.dashT by hand re-uses a stale dash vector and must not come back');
+  // NO dash may press Space outside the helper. tap() is a const inside drive(),
+  // so a module-scope call to it throws ReferenceError - swallowed by the
+  // beforeTick try/catch, which is why dashCall/dashEscape counted while the dash
+  // counter after the call stayed 0 forever (measured escape 29 / dash 0).
   const rawDashes = [...AUTO.matchAll(/tap\('Space'\)/g)].length;
+  assert.equal(rawDashes, 0, 'Space must never be pressed outside dashToward, found ' + rawDashes);
   const helperDashes = [...AUTO.matchAll(/dashToward\(/g)].length;
-  assert.ok(helperDashes >= 3, 'the combat, dodge and invade dashes must all use it, got ' + helperDashes);
-  assert.ok(rawDashes - helperDashes <= 1, 'no stray tap(Space) outside the helper (got ' + rawDashes + ' taps vs ' + helperDashes + ' helper calls)');
+  assert.ok(helperDashes >= 6, 'every dash site must route through the helper, got ' + helperDashes);
+  assert.doesNotMatch(AUTO, /A\.metrics\.dash\+\+/, 'the raw dash counter must not bypass the helper');
+  assert.match(AUTO, /Input\.keys\.Space = true; A\._taps\.Space = 1/, 'the helper must press Space itself');
   assert.match(AUTO, /dashVeto:/, 'vetoed dashes must be counted');
   assert.match(AUTO, /dashUnsafe:/, 'unavoidably-unsafe dashes must be counted');
+  assert.match(AUTO, /dashEscape:/, 'relative-bar escape dashes must be counted');
 });
