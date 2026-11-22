@@ -58,20 +58,17 @@ test('the published root carries no internal markdown', () => {
   assert.ok(statSync(join(SITE, 'upstream')).isDirectory());
 });
 
-test('the inject button is on screen, not parked outside it', () => {
-  // Measured 2026-11-21 on a real 1280x800 window: the host page loaded, the game
-  // booted to the naming dialog, and there was NO inject button anywhere - it was
-  // parked above the top edge (translate(-50%,-170%)) and only slid down when the
-  // mouse entered a 14px TRANSPARENT hotzone, which is invisible.  The tools were
-  // therefore unreachable.  It must be visible whenever the tools are not injected.
+test('the inject CTA is hidden by default but discoverable', () => {
+  // User requirement 2026-11-22: 我就是要默认隐藏.
+  // The 2026-11-21 defect was NOT the hiding - it was that the reveal target was
+  // a 14px strip with no visible affordance, so on a real window there was no way
+  // to discover it at all.  The CTA must stay off screen by default, and there
+  // must be a visible tab that reveals it.
   const host = readFileSync(join(SITE, 'index.html'), 'utf8');
-  assert.doesNotMatch(host, /translate\(-50%,\s*-170%\)/,
-    'the CTA must not be translated off screen');
-  assert.match(host, /#ctahot\{display:none\}/,
-    'the invisible hover hotzone must be gone');
-  assert.match(host, /<button id="inject">注入工具<\/button>/,
-    'the inject button must exist');
-  // it may hide ONLY after a successful injection
-  assert.match(host, /cta\.classList\.toggle\('gone', on\)/,
-    'the CTA is hidden by the injection state, not by CSS position');
+  assert.match(host, /translate\(-50%,\s*-190%\)/, 'the CTA must be parked off screen by default');
+  assert.doesNotMatch(host, /#ctahot\{display:none\}/, 'the reveal target must not be a hidden element');
+  assert.match(host, /#ctahot::before\{content:'▲ 工具'\}/, 'the reveal target must show a visible affordance');
+  assert.match(host, /#ctahot:hover ~ #cta/, 'hovering the tab must reveal the CTA');
+  assert.match(host, /<button id="inject">注入工具<\/button>/, 'the inject button must exist');
+  assert.match(host, /cta\.classList\.toggle\('gone', on\)/, 'injection hides the CTA permanently');
 });

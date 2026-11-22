@@ -28,21 +28,27 @@
   #note{position:fixed;left:0;right:0;bottom:2px;text-align:center;
     font:10px/1.4 "Microsoft YaHei","PingFang SC",sans-serif;color:#57534c;z-index:5;letter-spacing:.05em}
   #note a{color:#6e675c;text-decoration:none}
-  /* THE INJECT BUTTON MUST BE VISIBLE.  It used to park above the top edge and
-     only slide down when the mouse entered a 14px transparent strip - a hotzone
-     nobody can see.  Measured 2026-11-21 on a real 1280x800 window: the host page
-     loaded, the game booted to the naming dialog, and there was NO inject button
-     anywhere on screen, so the only entry point to the tools was invisible.
-     It now sits on screen whenever the tools are not injected, and only hides
-     after a successful injection (#cta.gone). */
-  #ctahot{display:none}
-  #cta{position:fixed;left:50%;top:8px;z-index:60;
-    transform:translate(-50%,0);
+  /* DEFAULT HIDDEN, BUT FINDABLE (user requirement 2026-11-22: 我就是要默认隐藏).
+     The full CTA stays off the top edge so the game owns the screen.  The defect
+     that made it unreachable was not the hiding - it was that the reveal target
+     was a 14px strip with NO visible affordance, so on a real 1280x800 window
+     (measured 2026-11-21) there was no way to discover it at all.
+     So the trigger is now a small, always-visible tab: it hints that the CTA
+     exists without occupying the screen.  Hover it (or Tab to it) to reveal. */
+  #ctahot{position:fixed;top:0;left:50%;transform:translateX(-50%);width:74px;height:20px;
+    z-index:59;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    border-radius:0 0 8px 8px;background:#12100ee0;border:1px solid #3c3732;border-top:0;
+    color:#8d867a;font:10px/1 ui-monospace,monospace;letter-spacing:.06em;
+    transition:color .15s,border-color .15s,background .15s}
+  #ctahot::before{content:'▲ 工具'}
+  #ctahot:hover{color:#efb94a;border-color:#efb94a;background:#1c1916}
+  #cta{position:fixed;left:50%;top:20px;z-index:60;
+    transform:translate(-50%,-190%);
     display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;
     background:#12100ee8;border:1px solid #3c3732;box-shadow:0 6px 24px #000a;
     backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-    transition:opacity .25s,visibility .25s}
-  #cta:hover{border-color:#efb94a}
+    transition:transform .18s ease,opacity .25s,visibility .25s}
+  #ctahot:hover ~ #cta, #cta:hover, #cta:focus-within{transform:translate(-50%,0)}
   /* once the tools are in the CTA (and its hotzone) must never come back */
   #cta.gone{opacity:0;pointer-events:none;visibility:hidden}
   #cta .dot{width:7px;height:7px;border-radius:50%;background:#8ed872;box-shadow:0 0 8px #8ed872}
