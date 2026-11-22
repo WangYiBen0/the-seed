@@ -1717,7 +1717,30 @@
     // Real run at 绝境 with the five locks, then descend to `depth`.
     await waitScripts();
     const useMods = Array.isArray(mods) && mods.length ? mods : ['rage', 'deathfight', 'bulwark', 'rot', 'cyst'];
+    // TWO mode switches must be forced, not one.
+    //
+    // `RUN_MODE` (invade.js:5, a top-level `let`) is "the mode the next new run
+    // starts in".  enterFloor is wrapped so that `RUN_MODE === 'invade'` returns
+    // ivBegin() and NEVER builds the explore floor (invade.js:192), and sortie()
+    // sets it from the 突入探索 camp (invade.js:370).  G.mode is the CURRENT run's
+    // mode, which ivBegin sets and only enterFloor restores.
+    //
+    // Reported 2026-11-22: pressing 躲弹幕测评 straight from 突入探索 teleported to a
+    // dead room labelled 入侵抵抗 with no enemies.  That is exactly this pair:
+    // startRunWith() relaunches the run, enterFloor sees RUN_MODE='invade' and
+    // builds an empty arena, ivBegin clears every enemy list and nothing respawns
+    // (the invade spawner only runs in its own wave loop), and G.mode stays
+    // 'invade' so ivOn() is true for the rest of the run.
+    //
+    // Fixing only G.mode was not enough - the floor had already been replaced by
+    // the time it was set - so both are forced, before the launch AND after it.
+    const forceExplore = () => {
+      try { if (typeof RUN_MODE !== 'undefined') RUN_MODE = 'explore'; } catch (e) { }
+      try { __achroma.G.mode = 'explore'; } catch (e) { }
+    };
+    forceExplore();
     startRunWith({ diff: 'despair', mods: useMods, seed, boost: hp ? { hp, armor: 3, weapons: ['rivet'], wlv: { rivet: 1 }, shards: {}, ink: 0 } : null });
+    forceExplore();
     // wait for a live floor
     {
       const t0 = performance.now();

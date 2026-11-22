@@ -327,3 +327,32 @@ test('every dash sets its direction from the keys and re-validates the real vect
   assert.match(AUTO, /dashUnsafe:/, 'unavoidably-unsafe dashes must be counted');
   assert.match(AUTO, /dashEscape:/, 'relative-bar escape dashes must be counted');
 });
+
+test('the real-floor dodge bench forces explore, not just G.mode', () => {
+  // Reported 2026-11-22: pressing 躲弹幕测评 straight from 突入探索 teleported the
+  // player to a dead 入侵抵抗 room with no enemies.
+  //
+  // Two separate mode switches exist:
+  //   RUN_MODE (invade.js:5) = 'the mode the next new run starts in'.  enterFloor is
+  //     wrapped so RUN_MODE==='invade' returns ivBegin() and NEVER builds the explore
+  //     floor (invade.js:192); sortie() sets it from the 突入探索 camp (invade.js:370).
+  //   G.mode                = the CURRENT run's mode; ivBegin sets it, only enterFloor
+  //     restores it.
+  // Relaunching the run with RUN_MODE still 'invade' therefore rebuilds an empty
+  // arena, ivBegin clears every enemy list, and nothing respawns.  Forcing only
+  // G.mode is too late - the floor was already replaced.
+  assert.match(BENCH, /const forceExplore = \(\) => \{/,
+    'the bench must have one place that forces explore mode');
+  assert.match(BENCH, /if \(typeof RUN_MODE !== 'undefined'\) RUN_MODE = 'explore';/,
+    'RUN_MODE must be reset, not only G.mode');
+  assert.match(BENCH, /__achroma\.G\.mode = 'explore';/,
+    'G.mode must be reset as well');
+  const at = BENCH.indexOf('const forceExplore = () => {');
+  assert.ok(at > 0, 'forceExplore must exist');
+  const launch = BENCH.indexOf('startRunWith({', at);
+  assert.ok(launch > at, 'startRunWith must follow the helper');
+  assert.ok(BENCH.slice(at, launch).includes('forceExplore();'),
+    'forceExplore() must run before the relaunch');
+  assert.ok(BENCH.slice(launch, launch + 400).includes('forceExplore();'),
+    'forceExplore() must run again after the relaunch');
+});
