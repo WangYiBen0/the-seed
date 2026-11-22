@@ -1804,12 +1804,22 @@
   }
 
   async function runDodge(o = {}) {
-    // 躲弹幕只有一个引擎（v2）；无效样本自动重试，避免"没进战斗=0受击"的假数据
+    // 躲弹幕测评 = 真实绝境五锁楼层（用户要求 2026-11-21，并再次确认 2026-11-22：
+    // "躲弹幕测评没变啊"）。原来的空盒 ivArena + 手搓 gunner 测的是一个游戏里
+    // 不会出现的局面，而面板上的按钮一直走这条旧路径，所以换成真实楼层后用户看到的
+    // 数字完全没变。现在 'dodge' 本身就指真实楼层，旧空盒退役为 'dodge-arena'。
+    // 判据是存活时长 survivedS（hpLeft 在 45s 局里恒为 0，没有梯度，见 §292）。
+    let r = await runDodgeReal(o);
+    for (let i = 0; i < 2 && r && !r.valid; i++) r = await runDodgeReal(o);
+    return r;
+  }
+
+  // 旧的空盒测评保留为显式入口，供历史数据对照，不再挂在面板上。
+  async function runDodgeArena(o = {}) {
     let r = await runDodgeOne(o);
     for (let i = 0; i < 2 && r && !r.valid; i++) r = await runDodgeOne(o);
     return r;
   }
-
   // ---------------- paired A/B (同一会话内交错，配对差) ----------------
   // The game computes dt from real elapsed time (game.js:693), so绝对时长不可
   // 复现。唯一诚实做法：在同一浏览器会话里交错跑 A/B/A/B…，然后看**配对差**。
@@ -1931,7 +1941,10 @@
       else if (kind === 'probe') r = await runProbe(opts);
       else if (kind === 'dodge') r = await runDodge(opts);
       // 真实绝境五锁楼层的躲弹幕测评（用户要求：不再手搓敌人/空房间）
+      // 'dodge' and 'dodge-real' are the same measurement now; keep the alias so
+      // existing scripts do not break.  'dodge-arena' is the retired empty box.
       else if (kind === 'dodge-real') r = await runDodgeReal(Object.assign({}, opts, { seconds: opts.seconds || 60 }));
+      else if (kind === 'dodge-arena') r = await runDodgeArena(opts);
       else if (kind === 'invade') r = await runInvade(opts);
       else if (kind === 'ab') r = await runAB(opts);
       else throw new Error('unknown kind ' + kind);

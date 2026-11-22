@@ -578,23 +578,24 @@
   // ---------------- 躲弹幕测评 (pure-evasion stress test) ----------------
   const sDodge = section('躲弹幕测评 · DODGE BENCH', { open: false });
   const dHelp = el('div', 'color:#8d867a');
-  dHelp.textContent = '禁止开火 + 持续补充远程敌人：敌人不会减少，弹幕只会更密。\n' +
-    '指标：受击/游戏分钟（越低越好）、危险值均值、暴露率、弹幕余量、冲刺频率。';
+  dHelp.textContent = '真实绝境五锁楼层（rage/deathfight/bulwark/rot/cyst）+ 禁止开火：\n' +
+    '进入真实房间，由游戏自己刷怪，弹幕只会更密。判据是存活时长 survivedS（越长越好）。\n' +
+    'hpLeft 在 45 秒局里恒为 0，没有梯度，不再作为判据。';
   sDodge.appendChild(dHelp);
   const numIn = (ph, w) => { const n = el('input', 'background:#151310;color:#e8e1d3;border:1px solid #3c3732;border-radius:4px;padding:2px 4px;width:' + w + 'px;font:11px monospace'); n.placeholder = ph; return n; };
   const lab = (txt, node) => { const w = el('label', 'display:flex;align-items:center;gap:3px;color:#8d867a'); w.append(document.createTextNode(txt), node); return w; };
   const dR1 = row(sDodge);
-  const dSec = numIn('45', 46), dDep = numIn('6', 34), dSeed = numIn('11', 46);
-  dSec.value = '45'; dDep.value = '6'; dSeed.value = '11';
+  const dSec = numIn('60', 46), dDep = numIn('5', 34), dSeed = numIn('11', 46);
+  dSec.value = '60'; dDep.value = '5'; dSeed.value = '11';
   dR1.append(lab('时长(秒)', dSec), lab('起始深度', dDep), lab('随机种子', dSeed));
   const dR2 = row(sDodge);
   const dGo = btn('开始躲弹幕测评');
   dR2.append(dGo);
   const dOut = el('div', 'white-space:pre;overflow:auto;max-height:170px;color:#c9c1b2;border-top:1px dashed #2d2925;margin-top:4px;padding-top:3px');
   sDodge.appendChild(dOut);
-  const fmt = (r, name) => `${name} 受击 ${r.hitsPerMin}/分（${r.hits} 次 / ${r.gameMinutes} 分）\n` +
-    `   危险值 ${r.dangerAvg} · 暴露率 ${r.hazardPct}% · 弹幕余量均值 ${r.clearAvg}（最差 ${r.clearMin}）\n` +
-    `   冲刺 ${r.dashesPerMin}/分 · 存活 ${r.end === 'dead' ? '阵亡' : '存活'} · ticks ${r.ticks}`;
+  const fmt = (r, name) => `${name} 存活 ${r.survivedS}s（${r.survivedTicks} ticks）· 受击 ${r.hits} 次 · 挨打判定 ${r.hurtsTotal} 次\n` +
+    `   绝望五锁 · 到达无尽 ${r.endlessReached}（floor ${r.floorReached}）· 危险值 ${r.dangerAvg} · 暴露率 ${r.hazardPct}%\n` +
+    `   冲刺 ${r.dash} 次（可用却错过 ${r.hurtsDashReady}）· 否决 ${r.dashVeto} · 结果 ${r.end === 'death' ? '阵亡' : '存活'}`;
   const runDodge = async () => {
     note('躲弹幕测评中…（×8，需要几十秒）');
     dOut.textContent = '跑分中…';
@@ -612,7 +613,7 @@
     benchOut.textContent = rs.length ? rs.map((r) => {
       if (r.kind === 'throughput') return `吞吐 ×${r.speed}: ${r.tps} ticks/s · 游戏时间/真实=${r.ratio}`;
       if (r.kind === 'macro') return `宏 ×${r.speed}: 游戏时间/真实=${r.ratio} (目标 ${r.speed}) · 击杀 ${r.kills} · 伤害 ${(r.dmg / 1000).toFixed(1)}k`;
-      if (r.kind === 'dodge') return `躲弹幕 ${r.engine} 深度${r.depth} seed=${r.seed}: 受击 ${r.hitsPerMin}/分 · 危险 ${r.dangerAvg} · 余量 ${r.clearAvg}`;
+      if (r.kind === 'dodge' || r.kind === 'dodgeReal') return `躲弹幕 五锁·无尽${r.endlessReached} seed=${r.seed}: 存活 ${r.survivedS}s · 受击 ${r.hits} · 危险 ${r.dangerAvg}`;
       if (r.kind === 'dodge-ab') return `躲弹幕对比 深度${r.depth} seed=${r.seed}: v2 ${r.v2.hitsPerMin}/分 vs v1 ${r.simple.hitsPerMin}/分 → ${r.verdict}`;
       return `全自动 ×${r.speed} seed=${r.seed}: ${r.end} 深度${r.depth} 击杀${r.kills} 用时${r.wall}s(真实)`;
     }).join('\n') : '（暂无结果）';
