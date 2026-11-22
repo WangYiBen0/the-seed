@@ -3477,6 +3477,27 @@
             return { pt: [it.x, it.y], label: 'heart', room: roomAt(it.x, it.y) };
         }
       }
+      // boss/史诗奖励与可拾取战利品优先于传送门；半径适当放宽避免远处漏拿
+      const LOOT_R = (A.opts.lootRadius | 0) > 0 ? (A.opts.lootRadius | 0) : 420;
+      const worthLoot = (it) => {
+        if (!it || it.used) return false;
+        const d = Math.hypot(it.x - p.x, it.y - p.y);
+        if (d > LOOT_R) return false;
+        if (it.kind === 'prism' || it.kind === 'ink') return !!(A.opts.pickups || A.opts.pickups === undefined);
+        if (it.kind === 'weapon') return !!A.opts.weaponPick;
+        if (it.kind === 'chip') return !!A.opts.chipPick && !p.skill;
+        if (it.kind === 'idol') return !!A.opts.idol && (G.curses || []).length < (A.opts.idolMaxCurses == null ? 2 : (A.opts.idolMaxCurses | 0));
+        if (it.kind === 'wreck') return A.opts.bossWreck !== false && !!G.wreck && G.time >= (it.born || 0);
+        if (it.kind === 'chest' || it.kind === 'vault') return true;
+        return false;
+      };
+      // worthLoot/LOOT_R are used by BOTH the portal gate below and the reward-room
+      // scoring further down.  The definition used to sit ~130 lines BELOW its first
+      // use, so a const in TDZ threw ReferenceError: worthLoot is not defined.
+      // Measured on a real despair five-lock run (seed 11): idleBy recorded
+      // 'worthLoot is not defined' for 40.5 of 289 game-seconds, i.e. 14% of the
+      // run was spent parked instead of fighting.  Declaring it here, before ANY
+      // use, is what removes that hole.
       if (A.opts.usePortals !== false) {
         // Only take a portal once this floor has nothing left worth clearing —
         // otherwise walking to it skips rooms, prisms and serums, and the run
@@ -3608,20 +3629,6 @@
       // "打完 boss 不拿掉落物直接进传送门".
       // The portal is only taken when nothing worth walking to is left within
       // LOOT_R, so a stray prism across the map cannot hold the floor forever.
-      // boss/史诗奖励与可拾取战利品优先于传送门；半径适当放宽避免远处漏拿
-      const LOOT_R = (A.opts.lootRadius | 0) > 0 ? (A.opts.lootRadius | 0) : 420;
-      const worthLoot = (it) => {
-        if (!it || it.used) return false;
-        const d = Math.hypot(it.x - p.x, it.y - p.y);
-        if (d > LOOT_R) return false;
-        if (it.kind === 'prism' || it.kind === 'ink') return !!(A.opts.pickups || A.opts.pickups === undefined);
-        if (it.kind === 'weapon') return !!A.opts.weaponPick;
-        if (it.kind === 'chip') return !!A.opts.chipPick && !p.skill;
-        if (it.kind === 'idol') return !!A.opts.idol && (G.curses || []).length < (A.opts.idolMaxCurses == null ? 2 : (A.opts.idolMaxCurses | 0));
-        if (it.kind === 'wreck') return A.opts.bossWreck !== false && !!G.wreck && G.time >= (it.born || 0);
-        if (it.kind === 'chest' || it.kind === 'vault') return true;
-        return false;
-      };
       const lootPending = (G.inter || []).some(worthLoot);
       const portalReady = !lootPending && (G.inter || []).some((it) => it.kind === 'portal' && G.time - (it.born || 0) > .6);
       if (portalReady && !floorNeedsClear() ) { /* fall through to portal branch */ }

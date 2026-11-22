@@ -356,3 +356,17 @@ test('the real-floor dodge bench forces explore, not just G.mode', () => {
   assert.ok(BENCH.slice(launch, launch + 400).includes('forceExplore();'),
     'forceExplore() must run again after the relaunch');
 });
+
+test('worthLoot is declared before its first use (TDZ regression)', () => {
+  // A real despair five-lock run (seed 11, 289 game-seconds) spent 40.5s - 14% of
+  // the run - parked with idleBy 'err: worthLoot is not defined'.  worthLoot was a
+  // const declared ~130 lines below its first use, so every portal-gate evaluation
+  // hit the temporal dead zone and threw ReferenceError.  This is exactly the kind
+  // of hole that looks like 'the bot is just slow' but is really a crashed branch.
+  const firstUse = AUTO.indexOf('const floorLoot = (G.inter || []).some((it) => worthLoot(it));');
+  const decl = AUTO.indexOf('const worthLoot = (it) => {');
+  assert.ok(decl > 0, 'worthLoot must be declared');
+  assert.ok(firstUse > 0, 'the portal gate must use worthLoot');
+  assert.ok(decl < firstUse,
+    'worthLoot must be declared BEFORE its first use, got decl=' + decl + ' use=' + firstUse);
+});
