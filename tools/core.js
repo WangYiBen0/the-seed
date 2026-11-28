@@ -1,0 +1,264 @@
+// ===== TSW core — [TheSeed] Workshop kernel =================================
+// Runs BEFORE the game boots (see index.html).  Provides, without touching a
+// single upstream byte:
+//   * TSW.speed  — game-speed warp by re-pacing requestAnimationFrame: the
+//                  game receives virtual timestamps that advance N× faster.
+//                  0.25× … 16×, hotkeys  - / = , shown in the HUD.
+//   * TSW.rng    — optional seeded Math.random for reproducible benchmarks.
+//   * TSW.perf   — performance mode (fewer particles/FX, no fps cap): visual
+//                  settings only, never gameplay.
+//   * TSW.hooks  — beforeTick(fn) runs just before every simulated frame;
+//                  this is where the autopilot steers the player.
+//   * TSW.whenGame(cb) — resolve once window.__achroma (the game's own debug
+//                  export) and all game globals exist.
+//   * TSW.settings / TSW.bus / TSW.log — plumbing shared by the other tools.
+'use strict';
+(function () {
+  if (window.__TSW) return;
+  const TSW = window.__TSW = { version: '1.0' };
+
+  // ---------- tiny bus + settings ----------
+  const listeners = {};
+  TSW.bus = {
+    on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); return () => { const a = listeners[ev]; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); }; },
+    emit(ev, data) { (listeners[ev] || []).slice().forEach((fn) => { try { fn(data); } catch (e) { console.error('[tsw] bus', ev, e); } }); },
+  };
+  const SETTINGS_KEY = 'theseed.tools.settings';
+  let settings = {};
+  try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { }
+  TSW.settings = {
+    get(k, dflt) { return settings[k] !== undefined ? settings[k] : dflt; },
+    set(k, v) { settings[k] = v; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } TSW.bus.emit('settings', settings); },
+    all() { return settings; },
+  };
+  TSW.log = (...a) => console.info('%c[TSW]', 'color:#efb94a', ...a);
+  TSW.err = (...a) => console.warn('%c[TSW]', 'color:#e0483e', ...a);
+
+  // ---------- requestAnimationFrame time warp ----------
+  const realRAF = window.requestAnimationFrame.bind(window);
+  const realCAF = window.cancelAnimationFrame.bind(window);
+  const VIRT_DT = 1000 / 60;           // each simulated frame is one 60 Hz tick
+  const MAX_STEPS = 40;                // hard ceiling per real frame (32× @30Hz)
+  let speed = +TSW.settings.get('speed', 1) || 1;
+  // ABSOLUTE TIME MUST NOT LEAK INTO THE SIMULATION.  The game computes
+  // rdt = (now - last)/1000 from the timestamp rAF hands it, and derives G.time
+  // and G.runT from that.  Seeding virt from performance.now() gave every run a
+  // different starting epoch, so identical seeds diverged: measured three runs of
+  // the same command ending at tick 7350, 24005 and 24008.  In det mode virt
+  // starts at 0 and only ever advances by VIRT_DT.
+  let virt = 0;
+  // lastReal tracks the REAL clock and must not be zeroed with virt.
+  let lastReal = (typeof performance !== 'undefined' ? performance.now() : 0);
+  let acc = 0, pumping = false, rafId = 0, rafSeq = 0;
+  const pending = new Map();           // handle -> callback
+
+  TSW.clock = {
+    get virtualNow() { return virt; },
+    get speed() { return speed; },
+    // game-seconds per real second actually delivered (diagnostic)
+    ratio() { return speed; },
+  };
+
+  TSW.speed = {
+    min: 0.25, max: 16,
+    get() { return speed; },
+    set(v, silent) {
+      v = Math.min(this.max, Math.max(this.min, +v || 1));
+      speed = Math.round(v * 100) / 100;
+      acc = 0; // do not carry backlog across a speed change
+      TSW.settings.set('speed', speed);
+      if (!silent) TSW.bus.emit('speed', speed);
+      return speed;
+    },
+    nudge(dir) { const steps = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16]; let i = steps.findIndex((s) => s >= speed - 1e-9); i = Math.min(steps.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir)); return this.set(steps[i]); },
+  };
+
+  let tickN = 0;
+  function fireTick() {
+    tickN++;
+    // In det mode the clock is the tick ordinal, not a running sum, so tick N
+    // always reports the same time no matter what the frame schedule did.
+    // NORMALISE THE TICK ORDINAL TOO.  virt = tickN * VIRT_DT is only a pure
+    // function of the run if tickN itself starts from zero; before this, a page
+    // that had already ticked (menu, idle) began every run at a different
+    // absolute time, which is the same leak §199 fixed for virt and that the
+    // derivation above silently reintroduced.
+    if (det) virt = (tickN - detBase) * VIRT_DT;
+    for (const fn of TSW.hooks._before) { try { fn(virt); } catch (e) { TSW.err('beforeTick', e); } }
+    // page-scope debug mirror (webdriver sandboxes can't see game lexical bindings)
+    if (window.__achroma) { try {
+      TSW.dbg = { state: __achroma.G.state, time: __achroma.G.time, hintQ: !!__achroma.G.hintQ,
+        keysE: !!(window.Input && Input.keys.Enter), prevE: !!(window.Input && Input.prev.Enter),
+        mode: TSW.auto ? TSW.auto.mode : '?' };
+    } catch (e) { } }
+    // rAF is one-shot: take a snapshot, remove each handle as it fires (the
+    // game's frame() re-registers itself, which must NOT accumulate here)
+    const cbs = [...pending.entries()];
+    for (const [h, cb] of cbs) {
+      pending.delete(h);
+      try { cb(virt); } catch (e) { console.error('[tsw] raf cb', e); }
+    }
+  }
+
+  // ---- 确定性模式 -----------------------------------------------------------
+  // 游戏用真实经过时间算 dt（game.js:693 `rdt = (now-last)/1000`），所以同 seed
+  // 也跑出不同结果。 det 模式下我们给游戏一个**严格按 16.667ms 递增**的时间轴，
+  // 每帧一个固定 tick → 同 seed 同结果，A/B 方差趋近 0。
+  let det = false;
+  let detBase = 0;          // tick ordinal captured when det is enabled
+  TSW.det = {
+    get on() { return det; },
+    get ticks() { return tickN; },
+    enable() { det = true; acc = 0; detBase = tickN; return det; },
+    disable() { det = false; acc = 0; return det; },
+  };
+
+  function pump(realNow) {
+    rafId = realRAF(pump);
+    const dt = Math.min(250, Math.max(0, realNow - lastReal));
+    lastReal = realNow;
+    if (!pending.size) return;
+    if (det) {
+      // TRUE determinism: a fixed number of ticks per animation frame, decided by
+      // the requested speed and NOT by how long this frame really took.
+      // What was here before accumulated from the real dt, so the tick count per
+      // frame tracked the machine's frame rate: a 200 s run reproduced exactly but
+      // a 300 s run did not (measured: waves 5/5 then 6/5, kills 315/315 then
+      // 470/315).  A benchmark that cannot be re-run is not a measurement, so this
+      // no longer reads dt at all.
+      // DERIVE, DON'T ACCUMULATE.  virt += VIRT_DT sums a float once per tick, and
+      // the sum's rounding differs depending on where in the sequence it happens —
+      // which is exactly how otherwise-identical runs drifted apart.  Setting
+      // virt = tickN * VIRT_DT makes the clock a pure function of the tick ordinal,
+      // so tick N always reports the same timestamp regardless of history.
+      // Do NOT assign virt here: fireTick already derives it as
+      // (tickN - detBase) * VIRT_DT, and an absolute assignment without detBase
+      // reintroduced the very offset that normalisation removed. This line was
+      // left behind from an earlier edit and silently overwrote the correct value.
+      const steps = Math.max(1, Math.round(Math.max(1, speed)));
+      for (let i = 0; i < steps; i++) fireTick();
+      return;
+    }
+    if (speed === 1) { virt += dt; fireTick(); return; }
+    acc += dt * speed;
+    let steps = 0;
+    while (acc >= VIRT_DT && steps < MAX_STEPS) { acc -= VIRT_DT; virt += VIRT_DT; fireTick(); steps++; }
+    if (steps >= MAX_STEPS) acc = 0; // machine can't keep up: drop backlog instead of spiralling
+  }
+  function ensurePump() { if (!pumping) { pumping = true; lastReal = performance.now(); rafId = realRAF(pump); } }
+
+  window.requestAnimationFrame = (cb) => { ensurePump(); const h = ++rafSeq; pending.set(h, cb); return h; };
+  window.cancelAnimationFrame = (h) => { pending.delete(h); realCAF(h); };
+
+  // hotkeys:  - / =  step speed down/up   (workspace keys never reach the panel)
+  window.addEventListener('keydown', (e) => {
+    const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (e.code === 'Minus' || e.code === 'NumpadSubtract') TSW.speed.nudge(-1);
+    else if (e.code === 'Equal' || e.code === 'NumpadAdd') TSW.speed.nudge(1);
+    // 0 resets to normal speed (Digit0 / Numpad0)
+    else if (e.code === 'Digit0' || e.code === 'Numpad0') TSW.speed.set(1);
+    else if (e.code === 'F9') { e.preventDefault(); if (TSW.hud) TSW.hud.toggle(); }
+    else if (e.code === 'F8') { e.preventDefault(); if (TSW.panel) TSW.panel.toggle(); }
+  });
+
+  // ---------- seeded RNG for reproducible benchmarks ----------
+  let rngState = 0, rngOn = false;
+  const nativeRandom = Math.random.bind(Math);
+  const mulberry32 = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  TSW.rng = {
+    seed(n) { rngState = (n >>> 0) || 1; rngOn = true; Math.random = mulberry32(rngState); TSW.bus.emit('rng', n); },
+    clear() { rngOn = false; Math.random = nativeRandom; TSW.bus.emit('rng', null); },
+    get on() { return rngOn; },
+  };
+
+  // ---------- performance mode (visuals only) ----------
+  // NOTE: QS/SET are top-level `const` bindings in the game's classic scripts —
+  // they are visible as bare identifiers (shared global lexical scope) but are
+  // never window properties, so guard with typeof, not window.X.
+  let perfSaved = null;
+  TSW.perf = {
+    // full-screen colour passes (chroma / blood vignette / fog / win tint) are
+    // skipped when this is true.  The game's render() reads it via TSW.
+    plain: false,
+    get active() { return !!perfSaved; },
+    enable() {
+      if (perfSaved || typeof QS === 'undefined' || typeof SET === 'undefined') return false;
+      perfSaved = { part: QS.part, fx: QS.fx, fps: QS.fps, shake: SET.shake, flash: SET.flash };
+      // Aggressive on purpose: the user asked for animations and decoration to
+      // be REMOVED in performance mode, not merely thinned.  part 0 kills the
+      // particle pass, noGrade drops the full-screen colour grades (chroma,
+      // blood vignette, fog, win tint) which are per-frame full-frame composites.
+      QS.part = 0; QS.fx = false; QS.fps = 240; SET.shake = 0; SET.flash = 0;
+      TSW.perf.plain = true;
+      // VISUALS ALONE DO NOTHING.  Measured with the engine's own throughput rig:
+      // autopilot off = 7.5x realtime, autopilot on = 1.2-3.0x.  The frame cost is
+      // the per-tick decision work, not particles or shake, which is why "turn on
+      // performance mode" was reported to change nothing.
+      // So perf mode also thins the DECISION rate: these knobs are read by the
+      // autopilot, which then re-plans at a fraction of the tick rate.
+      TSW.perf.decisions = { navEvery: 4, pickEvery: 8, dangerEvery: 2 };
+      TSW.bus.emit('perf', true); return true;
+    },
+    disable() {
+      if (!perfSaved || typeof QS === 'undefined') return false;
+      QS.part = perfSaved.part; QS.fx = perfSaved.fx; QS.fps = perfSaved.fps; SET.shake = perfSaved.shake; SET.flash = perfSaved.flash;
+      perfSaved = null; TSW.perf.decisions = null; TSW.perf.plain = false; TSW.bus.emit('perf', false); return true;
+    },
+  };
+
+  // ---------- game handshake ----------
+  let gameReadyResolve; const gameReady = new Promise((r) => { gameReadyResolve = r; });
+  TSW.whenGame = () => gameReady;
+  (function poll() {
+    // __achroma = { step, get G() } is the game's own debug export; `G` is a
+    // top-level `let` in game.js so it never becomes window.G — check the getter instead.
+    if (window.__achroma && typeof window.__achroma.step === 'function') { gameReadyResolve(window.__achroma); TSW.bus.emit('game'); return; }
+    setTimeout(poll, 50);
+  })();
+
+  // ---------- performance mode: skip the full-screen post passes ------------
+  // render() composites several full-frame layers every frame: chromatic split,
+  // the low-hp blood vignette, the quarantine fog and the win tint.  Each is a
+  // whole-canvas operation, which is real fill-rate cost independent of enemy
+  // count.  We cannot edit site/js/** (rule 1), so the function is WRAPPED here
+  // and the post passes are suppressed by neutralising their inputs *while*
+  // perf mode is on: FX.chroma / FX.flashA are the gates the game itself checks,
+  // and they are restored the moment anything else calls render.
+  (function wrapRender() {
+    let orig = null;
+    const install = () => {
+      if (orig) return true;
+      if (typeof window.render !== 'function') return false;
+      orig = window.render;
+      window.render = function () {
+        if (!TSW.perf || !TSW.perf.plain) return orig.apply(this, arguments);
+        let hadFx = false;
+        try {
+          if (typeof FX !== 'undefined' && FX) {
+            FX.chroma = 0; FX.flashA = 0; FX.kickX = 0; FX.kickY = 0; hadFx = true;
+          }
+        } catch (e) { }
+        try { return orig.apply(this, arguments); }
+        finally { /* the game recomputes FX each frame; nothing to restore */ void hadFx; }
+      };
+      return true;
+    };
+    if (!install()) {
+      const iv = setInterval(() => { if (install()) clearInterval(iv); }, 100);
+      setTimeout(() => clearInterval(iv), 30000);
+    }
+  })();
+
+  // ---------- beforeTick hooks ----------
+  TSW.hooks = {
+    _before: [],
+    beforeTick(fn) { this._before.push(fn); return () => { const i = this._before.indexOf(fn); if (i >= 0) this._before.splice(i, 1); }; },
+  };
+
+  TSW.info = () => ({ version: TSW.version, speed: TSW.speed.get(), rng: TSW.rng.on, perf: TSW.perf.active, game: !!window.__achroma });
+  // global error ring (surfaces load-time crashes in later tool files)
+  window.__errs = [];
+  window.addEventListener('error', (e) => { window.__errs.push((e.message || 'err') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno); });
+  window.addEventListener('unhandledrejection', (e) => { window.__errs.push('rej: ' + String(e.reason && (e.reason.stack || e.reason.message) || e.reason).slice(0, 200)); });
+  TSW.log('core ready', TSW.info());
+})();
